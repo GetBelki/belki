@@ -1,5 +1,15 @@
 const encoder = new TextEncoder();
-const PASSWORD_ITERATIONS = 600_000;
+// Cloudflare Workers Web Crypto rejects PBKDF2 iteration counts above 100,000.
+// The iteration count is stored with each password hash so this can be raised
+// for newly created accounts if the runtime limit changes in the future.
+const PASSWORD_ITERATIONS = 100_000;
+
+type CloudflareSubtleCrypto = SubtleCrypto & {
+  timingSafeEqual(
+    left: ArrayBuffer | ArrayBufferView,
+    right: ArrayBuffer | ArrayBufferView,
+  ): boolean;
+};
 
 function bytesToBase64Url(bytes: Uint8Array): string {
   let binary = "";
@@ -7,7 +17,7 @@ function bytesToBase64Url(bytes: Uint8Array): string {
   return btoa(binary).replaceAll("+", "-").replaceAll("/", "_").replace(/=+$/u, "");
 }
 
-function base64UrlToBytes(value: string): Uint8Array {
+function base64UrlToBytes(value: string): Uint8Array<ArrayBuffer> {
   const base64 = value.replaceAll("-", "+").replaceAll("_", "/");
   const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
   const binary = atob(padded);
@@ -89,7 +99,7 @@ export function timingSafeEqual(
   right: Uint8Array,
 ): boolean | Promise<boolean> {
   if (left.byteLength !== right.byteLength) return false;
-  return crypto.subtle.timingSafeEqual(left, right);
+  return (crypto.subtle as CloudflareSubtleCrypto).timingSafeEqual(left, right);
 }
 
 export async function timingSafeTextEqual(left: string, right: string): Promise<boolean> {
