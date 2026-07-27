@@ -33,7 +33,7 @@
     "head_sampling_rate": 1
   },
   "triggers": {
-    "crons": ["*/5 * * * *", "*/15 * * * *", "0 3 * * *", "0 4 * * 0"]
+    "crons": ["*/5 * * * *", "*/15 * * * *", "0 3 * * *", "0 4 * * SUN"]
   },
   "d1_databases": [
     { "binding": "CONTROL_DB", "database_name": "ai-tracker-control", "migrations_dir": "./migrations/control" },

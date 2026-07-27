@@ -166,7 +166,7 @@ async function scheduled(
   } else if (event.cron === "0 3 * * *") {
     await runRetention(env);
     metrics.retention = 1;
-  } else if (event.cron === "0 4 * * 0") {
+  } else if (event.cron === "0 4 * * SUN") {
     metrics.locales = await refreshLocaleCatalog(env);
     metrics.outboxes = await reconcileMetricOutboxes(env);
   }
