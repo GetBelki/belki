@@ -1,0 +1,5 @@
+DATAFORSEO_LOGIN=your-api-login
+DATAFORSEO_PASSWORD=your-api-password
+DATAFORSEO_WEBHOOK_TOKEN=generate-a-long-random-value
+APP_CRYPTO_KEY=generate-a-long-random-value
+BOOTSTRAP_TOKEN=generate-a-long-random-value

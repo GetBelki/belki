@@ -1,0 +1,13 @@
+node_modules/
+.pnpm-store/
+dist/
+coverage/
+.wrangler/
+.dev.vars*
+.env*
+!.dev.vars.example
+!.env.example
+*.log
+.DS_Store
+playwright-report/
+test-results/

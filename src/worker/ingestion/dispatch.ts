@@ -1,0 +1,274 @@
+import type { JobQueueMessage, NormalizeQueueMessage } from "../../shared/contracts";
+import { verifySignedJobTag } from "../lib/crypto";
+import {
+  getTaskResult,
+  getTasksReady,
+  postLiveAdvanced,
+  postStandardTasks,
+  type StandardTaskInput,
+} from "../lib/dataforseo";
+import { nowIso } from "../lib/http";
+import { emitRunFailureAlerts } from "../automation/alerts";
+
+interface DispatchJobRow {
+  id: string;
+  query_text: string;
+  location_code: number;
+  language_code: string;
+  force_web_search: number;
+  provider_tag: string;
+  capture_html: number;
+  delivery_method: "standard" | "standard_priority" | "live";
+  public_base_url: string;
+}
+
+async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => "?").join(",");
+  const result = await env.CONTROL_DB.prepare(
+    `SELECT
+      j.id, q.query_text, q.location_code, q.language_code, q.force_web_search,
+      j.provider_tag, j.capture_html, j.delivery_method, w.public_base_url
+    FROM crawl_jobs j
+    JOIN tracked_queries q ON q.id = j.tracked_query_id
+    JOIN workspaces w ON w.id = j.workspace_id
+    WHERE j.id IN (${placeholders}) AND j.status IN ('queued', 'submission_unknown')`,
+  )
+    .bind(...ids)
+    .all<DispatchJobRow>();
+  return result.results;
+}
+
+export async function dispatchStandardBatch(
+  env: Env,
+  batch: MessageBatch<JobQueueMessage>,
+): Promise<void> {
+  const jobs = await loadJobs(
+    env,
+    batch.messages.map((message) => message.body.jobId),
+  );
+  const byId = new Map(jobs.map((job) => [job.id, job]));
+  for (const message of batch.messages) {
+    if (!byId.has(message.body.jobId)) message.ack();
+  }
+  if (jobs.length === 0) return;
+
+  const now = nowIso();
+  await env.CONTROL_DB.batch(
+    jobs.map((job) =>
+      env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs
+         SET status = 'submitting', submit_attempts = submit_attempts + 1, updated_at = ?
+         WHERE id = ?`,
+      ).bind(now, job.id),
+    ),
+  );
+
+  const tasks: StandardTaskInput[] = jobs.map((job) => ({
+    keyword: job.query_text,
+    location_code: job.location_code,
+    language_code: job.language_code,
+    force_web_search: job.force_web_search === 1,
+    priority: job.delivery_method === "standard_priority" ? 2 : 1,
+    expand_citations: job.capture_html === 1,
+    tag: job.provider_tag,
+    postback_url: `${job.public_base_url}/api/webhooks/dataforseo/chatgpt?token=${encodeURIComponent(env.DATAFORSEO_WEBHOOK_TOKEN)}&id=$id&tag=$tag`,
+    postback_data: "advanced",
+  }));
+
+  try {
+    const response = await postStandardTasks(env, tasks);
+    const updates: D1PreparedStatement[] = [];
+    const failures: Array<{ jobId: string; message: string }> = [];
+    const completedJobIds = new Set<string>();
+    for (const task of response.tasks) {
+      const tag = typeof task.data?.tag === "string" ? task.data.tag : null;
+      if (!tag) continue;
+      const job = jobs.find((candidate) => candidate.provider_tag === tag);
+      if (!job) continue;
+      completedJobIds.add(job.id);
+      const accepted = task.status_code === 20100 || task.status_code === 20000;
+      if (!accepted) {
+        failures.push({
+          jobId: job.id,
+          message: task.status_message ?? "DataForSEO rejected the task.",
+        });
+      }
+      updates.push(
+        env.CONTROL_DB.prepare(
+          `UPDATE crawl_jobs SET
+            status = ?, dataforseo_task_id = COALESCE(?, dataforseo_task_id),
+            request_cost_usd = ?, task_status_code = ?, task_status_message = ?,
+            submitted_at = CASE WHEN ? THEN ? ELSE submitted_at END,
+            error_code = CASE WHEN ? THEN NULL ELSE 'provider_rejected' END,
+            error_message = CASE WHEN ? THEN NULL ELSE ? END,
+            updated_at = ?
+          WHERE id = ?`,
+        ).bind(
+          accepted ? "awaiting_result" : "failed",
+          task.id ?? null,
+          task.cost ?? null,
+          task.status_code ?? null,
+          task.status_message ?? null,
+          accepted ? 1 : 0,
+          nowIso(),
+          accepted ? 1 : 0,
+          accepted ? 1 : 0,
+          task.status_message ?? "DataForSEO rejected the task.",
+          nowIso(),
+          job.id,
+        ),
+      );
+    }
+    for (const job of jobs) {
+      if (completedJobIds.has(job.id)) continue;
+      updates.push(
+        env.CONTROL_DB.prepare(
+          `UPDATE crawl_jobs SET
+            status = 'submission_unknown', error_code = 'missing_provider_task',
+            error_message = 'Provider response did not include this task.', updated_at = ?
+           WHERE id = ?`,
+        ).bind(nowIso(), job.id),
+      );
+    }
+    if (updates.length) await env.CONTROL_DB.batch(updates);
+    await Promise.all(
+      failures.map((failure) =>
+        emitRunFailureAlerts(env, failure.jobId, failure.message),
+      ),
+    );
+  } catch (error) {
+    await env.CONTROL_DB.batch(
+      jobs.map((job) =>
+        env.CONTROL_DB.prepare(
+          `UPDATE crawl_jobs SET
+            status = 'submission_unknown', error_code = 'submission_ambiguous',
+            error_message = ?, updated_at = ?
+           WHERE id = ?`,
+        ).bind(String(error).slice(0, 1000), nowIso(), job.id),
+      ),
+    );
+  }
+
+  for (const message of batch.messages) {
+    if (byId.has(message.body.jobId)) message.ack();
+  }
+}
+
+export async function dispatchLiveBatch(
+  env: Env,
+  batch: MessageBatch<JobQueueMessage>,
+): Promise<void> {
+  const jobs = await loadJobs(
+    env,
+    batch.messages.map((message) => message.body.jobId),
+  );
+  const byId = new Map(jobs.map((job) => [job.id, job]));
+  await Promise.all(
+    batch.messages.map(async (message) => {
+      const job = byId.get(message.body.jobId);
+      if (!job) {
+        message.ack();
+        return;
+      }
+      try {
+        await env.CONTROL_DB.prepare(
+          `UPDATE crawl_jobs
+           SET status = 'submitting', submit_attempts = submit_attempts + 1, updated_at = ?
+           WHERE id = ?`,
+        )
+          .bind(nowIso(), job.id)
+          .run();
+        const response = await postLiveAdvanced(env, {
+          keyword: job.query_text,
+          location_code: job.location_code,
+          language_code: job.language_code,
+          force_web_search: job.force_web_search === 1,
+          tag: job.provider_tag,
+        });
+        const providerTask = response.payload.tasks[0];
+        if (!providerTask?.id || (providerTask.status_code ?? 0) >= 40000) {
+          throw new Error(providerTask?.status_message ?? "DataForSEO Live returned no task.");
+        }
+        const rawKey = `raw/${new Date().toISOString().slice(0, 7)}/${providerTask.id}.json`;
+        await env.EVIDENCE_BUCKET.put(rawKey, response.bytes, {
+          httpMetadata: { contentType: "application/json" },
+          customMetadata: { jobId: job.id, taskId: providerTask.id },
+        });
+        await env.CONTROL_DB.prepare(
+          `UPDATE crawl_jobs SET
+            status = 'normalizing', dataforseo_task_id = ?, request_cost_usd = ?,
+            task_status_code = ?, task_status_message = ?, submitted_at = ?,
+            updated_at = ?
+           WHERE id = ?`,
+        )
+          .bind(
+            providerTask.id,
+            providerTask.cost ?? null,
+            providerTask.status_code ?? null,
+            providerTask.status_message ?? null,
+            nowIso(),
+            nowIso(),
+            job.id,
+          )
+          .run();
+        const normalizeMessage: NormalizeQueueMessage = {
+          jobId: job.id,
+          taskId: providerTask.id,
+          rawR2Key: rawKey,
+          contentEncoding: "identity",
+        };
+        await env.NORMALIZE_QUEUE.send(normalizeMessage);
+        message.ack();
+      } catch (error) {
+        const messageText = String(error).slice(0, 1000);
+        await env.CONTROL_DB.prepare(
+          `UPDATE crawl_jobs SET
+            status = 'failed', error_code = 'live_failed', error_message = ?, updated_at = ?
+           WHERE id = ?`,
+        )
+          .bind(messageText, nowIso(), job.id)
+          .run();
+        await emitRunFailureAlerts(env, job.id, messageText);
+        message.ack();
+      }
+    }),
+  );
+}
+
+export async function collectReadyTasks(env: Env): Promise<number> {
+  const ready = await getTasksReady(env);
+  let recovered = 0;
+  for (const task of ready) {
+    if (!task.tag || !task.endpointAdvanced) continue;
+    const jobId = await verifySignedJobTag(task.tag, env.APP_CRYPTO_KEY);
+    if (!jobId) continue;
+    const job = await env.CONTROL_DB.prepare(
+      "SELECT id FROM crawl_jobs WHERE id = ? AND provider_tag = ?",
+    )
+      .bind(jobId, task.tag)
+      .first<{ id: string }>();
+    if (!job) continue;
+    const bytes = await getTaskResult(env, task.endpointAdvanced);
+    const rawKey = `raw/${new Date().toISOString().slice(0, 7)}/${task.id}.json`;
+    await env.EVIDENCE_BUCKET.put(rawKey, bytes, {
+      httpMetadata: { contentType: "application/json" },
+      customMetadata: { jobId, taskId: task.id, recovery: "tasks_ready" },
+    });
+    await env.CONTROL_DB.prepare(
+      `UPDATE crawl_jobs SET
+        status = 'normalizing', dataforseo_task_id = ?, updated_at = ?
+       WHERE id = ?`,
+    )
+      .bind(task.id, nowIso(), jobId)
+      .run();
+    await env.NORMALIZE_QUEUE.send({
+      jobId,
+      taskId: task.id,
+      rawR2Key: rawKey,
+      contentEncoding: "identity",
+    } satisfies NormalizeQueueMessage);
+    recovered += 1;
+  }
+  return recovered;
+}

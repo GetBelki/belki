@@ -1,0 +1,117 @@
+location_code,location_name,location_code_parent,country_iso_code,location_type,available_sources,language_name,language_code
+2008,Albania,,AL,Country,google,Albanian,sq
+2012,Algeria,,DZ,Country,google,French,fr
+2012,Algeria,,DZ,Country,google,Arabic,ar
+2024,Angola,,AO,Country,google,Portuguese,pt
+2031,Azerbaijan,,AZ,Country,google,Azeri,az
+2032,Argentina,,AR,Country,google,Spanish,es
+2036,Australia,,AU,Country,google,English,en
+2040,Austria,,AT,Country,google,German,de
+2048,Bahrain,,BH,Country,google,Arabic,ar
+2050,Bangladesh,,BD,Country,google,Bengali,bn
+2051,Armenia,,AM,Country,google,Armenian,hy
+2056,Belgium,,BE,Country,google,French,fr
+2056,Belgium,,BE,Country,google,Dutch,nl
+2056,Belgium,,BE,Country,google,German,de
+2068,Bolivia,,BO,Country,google,Spanish,es
+2070,"Bosnia and Herzegovina",,BA,Country,google,Bosnian,bs
+2076,Brazil,,BR,Country,google,Portuguese,pt
+2100,Bulgaria,,BG,Country,google,Bulgarian,bg
+2104,"Myanmar (Burma)",,MM,Country,google,English,en
+2116,Cambodia,,KH,Country,google,English,en
+2120,Cameroon,,CM,Country,google,French,fr
+2124,Canada,,CA,Country,google,English,en
+2124,Canada,,CA,Country,google,French,fr
+2144,"Sri Lanka",,LK,Country,google,English,en
+2152,Chile,,CL,Country,google,Spanish,es
+2158,Taiwan,,TW,Region,google,"Chinese (Traditional)",zh-TW
+2170,Colombia,,CO,Country,google,Spanish,es
+2188,"Costa Rica",,CR,Country,google,Spanish,es
+2191,Croatia,,HR,Country,google,Croatian,hr
+2196,Cyprus,,CY,Country,google,Greek,el
+2196,Cyprus,,CY,Country,google,English,en
+2203,Czechia,,CZ,Country,google,Czech,cs
+2208,Denmark,,DK,Country,google,Danish,da
+2218,Ecuador,,EC,Country,google,Spanish,es
+2222,"El Salvador",,SV,Country,google,Spanish,es
+2233,Estonia,,EE,Country,google,Estonian,et
+2246,Finland,,FI,Country,google,Finnish,fi
+2250,France,,FR,Country,google,French,fr
+2276,Germany,,DE,Country,google,German,de
+2288,Ghana,,GH,Country,google,English,en
+2300,Greece,,GR,Country,google,Greek,el
+2300,Greece,,GR,Country,google,English,en
+2320,Guatemala,,GT,Country,google,Spanish,es
+2344,"Hong Kong",,HK,Region,google,English,en
+2344,"Hong Kong",,HK,Region,google,"Chinese (Traditional)",zh-TW
+2348,Hungary,,HU,Country,google,Hungarian,hu
+2356,India,,IN,Country,google,English,en
+2356,India,,IN,Country,google,Hindi,hi
+2360,Indonesia,,ID,Country,google,English,en
+2360,Indonesia,,ID,Country,google,Indonesian,id
+2372,Ireland,,IE,Country,google,English,en
+2376,Israel,,IL,Country,google,Hebrew,he
+2376,Israel,,IL,Country,google,Arabic,ar
+2380,Italy,,IT,Country,google,Italian,it
+2384,"Cote d'Ivoire",,CI,Country,google,French,fr
+2392,Japan,,JP,Country,google,Japanese,ja
+2398,Kazakhstan,,KZ,Country,google,Russian,ru
+2400,Jordan,,JO,Country,google,Arabic,ar
+2404,Kenya,,KE,Country,google,English,en
+2410,"South Korea",,KR,Country,google,Korean,ko
+2428,Latvia,,LV,Country,google,Latvian,lv
+2440,Lithuania,,LT,Country,google,Lithuanian,lt
+2458,Malaysia,,MY,Country,google,English,en
+2458,Malaysia,,MY,Country,google,Malay,ms
+2470,Malta,,MT,Country,google,English,en
+2484,Mexico,,MX,Country,google,Spanish,es
+2492,Monaco,,MC,Country,google,French,fr
+2498,Moldova,,MD,Country,google,Romanian,ro
+2504,Morocco,,MA,Country,google,Arabic,ar
+2504,Morocco,,MA,Country,google,French,fr
+2528,Netherlands,,NL,Country,google,Dutch,nl
+2554,"New Zealand",,NZ,Country,google,English,en
+2558,Nicaragua,,NI,Country,google,Spanish,es
+2566,Nigeria,,NG,Country,google,English,en
+2578,Norway,,NO,Country,google,"Norwegian (Bokmål)",nb
+2586,Pakistan,,PK,Country,google,English,en
+2586,Pakistan,,PK,Country,google,Urdu,ur
+2591,Panama,,PA,Country,google,Spanish,es
+2600,Paraguay,,PY,Country,google,Spanish,es
+2604,Peru,,PE,Country,google,Spanish,es
+2608,Philippines,,PH,Country,google,English,en
+2608,Philippines,,PH,Country,google,Tagalog,tl
+2616,Poland,,PL,Country,google,Polish,pl
+2620,Portugal,,PT,Country,google,Portuguese,pt
+2642,Romania,,RO,Country,google,Romanian,ro
+2682,"Saudi Arabia",,SA,Country,"google,amazon",Arabic,ar
+2686,Senegal,,SN,Country,google,French,fr
+2688,Serbia,,RS,Country,google,Serbian,sr
+2702,Singapore,,SG,Country,google,English,en
+2702,Singapore,,SG,Country,google,"Chinese (Simplified)",zh-CN
+2703,Slovakia,,SK,Country,google,Slovak,sk
+2704,Vietnam,,VN,Country,google,English,en
+2704,Vietnam,,VN,Country,google,Vietnamese,vi
+2705,Slovenia,,SI,Country,google,Slovenian,sl
+2710,"South Africa",,ZA,Country,google,English,en
+2724,Spain,,ES,Country,google,Spanish,es
+2752,Sweden,,SE,Country,google,Swedish,sv
+2756,Switzerland,,CH,Country,google,German,de
+2756,Switzerland,,CH,Country,google,French,fr
+2756,Switzerland,,CH,Country,google,Italian,it
+2764,Thailand,,TH,Country,google,Thai,th
+2784,"United Arab Emirates",,AE,Country,"google,amazon",Arabic,ar
+2784,"United Arab Emirates",,AE,Country,google,English,en
+2788,Tunisia,,TN,Country,google,Arabic,ar
+2792,Turkiye,,TR,Country,google,Turkish,tr
+2804,Ukraine,,UA,Country,google,Ukrainian,uk
+2804,Ukraine,,UA,Country,google,Russian,ru
+2807,"North Macedonia",,MK,Country,google,Macedonian,mk
+2818,Egypt,,EG,Country,"google,amazon",Arabic,ar
+2818,Egypt,,EG,Country,google,English,en
+2826,"United Kingdom",,GB,Country,google,English,en
+2840,"United States",,US,Country,"google,bing,amazon",English,en
+2840,"United States",,US,Country,google,Spanish,es
+2854,"Burkina Faso",,BF,Country,google,French,fr
+2858,Uruguay,,UY,Country,google,Spanish,es
+2862,Venezuela,,VE,Country,google,Spanish,es

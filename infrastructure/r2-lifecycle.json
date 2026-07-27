@@ -1,0 +1,28 @@
+{
+  "rules": [
+    {
+      "id": "expire-raw-evidence",
+      "enabled": true,
+      "conditions": { "prefix": "raw/" },
+      "deleteObjectsTransition": {
+        "condition": { "type": "Age", "maxAge": 63072000 }
+      }
+    },
+    {
+      "id": "expire-html-evidence",
+      "enabled": true,
+      "conditions": { "prefix": "html/" },
+      "deleteObjectsTransition": {
+        "condition": { "type": "Age", "maxAge": 7776000 }
+      }
+    },
+    {
+      "id": "expire-exports",
+      "enabled": true,
+      "conditions": { "prefix": "exports/" },
+      "deleteObjectsTransition": {
+        "condition": { "type": "Age", "maxAge": 604800 }
+      }
+    }
+  ]
+}

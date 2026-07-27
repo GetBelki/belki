@@ -1,0 +1,94 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "ai-tracker",
+  "main": "./src/worker/index.ts",
+  "compatibility_date": "2026-07-27",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "assets": {
+    "not_found_handling": "single-page-application",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "vars": {
+    "APP_NAME": "AI Tracker",
+    "APP_ENV": "production",
+    "SHARD_COUNT": "32",
+    "DEFAULT_MONTHLY_RUN_CAP": "1000000",
+    "RAW_RETENTION_DAYS": "730",
+    "HTML_RETENTION_DAYS": "90",
+    "EXPORT_RETENTION_DAYS": "7"
+  },
+  "secrets": {
+    "required": [
+      "DATAFORSEO_LOGIN",
+      "DATAFORSEO_PASSWORD",
+      "DATAFORSEO_WEBHOOK_TOKEN",
+      "APP_CRYPTO_KEY",
+      "BOOTSTRAP_TOKEN"
+    ]
+  },
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1
+  },
+  "triggers": {
+    "crons": ["*/5 * * * *", "*/15 * * * *", "0 3 * * *", "0 4 * * 0"]
+  },
+  "d1_databases": [
+    { "binding": "CONTROL_DB", "database_name": "ai-tracker-control", "migrations_dir": "./migrations/control" },
+    { "binding": "SNAPSHOT_DB_00", "database_name": "ai-tracker-snapshot-00", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_01", "database_name": "ai-tracker-snapshot-01", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_02", "database_name": "ai-tracker-snapshot-02", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_03", "database_name": "ai-tracker-snapshot-03", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_04", "database_name": "ai-tracker-snapshot-04", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_05", "database_name": "ai-tracker-snapshot-05", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_06", "database_name": "ai-tracker-snapshot-06", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_07", "database_name": "ai-tracker-snapshot-07", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_08", "database_name": "ai-tracker-snapshot-08", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_09", "database_name": "ai-tracker-snapshot-09", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_10", "database_name": "ai-tracker-snapshot-10", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_11", "database_name": "ai-tracker-snapshot-11", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_12", "database_name": "ai-tracker-snapshot-12", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_13", "database_name": "ai-tracker-snapshot-13", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_14", "database_name": "ai-tracker-snapshot-14", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_15", "database_name": "ai-tracker-snapshot-15", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_16", "database_name": "ai-tracker-snapshot-16", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_17", "database_name": "ai-tracker-snapshot-17", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_18", "database_name": "ai-tracker-snapshot-18", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_19", "database_name": "ai-tracker-snapshot-19", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_20", "database_name": "ai-tracker-snapshot-20", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_21", "database_name": "ai-tracker-snapshot-21", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_22", "database_name": "ai-tracker-snapshot-22", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_23", "database_name": "ai-tracker-snapshot-23", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_24", "database_name": "ai-tracker-snapshot-24", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_25", "database_name": "ai-tracker-snapshot-25", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_26", "database_name": "ai-tracker-snapshot-26", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_27", "database_name": "ai-tracker-snapshot-27", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_28", "database_name": "ai-tracker-snapshot-28", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_29", "database_name": "ai-tracker-snapshot-29", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_30", "database_name": "ai-tracker-snapshot-30", "migrations_dir": "./migrations/snapshot" },
+    { "binding": "SNAPSHOT_DB_31", "database_name": "ai-tracker-snapshot-31", "migrations_dir": "./migrations/snapshot" }
+  ],
+  "r2_buckets": [
+    { "binding": "EVIDENCE_BUCKET", "bucket_name": "ai-tracker-evidence" }
+  ],
+  "queues": {
+    "producers": [
+      { "binding": "STANDARD_QUEUE", "queue": "ai-tracker-standard" },
+      { "binding": "LIVE_QUEUE", "queue": "ai-tracker-live" },
+      { "binding": "NORMALIZE_QUEUE", "queue": "ai-tracker-normalize" },
+      { "binding": "ROLLUP_QUEUE", "queue": "ai-tracker-rollup" },
+      { "binding": "EXPORT_QUEUE", "queue": "ai-tracker-export" },
+      { "binding": "NOTIFICATION_QUEUE", "queue": "ai-tracker-notification" }
+    ],
+    "consumers": [
+      { "queue": "ai-tracker-standard", "max_batch_size": 100, "max_batch_timeout": 5, "max_concurrency": 8, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
+      { "queue": "ai-tracker-live", "max_batch_size": 5, "max_batch_timeout": 2, "max_concurrency": 10, "max_retries": 2, "dead_letter_queue": "ai-tracker-dlq" },
+      { "queue": "ai-tracker-normalize", "max_batch_size": 10, "max_batch_timeout": 2, "max_concurrency": 16, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
+      { "queue": "ai-tracker-rollup", "max_batch_size": 50, "max_batch_timeout": 5, "max_concurrency": 8, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
+      { "queue": "ai-tracker-export", "max_batch_size": 5, "max_batch_timeout": 5, "max_concurrency": 4, "max_retries": 2, "dead_letter_queue": "ai-tracker-dlq" },
+      { "queue": "ai-tracker-notification", "max_batch_size": 20, "max_batch_timeout": 5, "max_concurrency": 4, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" }
+    ]
+  }
+}
