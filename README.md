@@ -1,6 +1,6 @@
-# AI Tracker
+# AI Visibility Tracker
 
-Self-hosted ChatGPT web visibility tracking on Cloudflare. AI Tracker schedules
+Self-hosted ChatGPT web visibility tracking on Cloudflare. AI Visibility Tracker schedules
 DataForSEO LLM Scraper runs, stores normalized evidence, and reports citations,
 retrieved domains, brand mentions, shopping results, and visibility changes.
 
