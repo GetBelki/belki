@@ -49,7 +49,7 @@ export function AppLayout() {
       <aside className={cn("sidebar", mobileOpen && "sidebar-open")}>
         <div className="sidebar-brand">
           <span className="brand-mark">A</span>
-          <span>AI Tracker</span>
+          <span>AI Visibility Tracker</span>
           <button className="mobile-close" onClick={() => setMobileOpen(false)}>
             <X size={18} />
           </button>

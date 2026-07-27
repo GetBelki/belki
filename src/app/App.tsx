@@ -90,7 +90,7 @@ export function App() {
 function AppLoader() {
   return (
     <div className="app-loader">
-      <div className="loader-brand"><span className="brand-mark">A</span> AI Tracker</div>
+      <div className="loader-brand"><span className="brand-mark">A</span> AI Visibility Tracker</div>
       <Skeleton className="loader-line" />
       <Skeleton className="loader-line short" />
     </div>

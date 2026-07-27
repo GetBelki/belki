@@ -13,7 +13,7 @@ function AuthShell({ children, title, description }: React.PropsWithChildren<{
   return (
     <div className="auth-shell">
       <section className="auth-story">
-        <div className="loader-brand"><span className="brand-mark">A</span> AI Tracker</div>
+        <div className="loader-brand"><span className="brand-mark">A</span> AI Visibility Tracker</div>
         <div className="story-content">
           <span className="eyebrow">Built for answer visibility</span>
           <h1>Know when AI recommends you—and when it doesn’t.</h1>

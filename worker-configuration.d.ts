@@ -43,7 +43,7 @@ interface __BaseEnv_Env {
 	EXPORT_QUEUE: Queue;
 	NOTIFICATION_QUEUE: Queue;
 	ASSETS: Fetcher;
-	APP_NAME: "AI Tracker";
+	APP_NAME: "AI Visibility Tracker";
 	APP_ENV: "production";
 	SHARD_COUNT: "32";
 	DEFAULT_MONTHLY_RUN_CAP: "1000000";
