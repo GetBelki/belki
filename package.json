@@ -4,6 +4,25 @@
   "private": true,
   "type": "module",
   "packageManager": "pnpm@11.0.8",
+  "cloudflare": {
+    "bindings": {
+      "DATAFORSEO_LOGIN": {
+        "description": "Your DataForSEO API login."
+      },
+      "DATAFORSEO_PASSWORD": {
+        "description": "Your DataForSEO API password."
+      },
+      "DATAFORSEO_WEBHOOK_TOKEN": {
+        "description": "Generate a unique high-entropy value used to authenticate DataForSEO postbacks."
+      },
+      "APP_CRYPTO_KEY": {
+        "description": "Generate an independent high-entropy value used to sign provider job tags."
+      },
+      "BOOTSTRAP_TOKEN": {
+        "description": "Generate an independent high-entropy value. You will enter it once on the first-run setup screen."
+      }
+    }
+  },
   "scripts": {
     "dev": "vite",
     "build": "vite build",
@@ -18,7 +37,7 @@
     "db:migrate:local": "node scripts/migrate.mjs --local",
     "db:migrate:remote": "node scripts/migrate.mjs --remote",
     "r2:lifecycle": "wrangler r2 bucket lifecycle set ai-tracker-evidence --file infrastructure/r2-lifecycle.json --force",
-    "deploy": "pnpm build && wrangler deploy && pnpm db:migrate:remote",
+    "deploy": "wrangler deploy && pnpm db:migrate:remote",
     "deploy:dry": "pnpm build && wrangler deploy --dry-run",
     "cf-typegen": "wrangler types"
   },

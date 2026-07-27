@@ -1,5 +1,7 @@
 # AI Visibility Tracker
 
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Xyborg/AI-Visibility-Tracker)
+
 Self-hosted ChatGPT web visibility tracking on Cloudflare. AI Visibility Tracker schedules
 DataForSEO LLM Scraper runs, stores normalized evidence, and reports citations,
 retrieved domains, brand mentions, shopping results, and visibility changes.
@@ -55,8 +57,12 @@ cross-database joins.
 
 - Node.js 24 or newer
 - pnpm 11
-- A Cloudflare account with Workers Paid recommended
+- A Cloudflare account with Workers Paid
 - DataForSEO API credentials with ChatGPT LLM Scraper access
+
+Workers Paid is required for the default architecture because it provisions one
+control database and 32 snapshot databases. Workers Free currently allows only
+10 D1 databases per account.
 
 ## Local development
 
@@ -79,9 +85,49 @@ inbound postback.
 
 ## Cloudflare deployment
 
+### Deploy button
+
+The button at the top of this README deploys a copy into the selected Cloudflare
+account, provisions the declared D1, R2, and Queue resources, prompts for the
+five required secrets, applies all D1 migrations, and connects the resulting
+repository to Workers Builds.
+
+Cloudflare requires the source repository to be public for this flow. While
+`Xyborg/AI-Visibility-Tracker` remains private, use the private-repository
+instructions below instead. Keep the default resource names during setup so the
+checked-in R2 lifecycle command continues to target the provisioned bucket.
+
+The requested secrets are:
+
+- `DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD` — DataForSEO API credentials
+- `DATAFORSEO_WEBHOOK_TOKEN` — a unique high-entropy postback token
+- `APP_CRYPTO_KEY` — an independent high-entropy signing key
+- `BOOTSTRAP_TOKEN` — an independent high-entropy first-run token
+
+### Deploy from this private GitHub repository
+
+1. In Cloudflare, open **Workers & Pages**, select **Create application**, and
+   choose **Import a repository**.
+2. Authorize the Cloudflare GitHub App for this private repository and select
+   `Xyborg/AI-Visibility-Tracker`.
+3. Use `main` as the production branch, `/` as the root directory,
+   `pnpm build` as the build command, and `pnpm deploy` as the deploy command.
+4. Keep the Worker name `ai-tracker`, matching `wrangler.jsonc`.
+5. After the Worker is created, add the five values above as encrypted runtime
+   secrets under **Settings → Variables & Secrets**.
+6. Run `pnpm r2:lifecycle` once from an authenticated local checkout to install
+   the evidence-retention policy.
+
+Future pushes to `main` will deploy automatically through Workers Builds.
+Non-production branch builds can be enabled in Cloudflare to receive preview
+URLs on pull requests.
+
+### Deploy with Wrangler
+
 Authenticate Wrangler, then run:
 
 ```bash
+pnpm build
 pnpm deploy
 pnpm r2:lifecycle
 ```
@@ -101,16 +147,6 @@ pnpm wrangler secret put DATAFORSEO_WEBHOOK_TOKEN
 pnpm wrangler secret put APP_CRYPTO_KEY
 pnpm wrangler secret put BOOTSTRAP_TOKEN
 ```
-
-After publishing this repository, a Cloudflare Deploy button can target:
-
-```text
-https://deploy.workers.cloudflare.com/?url=https://github.com/OWNER/REPOSITORY
-```
-
-Replace `OWNER/REPOSITORY` with the public repository path. Secrets are prompted
-because they are declared as required in `wrangler.jsonc`; D1, R2, and Queue
-resources are declared in the same file.
 
 ## Operations
 
@@ -157,4 +193,4 @@ request.
 
 ## License
 
-MIT
+Apache-2.0
