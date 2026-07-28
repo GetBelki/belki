@@ -17,10 +17,10 @@ function AuthShell({ children, title, description }: React.PropsWithChildren<{
         <div className="story-content">
           <span className="eyebrow">Built for answer visibility</span>
           <h1>Know when AI recommends you, and when it doesn’t.</h1>
-          <p>Track citations, brand mentions, domains, products, and evidence from ChatGPT web Search mode.</p>
+          <p>Track citations, brand mentions, sources, and products across ChatGPT web Search responses.</p>
           <div className="signal-card">
             <Radar size={24} />
-            <div><strong>Evidence first</strong><span>Every metric links back to its captured result.</span></div>
+            <div><strong>Source-linked insights</strong><span>Every metric links back to the captured AI response.</span></div>
           </div>
         </div>
         <small>Cloudflare-native · DataForSEO powered</small>

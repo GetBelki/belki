@@ -145,7 +145,7 @@ export function OverviewPage() {
           </div>
         </Card>
         <Card>
-          <CardHeader title="Recent evidence" description="Latest captured snapshots" />
+          <CardHeader title="Recent AI responses" description="Latest completed prompt runs" />
           <div className="activity-list">
             {overview.data?.recentSnapshots.length ? overview.data.recentSnapshots.map((snapshot) => (
               <div className="activity-row" key={String(snapshot.id)}>
@@ -153,7 +153,7 @@ export function OverviewPage() {
                 <div><strong>{String(snapshot.query_text)}</strong><span>{dateTime(String(snapshot.captured_at))}</span></div>
                 <Badge tone={Number(snapshot.cited_domains_count) ? "success" : "neutral"}>{Number(snapshot.cited_domains_count)} cited</Badge>
               </div>
-            )) : <EmptyState title="No snapshots" description="Add a prompt to begin monitoring." />}
+            )) : <EmptyState title="No responses yet" description="Add a prompt to begin monitoring." />}
           </div>
         </Card>
       </div>

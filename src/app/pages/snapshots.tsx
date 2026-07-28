@@ -110,7 +110,7 @@ function SnapshotTable({
           ),
           actions: (
             <Button asChild variant="secondary">
-              <Link to={detailPath}>View evidence</Link>
+              <Link to={detailPath}>View response</Link>
             </Button>
           ),
         };
@@ -130,8 +130,8 @@ export function SnapshotExplorerPage() {
   return (
     <div className="page">
       <PageHeader
-        title="Snapshot explorer"
-        description="Audit captured answers, citations, retrievals, brands, and products."
+        title="Response history"
+        description="Review captured AI responses, citations, sources, brand mentions, and shopping products."
       />
       <Card>
         {snapshots.isPending ? (
@@ -140,8 +140,8 @@ export function SnapshotExplorerPage() {
           <SnapshotTable snapshots={snapshots.data} />
         ) : (
           <EmptyState
-            title="No snapshots yet"
-            description="Completed tracking runs will appear here."
+            title="No responses yet"
+            description="Completed prompt runs will appear here."
           />
         )}
       </Card>
@@ -370,8 +370,8 @@ export function SnapshotDetailPage() {
     return (
       <div className="page">
         <EmptyState
-          title="Snapshot unavailable"
-          description="The captured evidence could not be loaded."
+          title="Response unavailable"
+          description="The captured AI response could not be loaded."
           action={<Button asChild variant="secondary"><Link to="/snapshots">Back to snapshots</Link></Button>}
         />
       </div>
@@ -541,7 +541,7 @@ export function SnapshotDetailPage() {
           </Card>
 
           <Card className="evidence-section">
-            <CardHeader title="Evidence coverage" description="Domains and entities detected in this capture." />
+            <CardHeader title="Visibility signals" description="Sources and tracked entities found in this response." />
             <CardContent className="coverage-list">
               <div><Globe2 size={15} /><span><strong>{citedDomains.length}</strong> cited domains</span></div>
               <div><Search size={15} /><span><strong>{retrievedDomains.length}</strong> retrieved domains</span></div>
