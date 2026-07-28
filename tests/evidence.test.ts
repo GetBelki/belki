@@ -11,7 +11,7 @@ describe("evidence response headers", () => {
     expect(headers.get("content-security-policy")).toContain("script-src 'none'");
     expect(headers.get("content-security-policy")).toContain("sandbox");
     expect(headers.get("content-security-policy")).toContain(
-      "style-src-elem 'unsafe-inline' https://chatgpt.com https://cdn.oaistatic.com",
+      "style-src-elem 'unsafe-inline' https://chatgpt.com https://cdn.oaistatic.com https://accounts.google.com",
     );
     expect(headers.get("content-security-policy")).toContain(
       "font-src data: https://chatgpt.com https://cdn.oaistatic.com",
