@@ -280,7 +280,12 @@ export function CitationSourceDetailPage() {
       </Link>
       <PageHeader
         eyebrow="Last 30 days"
-        title={domain || "Citation source"}
+        title={
+          <span className="citation-source-title">
+            <DomainFavicon domain={domain} size={32} />
+            <span>{domain || "Citation source"}</span>
+          </span>
+        }
         description="Citation performance, trend, and cited pages for this source."
       />
       {query.isPending ? (

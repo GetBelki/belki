@@ -127,7 +127,7 @@ export function PageHeader({
   action,
 }: {
   eyebrow?: string;
-  title: string;
+  title: React.ReactNode;
   description: string;
   action?: React.ReactNode;
 }) {
