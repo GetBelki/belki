@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { extractTaskHtml } from "./dataforseo-html";
 
 const API_BASE = "https://api.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper";
 const MAX_PROVIDER_BODY_BYTES = 20 * 1024 * 1024;
@@ -145,8 +146,12 @@ export async function getTaskResult(
   return readBounded(response);
 }
 
-export async function getTaskHtml(env: Env, taskId: string): Promise<ArrayBuffer> {
-  return getTaskResult(env, `/v3/ai_optimization/chat_gpt/llm_scraper/task_get/html/${taskId}`);
+export async function getTaskHtml(env: Env, taskId: string): Promise<string> {
+  const bytes = await getTaskResult(
+    env,
+    `/v3/ai_optimization/chat_gpt/llm_scraper/task_get/html/${taskId}`,
+  );
+  return extractTaskHtml(JSON.parse(new TextDecoder().decode(bytes)));
 }
 
 export async function getLocaleCatalog(

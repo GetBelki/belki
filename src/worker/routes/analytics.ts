@@ -2,6 +2,7 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { AppEnv } from "../lib/app";
+import { extractTaskHtml } from "../lib/dataforseo-html";
 import { matchedBrandTerms } from "../lib/domain";
 import { evidenceResponseHeaders } from "../lib/evidence";
 import { getShard } from "../lib/shards";
@@ -514,6 +515,33 @@ analyticsRoutes.get(
     const metadata = new Headers();
     object.writeHttpMetadata(metadata);
     const headers = evidenceResponseHeaders(kind, id, metadata);
+    if (kind === "html" && key.endsWith(".json")) {
+      if (object.size > 20 * 1024 * 1024) {
+        throw new ApiError(
+          422,
+          "evidence_too_large",
+          "The stored HTML evidence is too large to open safely.",
+        );
+      }
+      try {
+        const payload = await new Response(object.body).json();
+        return new Response(extractTaskHtml(payload), { headers });
+      } catch (error) {
+        console.warn(
+          JSON.stringify({
+            level: "warn",
+            event: "evidence.legacy_html_invalid",
+            snapshotId: id,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+        throw new ApiError(
+          422,
+          "evidence_invalid",
+          "The stored HTML evidence could not be decoded.",
+        );
+      }
+    }
     return new Response(object.body, { headers });
   },
 );

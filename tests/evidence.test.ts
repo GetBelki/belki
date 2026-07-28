@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { extractTaskHtml } from "../src/worker/lib/dataforseo-html";
 import { evidenceResponseHeaders } from "../src/worker/lib/evidence";
 
 describe("evidence response headers", () => {
@@ -16,5 +17,58 @@ describe("evidence response headers", () => {
     expect(headers.get("content-type")).toBe("application/json; charset=utf-8");
     expect(headers.get("content-disposition")).toContain("attachment");
     expect(headers.has("content-security-policy")).toBe(false);
+  });
+});
+
+describe("DataForSEO HTML evidence", () => {
+  it("extracts the captured document from the provider JSON envelope", () => {
+    expect(
+      extractTaskHtml({
+        status_code: 20_000,
+        tasks: [
+          {
+            status_code: 20_000,
+            result: [
+              {
+                items: [
+                  {
+                    page: 1,
+                    html: "<!doctype html><html><body>Captured page</body></html>",
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe("<!doctype html><html><body>Captured page</body></html>");
+  });
+
+  it("selects the first captured page regardless of item ordering", () => {
+    expect(
+      extractTaskHtml({
+        tasks: [
+          {
+            result: [
+              {
+                items: [
+                  { page: 2, html: "<html>Second</html>" },
+                  { page: 1, html: "<html>First</html>" },
+                ],
+              },
+            ],
+          },
+        ],
+      }),
+    ).toBe("<html>First</html>");
+  });
+
+  it("rejects provider envelopes without an HTML document", () => {
+    expect(() =>
+      extractTaskHtml({
+        status_message: "Ok.",
+        tasks: [{ status_message: "No HTML.", result: [{ items: [] }] }],
+      }),
+    ).toThrow("No HTML.");
   });
 });

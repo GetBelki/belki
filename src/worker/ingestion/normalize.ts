@@ -149,10 +149,10 @@ export async function normalizeSnapshot(
 
   let htmlR2Key: string | null = null;
   if (job.capture_html === 1 && job.delivery_method !== "live") {
-    const htmlBytes = await getTaskHtml(env, message.taskId);
-    htmlR2Key = `html/${new Date().toISOString().slice(0, 7)}/${message.taskId}.json`;
-    await env.EVIDENCE_BUCKET.put(htmlR2Key, htmlBytes, {
-      httpMetadata: { contentType: "application/json" },
+    const html = await getTaskHtml(env, message.taskId);
+    htmlR2Key = `html/${new Date().toISOString().slice(0, 7)}/${message.taskId}.html`;
+    await env.EVIDENCE_BUCKET.put(htmlR2Key, html, {
+      httpMetadata: { contentType: "text/html; charset=utf-8" },
       customMetadata: { jobId: job.id, taskId: message.taskId },
     });
   }
