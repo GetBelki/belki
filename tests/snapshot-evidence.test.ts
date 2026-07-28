@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   fanOutLabel,
-  googleShoppingUrl,
   productImage,
   safeExternalUrl,
   type ProductEvidence,
@@ -34,20 +33,6 @@ const product: ProductEvidence = {
 };
 
 describe("snapshot evidence helpers", () => {
-  it("builds a localized Google Shopping search from provider product metadata", () => {
-    const url = new URL(googleShoppingUrl(product));
-    expect(url.origin).toBe("https://www.google.com");
-    expect(url.searchParams.get("udm")).toBe("28");
-    expect(url.searchParams.get("q")).toBe("sensitive dog food");
-    expect(url.searchParams.get("gl")).toBe("de");
-    expect(url.searchParams.get("hl")).toBe("de");
-  });
-
-  it("falls back to the product title when provider metadata is absent", () => {
-    const url = new URL(googleShoppingUrl({ ...product, product_ids: [] }));
-    expect(url.searchParams.get("q")).toBe("Sensitive dog food");
-  });
-
   it("extracts fan-out query labels from supported provider shapes", () => {
     expect(fanOutLabel("related query")).toBe("related query");
     expect(fanOutLabel({ keyword: "provider keyword" })).toBe("provider keyword");

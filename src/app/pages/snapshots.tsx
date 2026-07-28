@@ -403,13 +403,6 @@ export function SnapshotDetailPage() {
         description={`${localeLabel(snapshot.location_code, snapshot.language_code)} · ${snapshot.model ?? "Unknown model"}`}
         action={
           <div className="button-group">
-            {snapshot.check_url ? (
-              <Button asChild variant="secondary">
-                <a href={snapshot.check_url} target="_blank" rel="noreferrer">
-                  Check result <ExternalLink size={14} />
-                </a>
-              </Button>
-            ) : null}
             {snapshot.has_html_evidence ? (
               <Button asChild variant="secondary">
                 <a

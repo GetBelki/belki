@@ -1503,9 +1503,13 @@ tbody tr:hover {
   outline-offset: -2px;
 }
 
-.shopping-carousel .shopping-card-link:hover .shopping-card-summary h3 {
+.shopping-carousel a.shopping-card-link:hover .shopping-card-summary h3 {
   text-decoration: underline;
   text-underline-offset: 2px;
+}
+
+.shopping-card-link.is-static {
+  cursor: default;
 }
 
 .shopping-carousel .shopping-image {

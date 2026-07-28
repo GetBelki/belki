@@ -122,24 +122,6 @@ export function productImage(product: ProductEvidence): string | null {
   return null;
 }
 
-export function googleShoppingUrl(product: ProductEvidence): string {
-  const productId = product.product_ids.find(
-    (value): value is Record<string, unknown> =>
-      Boolean(value && typeof value === "object" && !Array.isArray(value)),
-  );
-  const providerQuery =
-    typeof productId?.query === "string"
-      ? productId.query.replaceAll("+", " ")
-      : null;
-  const query = providerQuery || product.title || product.merchants || "product";
-  const url = new URL("https://www.google.com/search");
-  url.searchParams.set("udm", "28");
-  url.searchParams.set("q", query);
-  if (typeof productId?.gl === "string") url.searchParams.set("gl", productId.gl);
-  if (typeof productId?.hl === "string") url.searchParams.set("hl", productId.hl);
-  return url.href;
-}
-
 export function formatPrice(
   price: number | null,
   currency: string | null,

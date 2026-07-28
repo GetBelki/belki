@@ -89,6 +89,41 @@ describe("StructuredAnswer", () => {
     expect(screen.getByRole("button", { name: "Next products" })).toBeInTheDocument();
   });
 
+  it("does not turn products without direct listings into Shopping search links", () => {
+    render(
+      <StructuredAnswer
+        items={[item("products-1", "chat_gpt_products", 0, { items: [] })]}
+        products={[{ ...product, canonical_url: null, raw_url: null }]}
+        fallbackMarkdown="Fallback"
+      />,
+    );
+
+    expect(screen.getByText("Sensitive dog food")).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "Open Sensitive dog food" }))
+      .not.toBeInTheDocument();
+  });
+
+  it("recovers a direct listing URL from the provider payload", () => {
+    render(
+      <StructuredAnswer
+        items={[
+          item("products-1", "chat_gpt_products", 0, {
+            items: [{
+              product_id: "provider-product-1",
+              title: "Sensitive dog food",
+              url: "https://merchant.example/product",
+            }],
+          }),
+        ]}
+        products={[{ ...product, canonical_url: null, raw_url: null }]}
+        fallbackMarkdown="Fallback"
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: "Open Sensitive dog food" }))
+      .toHaveAttribute("href", "https://merchant.example/product");
+  });
+
   it("renders images, navigation sources, and local result details", () => {
     render(
       <StructuredAnswer
