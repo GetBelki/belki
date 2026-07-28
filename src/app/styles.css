@@ -2245,10 +2245,10 @@ a.evidence-source:hover strong {
   align-items: center;
   border-top: 1px solid #f4f4f5;
   display: grid;
-  gap: 12px;
-  grid-template-columns: 46px minmax(0, 1fr) auto;
+  gap: 10px;
+  grid-template-columns: 38px minmax(0, 1fr) auto;
   min-width: 0;
-  padding: 12px 0;
+  padding: 9px 0;
 }
 
 .recent-product-row:hover .recent-product-copy > strong {
@@ -2263,11 +2263,11 @@ a.evidence-source:hover strong {
   border-radius: 5px;
   color: #a1a1aa;
   display: flex;
-  height: 46px;
+  height: 38px;
   justify-content: center;
   overflow: hidden;
   padding: 4px;
-  width: 46px;
+  width: 38px;
 }
 
 .recent-product-image img {
@@ -2284,25 +2284,24 @@ a.evidence-source:hover strong {
 
 .recent-product-copy {
   flex-direction: column;
-  gap: 2px;
+  gap: 1px;
 }
 
 .recent-product-copy > strong {
   color: #27272a;
-  display: -webkit-box;
+  display: block;
   font-size: 11px;
-  line-height: 15px;
+  line-height: 14px;
   overflow: hidden;
-  overflow-wrap: anywhere;
-  -webkit-box-orient: vertical;
-  -webkit-line-clamp: 2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .recent-product-copy > span,
 .recent-product-copy > small {
   color: #71717a;
   font-size: 9px;
-  line-height: 13px;
+  line-height: 11px;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -2312,7 +2311,7 @@ a.evidence-source:hover strong {
   align-items: flex-end;
   color: #71717a;
   flex-direction: column;
-  gap: 7px;
+  gap: 5px;
 }
 
 .recent-product-meta strong {
@@ -2347,7 +2346,7 @@ a.evidence-source:hover strong {
 
   .recent-product-row {
     align-items: start;
-    grid-template-columns: 46px minmax(0, 1fr);
+    grid-template-columns: 38px minmax(0, 1fr);
   }
 
   .recent-product-meta {

@@ -232,7 +232,7 @@ analyticsRoutes.get(
         },
         series: series.results,
         recentProducts: [...recentProducts.values()]
-          .slice(0, 8)
+          .slice(0, 5)
           .map(serializedShoppingProduct),
       },
     });
