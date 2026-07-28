@@ -11,7 +11,12 @@ function MarkdownLink({
   if (!safeHref) return <span>{children}</span>;
 
   return (
-    <a href={safeHref} target="_blank" rel="noreferrer">
+    <a
+      className="answer-citation-link"
+      href={safeHref}
+      target="_blank"
+      rel="noreferrer"
+    >
       {children}
     </a>
   );

@@ -25,10 +25,12 @@ describe("MarkdownAnswer", () => {
       screen.getByRole("heading", { name: "Recommendations", level: 3 }),
     ).toBeInTheDocument();
     expect(screen.getByText("Royal Canin", { selector: "strong" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Zooplus" })).toHaveAttribute(
-      "href",
-      "https://www.zooplus.de/product?utm_source=chatgpt",
-    );
+    expect(screen.getByRole("link", { name: "Zooplus" })).toMatchObject({
+      className: "answer-citation-link",
+      href: "https://www.zooplus.de/product?utm_source=chatgpt",
+    });
+    expect(screen.getByRole("list")).toBeInTheDocument();
+    expect(screen.getAllByRole("listitem")).toHaveLength(2);
     expect(screen.getByRole("table")).toBeInTheDocument();
   });
 
