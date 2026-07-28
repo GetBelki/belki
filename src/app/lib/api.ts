@@ -24,7 +24,10 @@ export async function api<T>(
 
 export interface ApiPage<T> {
   data: T;
-  page: { nextCursor: string | null };
+  page: {
+    nextCursor: string | null;
+    total?: number;
+  };
 }
 
 export async function apiPage<T>(
@@ -41,7 +44,13 @@ export async function apiPage<T>(
 async function apiResponse<T>(
   path: string,
   init: RequestInit = {},
-): Promise<{ data: T; page?: { nextCursor: string | null } }> {
+): Promise<{
+  data: T;
+  page?: {
+    nextCursor: string | null;
+    total?: number;
+  };
+}> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
   if (!["GET", "HEAD"].includes(init.method ?? "GET")) {
@@ -54,7 +63,13 @@ async function apiResponse<T>(
     credentials: "same-origin",
   });
   const payload = (await response.json().catch(() => null)) as
-    | { data: T; page?: { nextCursor: string | null } }
+    | {
+        data: T;
+        page?: {
+          nextCursor: string | null;
+          total?: number;
+        };
+      }
     | { error: { code: string; message: string } }
     | null;
   if (!response.ok || !payload || "error" in payload) {

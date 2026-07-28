@@ -17,6 +17,10 @@ const DateRangeSchema = z.object({
   from: z.string().date().optional(),
   to: z.string().date().optional(),
 });
+const CitationSourcesSchema = DateRangeSchema.extend({
+  offset: z.coerce.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+});
 const SnapshotParamSchema = z.object({ id: z.string().uuid() });
 const EvidenceParamSchema = z.object({
   id: z.string().uuid(),
@@ -462,7 +466,7 @@ analyticsRoutes.get(
 
 analyticsRoutes.get(
   "/analytics/citation-sources",
-  zValidator("query", DateRangeSchema),
+  zValidator("query", CitationSourcesSchema),
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
@@ -519,9 +523,8 @@ analyticsRoutes.get(
       ),
     );
     const completed = indexes.results.length;
-    return c.json({
-      data: [...citations.entries()]
-        .map(([domain, metric]) => ({
+    const sortedSources = [...citations.entries()]
+      .map(([domain, metric]) => ({
         domain,
         citationRate: completed
           ? (metric.snapshotIds.size / completed) * 100
@@ -530,12 +533,21 @@ analyticsRoutes.get(
         totalCitations: metric.total,
         citedSnapshots: metric.snapshotIds.size,
       }))
-        .sort(
-          (left, right) =>
-            right.totalCitations - left.totalCitations ||
-            left.domain.localeCompare(right.domain),
-        )
-        .slice(0, 250),
+      .sort(
+        (left, right) =>
+          right.totalCitations - left.totalCitations ||
+          left.domain.localeCompare(right.domain),
+      );
+    const page = sortedSources.slice(input.offset, input.offset + input.limit);
+    return c.json({
+      data: page,
+      page: {
+        nextCursor:
+          input.offset + page.length < sortedSources.length
+            ? String(input.offset + page.length)
+            : null,
+        total: sortedSources.length,
+      },
     });
   },
 );

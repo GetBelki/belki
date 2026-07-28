@@ -2,6 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CheckCircle2,
+  ChevronLeft,
+  ChevronRight,
   Download,
   ExternalLink,
   FileDown,
@@ -34,7 +36,7 @@ import {
   TableSkeleton,
 } from "../components/ui";
 import { useApp } from "../context";
-import { api, patch, post, type Project } from "../lib/api";
+import { api, apiPage, patch, post, type Project } from "../lib/api";
 import { productDestination } from "../lib/snapshot-evidence";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 
@@ -83,9 +85,23 @@ interface CitationSourceRow {
 
 export function CitationSourcesPage() {
   const { projectId } = useApp();
-  const query =
-    useProjectAnalytics<CitationSourceRow[]>("citation-sources");
+  const pageSize = 10;
+  const [pagination, setPagination] = useState({ projectId, offset: 0 });
+  const offset =
+    pagination.projectId === projectId ? pagination.offset : 0;
+  const query = useQuery({
+    queryKey: ["citation-sources", projectId, offset],
+    queryFn: () =>
+      apiPage<CitationSourceRow[]>(
+        `/analytics/citation-sources?projectId=${projectId}&offset=${offset}&limit=${pageSize}`,
+      ),
+    enabled: Boolean(projectId),
+  });
   if (!projectId) return <NoProject />;
+  const sources = query.data?.data ?? [];
+  const total = query.data?.page.total ?? 0;
+  const firstItem = total ? offset + 1 : 0;
+  const lastItem = Math.min(offset + sources.length, total);
   return (
     <div className="page">
       <PageHeader
@@ -97,30 +113,66 @@ export function CitationSourcesPage() {
         <CardHeader
           title="Source visibility"
           description="Citation rate is the share of completed captures that cited each domain."
+          action={
+            !query.isPending && total ? (
+              <span className="table-total">{pluralize(total, "source")}</span>
+            ) : undefined
+          }
         />
         {query.isPending ? (
-          <TableSkeleton />
-        ) : query.data?.length ? (
-          <DataTable
-            columns={[
-              { key: "domain", label: "Domain" },
-              { key: "rate", label: "Citation rate" },
-              { key: "urls", label: "Total URLs" },
-              { key: "citations", label: "Total citations" },
-            ]}
-            rows={query.data.map((source) => ({
-              id: source.domain,
-              domain: (
-                <div className="domain-cell">
-                  <DomainFavicon domain={source.domain} />
-                  <strong>{source.domain}</strong>
-                </div>
-              ),
-              rate: <strong>{percent(source.citationRate)}</strong>,
-              urls: compact(source.totalUrls),
-              citations: compact(source.totalCitations),
-            }))}
-          />
+          <TableSkeleton rows={pageSize} />
+        ) : sources.length ? (
+          <>
+            <DataTable
+              columns={[
+                { key: "domain", label: "Domain" },
+                { key: "rate", label: "Citation rate" },
+                { key: "urls", label: "Total URLs" },
+                { key: "citations", label: "Total citations" },
+              ]}
+              rows={sources.map((source) => ({
+                id: source.domain,
+                domain: (
+                  <div className="domain-cell">
+                    <DomainFavicon domain={source.domain} />
+                    <strong>{source.domain}</strong>
+                  </div>
+                ),
+                rate: <strong>{percent(source.citationRate)}</strong>,
+                urls: compact(source.totalUrls),
+                citations: compact(source.totalCitations),
+              }))}
+            />
+            <div className="table-pagination">
+              <span>{firstItem}–{lastItem} of {total}</span>
+              <div>
+                <Button
+                  variant="secondary"
+                  disabled={offset === 0 || query.isFetching}
+                  onClick={() =>
+                    setPagination({
+                      projectId,
+                      offset: Math.max(0, offset - pageSize),
+                    })
+                  }
+                >
+                  <ChevronLeft size={14} /> Previous
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!query.data?.page.nextCursor || query.isFetching}
+                  onClick={() =>
+                    setPagination({
+                      projectId,
+                      offset: offset + pageSize,
+                    })
+                  }
+                >
+                  Next <ChevronRight size={14} />
+                </Button>
+              </div>
+            </div>
+          </>
         ) : (
           <EmptyState
             title="No citation sources"
