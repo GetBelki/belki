@@ -12,9 +12,10 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
-import { NavLink, Outlet } from "react-router-dom";
+import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../context";
 import { post } from "../lib/api";
+import { projectChangeDestination } from "../lib/project-navigation";
 import { Button, Select } from "./ui";
 import { cn } from "../lib/utils";
 
@@ -29,6 +30,8 @@ export function AppLayout() {
   const { session, projects, projectId, setProjectId, currentProject } = useApp();
   const queryClient = useQueryClient();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const location = useLocation();
+  const navigate = useNavigate();
   const logout = useMutation({
     mutationFn: () => post("/auth/logout"),
     onSuccess: () => {
@@ -52,6 +55,8 @@ export function AppLayout() {
           onValueChange={(value) => {
             setProjectId(value);
             setMobileOpen(false);
+            const destination = projectChangeDestination(location.pathname);
+            if (destination) void navigate(destination, { replace: true });
           }}
           options={projects.map((project) => ({ value: project.id, label: project.name }))}
           placeholder="Select project"
