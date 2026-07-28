@@ -27,12 +27,25 @@ export interface SnapshotRecord {
   provider_cost_usd: number | null;
   provider_status_code: number | null;
   provider_status_message: string | null;
+  has_html_evidence: boolean;
 }
 
 export type EvidenceRow = Record<string, unknown>;
 
+export interface StructuredEvidenceItem extends EvidenceRow {
+  id: string;
+  ordinal: number;
+  type: string;
+  rank_group: number | null;
+  rank_absolute: number | null;
+  markdown: string | null;
+  payload: unknown;
+}
+
 export interface ProductEvidence extends EvidenceRow {
   id: string;
+  snapshot_item_id: string;
+  provider_product_id: string | null;
   title: string | null;
   merchants: string | null;
   price: number | null;
@@ -55,7 +68,7 @@ export interface SnapshotDetail {
   brands: EvidenceRow[];
   products: ProductEvidence[];
   domains: EvidenceRow[];
-  items: Array<EvidenceRow & { payload: unknown }>;
+  items: StructuredEvidenceItem[];
   brandMentions: Array<{
     id: string;
     kind: "owned" | "competitor";

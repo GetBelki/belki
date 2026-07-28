@@ -12,7 +12,7 @@ import {
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { NoProject, PageHeader } from "../components/layout";
-import { MarkdownAnswer } from "../components/markdown-answer";
+import { ProductCard, StructuredAnswer } from "../components/structured-answer";
 import {
   Badge,
   Button,
@@ -28,17 +28,13 @@ import { api, post } from "../lib/api";
 import { localeLabel } from "../lib/locale-catalog";
 import {
   fanOutLabel,
-  formatPrice,
-  googleShoppingUrl,
-  productImage,
   safeExternalUrl,
   type EvidenceRow,
-  type ProductEvidence,
   type SnapshotDetail,
   type SnapshotDiff,
   type SnapshotIndex,
 } from "../lib/snapshot-evidence";
-import { dateTime, pluralize } from "../lib/utils";
+import { dateTime } from "../lib/utils";
 
 interface TrackedQuery {
   id: string;
@@ -279,50 +275,6 @@ function EvidenceSource({
   );
 }
 
-function ProductCard({ product }: { product: ProductEvidence }) {
-  const image = productImage(product);
-  const listingUrl = safeExternalUrl(product.canonical_url ?? product.raw_url);
-  const price = formatPrice(product.price, product.currency);
-  const rating =
-    product.rating_value === null
-      ? null
-      : `${product.rating_value}${product.rating_max ? `/${product.rating_max}` : ""}${
-          product.rating_votes_count ? ` · ${pluralize(product.rating_votes_count, "review")}` : ""
-        }`;
-  return (
-    <article className="shopping-card">
-      <div className="shopping-image">
-        {image ? <img src={image} alt="" loading="lazy" /> : <ShoppingBag size={24} />}
-      </div>
-      <div className="shopping-card-body">
-        <div className="shopping-meta">
-          <span>{product.merchants ?? product.registrable_domain ?? "Merchant unavailable"}</span>
-          {product.tag ? <Badge>{product.tag}</Badge> : null}
-        </div>
-        <h3>{product.title ?? "Untitled product"}</h3>
-        <div className="shopping-facts">
-          {price ? <strong>{price}</strong> : <span>Price unavailable</span>}
-          {rating ? <span>{rating}</span> : null}
-        </div>
-        <div className="shopping-actions">
-          {listingUrl ? (
-            <Button asChild variant="secondary">
-              <a href={listingUrl} target="_blank" rel="noreferrer">
-                Open listing <ExternalLink size={13} />
-              </a>
-            </Button>
-          ) : null}
-          <Button asChild variant="secondary">
-            <a href={googleShoppingUrl(product)} target="_blank" rel="noreferrer">
-              Google Shopping <Search size={13} />
-            </a>
-          </Button>
-        </div>
-      </div>
-    </article>
-  );
-}
-
 function ChangeSummary({ diff }: { diff: SnapshotDiff | undefined }) {
   if (!diff?.previous) {
     return <p className="evidence-empty-copy">This is the first capture, so there is no earlier result to compare.</p>;
@@ -385,12 +337,14 @@ export function SnapshotDetailPage() {
     brands,
     products,
     domains,
+    items,
     brandMentions,
   } = detail.data;
   const fanOutQueries = snapshot.fan_out_queries.map(fanOutLabel).filter(Boolean) as string[];
   const backPath = `/queries/${snapshot.tracked_query_id}`;
   const citedDomains = domains.filter((domain) => Number(domain.cited_count) > 0);
   const retrievedDomains = domains.filter((domain) => Number(domain.retrieved_count) > 0);
+  const hasStructuredProducts = items.some((item) => item.type === "chat_gpt_products");
 
   return (
     <div className="page snapshot-evidence-page">
@@ -405,6 +359,17 @@ export function SnapshotDetailPage() {
               <Button asChild variant="secondary">
                 <a href={snapshot.check_url} target="_blank" rel="noreferrer">
                   Check result <ExternalLink size={14} />
+                </a>
+              </Button>
+            ) : null}
+            {snapshot.has_html_evidence ? (
+              <Button asChild variant="secondary">
+                <a
+                  href={`/api/v1/snapshots/${snapshotId}/evidence/html`}
+                  target="_blank"
+                  rel="noreferrer"
+                >
+                  Original page <ExternalLink size={14} />
                 </a>
               </Button>
             ) : null}
@@ -430,8 +395,10 @@ export function SnapshotDetailPage() {
           <Card className="evidence-section answer-section">
             <CardHeader title="Captured answer" description="The answer text returned for this prompt." />
             <CardContent>
-              <MarkdownAnswer
-                markdown={snapshot.answer_markdown || "No answer text was returned."}
+              <StructuredAnswer
+                items={items}
+                products={products}
+                fallbackMarkdown={snapshot.answer_markdown || "No answer text was returned."}
               />
             </CardContent>
           </Card>
@@ -462,7 +429,7 @@ export function SnapshotDetailPage() {
             </CardContent>
           </Card>
 
-          {products.length ? (
+          {products.length && !hasStructuredProducts ? (
             <Card className="evidence-section" id="shopping">
               <CardHeader
                 title="Shopping results"

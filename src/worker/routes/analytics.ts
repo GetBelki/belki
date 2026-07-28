@@ -3,6 +3,7 @@ import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { AppEnv } from "../lib/app";
 import { matchedBrandTerms } from "../lib/domain";
+import { evidenceResponseHeaders } from "../lib/evidence";
 import { getShard } from "../lib/shards";
 import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
 
@@ -352,6 +353,7 @@ analyticsRoutes.get(
     const structuredSnapshot = snapshot
       ? {
           ...snapshot,
+          has_html_evidence: Boolean(snapshot.html_r2_key),
           item_types: jsonParse<unknown[]>(
             snapshot.item_types_json,
             [],
@@ -509,10 +511,9 @@ analyticsRoutes.get(
     if (!key) throw new ApiError(404, "evidence_not_found", "Evidence is not available.");
     const object = await c.env.EVIDENCE_BUCKET.get(key);
     if (!object) throw new ApiError(404, "evidence_not_found", "Evidence is not available.");
-    const headers = new Headers();
-    object.writeHttpMetadata(headers);
-    headers.set("cache-control", "private, no-store");
-    headers.set("content-disposition", `attachment; filename="${id}-${kind}.json"`);
+    const metadata = new Headers();
+    object.writeHttpMetadata(metadata);
+    const headers = evidenceResponseHeaders(kind, id, metadata);
     return new Response(object.body, { headers });
   },
 );

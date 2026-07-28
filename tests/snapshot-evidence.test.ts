@@ -9,6 +9,8 @@ import {
 
 const product: ProductEvidence = {
   id: "product-1",
+  snapshot_item_id: "item-1",
+  provider_product_id: "provider-product-1",
   title: "Sensitive dog food",
   merchants: "example.test",
   price: 24.9,
