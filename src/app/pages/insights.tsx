@@ -32,6 +32,7 @@ import {
 } from "../components/ui";
 import { useApp } from "../context";
 import { api, patch, post, type Project } from "../lib/api";
+import { productDestination } from "../lib/snapshot-evidence";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 
 function useProjectAnalytics<T>(name: string) {
@@ -199,6 +200,7 @@ interface ShoppingRow {
   rating_value: number | null;
   rating_votes_count: number | null;
   images: string[];
+  product_ids: unknown[];
   appearances: number;
   latestSeen: string;
 }
@@ -231,7 +233,7 @@ export function ShoppingPage() {
               { key: "action", label: "" },
             ]}
             rows={query.data.map((product) => {
-              const href = product.canonical_url ?? product.raw_url;
+              const href = productDestination(product);
               return {
                 id: product.id,
                 product: (
@@ -257,13 +259,13 @@ export function ShoppingPage() {
                     : `${product.rating_value}${product.rating_votes_count ? ` · ${compact(product.rating_votes_count)} reviews` : ""}`,
                 appearances: <strong>{compact(product.appearances)}</strong>,
                 seen: dateTime(product.latestSeen),
-                action: href ? (
+                action: (
                   <Button asChild variant="secondary">
                     <a href={href} target="_blank" rel="noreferrer">
                       Open <ExternalLink size={13} />
                     </a>
                   </Button>
-                ) : null,
+                ),
               };
             })}
           />

@@ -11,6 +11,7 @@ import { MarkdownAnswer } from "./markdown-answer";
 import { Badge, Button } from "./ui";
 import {
   formatPrice,
+  productDestination,
   productImage,
   safeExternalUrl,
   type ProductEvidence,
@@ -109,7 +110,7 @@ export function ProductCard({
   compact?: boolean;
 }) {
   const image = productImage(product);
-  const listingUrl = safeExternalUrl(product.canonical_url ?? product.raw_url);
+  const listingUrl = productDestination(product);
   const price = formatPrice(product.price, product.currency);
   const ratingMaximum =
     product.rating_max && product.rating_max > 0 ? product.rating_max : 5;
@@ -172,19 +173,15 @@ export function ProductCard({
     );
     return (
       <article className="shopping-card shopping-card-compact">
-        {listingUrl ? (
-          <a
-            className="shopping-card-link"
-            href={listingUrl}
-            target="_blank"
-            rel="noreferrer"
-            aria-label={`Open ${title}`}
-          >
-            {content}
-          </a>
-        ) : (
-          <div className="shopping-card-link is-static">{content}</div>
-        )}
+        <a
+          className="shopping-card-link"
+          href={listingUrl}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open ${title}`}
+        >
+          {content}
+        </a>
       </article>
     );
   }
@@ -210,13 +207,11 @@ export function ProductCard({
           {rating ? <span>{rating}</span> : null}
         </div>
         <div className="shopping-actions">
-          {listingUrl ? (
-            <Button asChild variant="secondary">
-              <a href={listingUrl} target="_blank" rel="noreferrer">
-                Open listing <ExternalLink size={13} />
-              </a>
-            </Button>
-          ) : null}
+          <Button asChild variant="secondary">
+            <a href={listingUrl} target="_blank" rel="noreferrer">
+              Open product <ExternalLink size={13} />
+            </a>
+          </Button>
         </div>
       </div>
     </article>

@@ -497,6 +497,7 @@ analyticsRoutes.get(
       rating_value: number | null;
       rating_votes_count: number | null;
       images_json: string;
+      product_ids_json: string;
       captured_at: string;
     };
     const occurrences = (
@@ -510,7 +511,7 @@ analyticsRoutes.get(
                   `SELECT p.id, p.snapshot_id, p.provider_product_id, p.merchants,
                     p.title, p.price, p.currency, p.tag, p.raw_url, p.canonical_url,
                     p.registrable_domain, p.rating_value, p.rating_votes_count,
-                    p.images_json, s.captured_at
+                    p.images_json, p.product_ids_json, s.captured_at
                    FROM snapshot_products p JOIN snapshots s ON s.id = p.snapshot_id
                    WHERE p.snapshot_id IN (${placeholders})`,
                 )
@@ -544,6 +545,7 @@ analyticsRoutes.get(
         .map((product) => ({
           ...product,
           images: jsonParse<string[]>(product.images_json, []),
+          product_ids: jsonParse<unknown[]>(product.product_ids_json, []),
           latestSeen: product.captured_at,
         })),
     });

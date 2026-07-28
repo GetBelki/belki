@@ -89,7 +89,7 @@ describe("StructuredAnswer", () => {
     expect(screen.getByRole("button", { name: "Next products" })).toBeInTheDocument();
   });
 
-  it("does not turn products without direct listings into Shopping search links", () => {
+  it("keeps products clickable when the provider omits a direct listing", () => {
     render(
       <StructuredAnswer
         items={[item("products-1", "chat_gpt_products", 0, { items: [] })]}
@@ -98,9 +98,13 @@ describe("StructuredAnswer", () => {
       />,
     );
 
-    expect(screen.getByText("Sensitive dog food")).toBeInTheDocument();
-    expect(screen.queryByRole("link", { name: "Open Sensitive dog food" }))
-      .not.toBeInTheDocument();
+    const destination = screen.getByRole("link", {
+      name: "Open Sensitive dog food",
+    });
+    expect(destination).toHaveAttribute(
+      "href",
+      "https://www.google.com/search?udm=28&q=Sensitive+dog+food",
+    );
   });
 
   it("recovers a direct listing URL from the provider payload", () => {
