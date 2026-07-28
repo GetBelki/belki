@@ -376,9 +376,13 @@ body {
   background: #18181b;
   border-radius: 6px;
   box-shadow: none;
-  font-size: 13px;
   height: 28px;
   width: 28px;
+}
+
+.brand-mark svg {
+  height: 19px;
+  width: 19px;
 }
 
 .sidebar {

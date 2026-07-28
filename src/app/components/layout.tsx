@@ -16,6 +16,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../context";
 import { post } from "../lib/api";
 import { projectChangeDestination } from "../lib/project-navigation";
+import { AppIcon } from "./app-icon";
 import { Button, Select } from "./ui";
 import { cn } from "../lib/utils";
 
@@ -43,7 +44,7 @@ export function AppLayout() {
     <div className="app-shell">
       <aside className={cn("sidebar", mobileOpen && "sidebar-open")}>
         <div className="sidebar-brand">
-          <span className="brand-mark">A</span>
+          <span className="brand-mark"><AppIcon /></span>
           <span>AI Visibility Tracker</span>
           <button className="mobile-close" onClick={() => setMobileOpen(false)}>
             <X size={18} />

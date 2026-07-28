@@ -6,6 +6,7 @@ import { ApiClientError, api, type Session } from "./lib/api";
 import { AppLayout } from "./components/layout";
 import { AcceptInvitePage, LoginPage, ResetPasswordPage, SetupPage } from "./pages/auth";
 import { Skeleton } from "./components/ui";
+import { AppIcon } from "./components/app-icon";
 
 const OverviewPage = lazy(() =>
   import("./pages/main").then((module) => ({ default: module.OverviewPage })),
@@ -116,7 +117,7 @@ export function App() {
 function AppLoader() {
   return (
     <div className="app-loader">
-      <div className="loader-brand"><span className="brand-mark">A</span> AI Visibility Tracker</div>
+      <div className="loader-brand"><span className="brand-mark"><AppIcon /></span> AI Visibility Tracker</div>
       <Skeleton className="loader-line" />
       <Skeleton className="loader-line short" />
     </div>

@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { post } from "../lib/api";
 import { formText } from "../lib/utils";
+import { AppIcon } from "../components/app-icon";
 import { Button, Card, Input, Label } from "../components/ui";
 
 function AuthShell({ children, title, description }: React.PropsWithChildren<{
@@ -13,7 +14,7 @@ function AuthShell({ children, title, description }: React.PropsWithChildren<{
   return (
     <div className="auth-shell">
       <section className="auth-story">
-        <div className="loader-brand"><span className="brand-mark">A</span> AI Visibility Tracker</div>
+        <div className="loader-brand"><span className="brand-mark"><AppIcon /></span> AI Visibility Tracker</div>
         <div className="story-content">
           <span className="eyebrow">Built for answer visibility</span>
           <h1>Know when AI recommends you, and when it doesn’t.</h1>
@@ -23,7 +24,6 @@ function AuthShell({ children, title, description }: React.PropsWithChildren<{
             <div><strong>Source-linked insights</strong><span>Every metric links back to the captured AI response.</span></div>
           </div>
         </div>
-        <small>Cloudflare-native · DataForSEO powered</small>
       </section>
       <section className="auth-form">
         <Card className="auth-card">
