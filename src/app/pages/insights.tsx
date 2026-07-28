@@ -8,6 +8,7 @@ import {
   Globe2,
   KeyRound,
   Plus,
+  RefreshCw,
   Send,
   ServerCog,
   ShoppingBag,
@@ -38,6 +39,7 @@ function useProjectAnalytics<T>(name: string) {
     queryKey: [name, projectId],
     queryFn: () => api<T>(`/analytics/${name}?projectId=${projectId}`),
     enabled: Boolean(projectId),
+    refetchOnMount: "always",
   });
 }
 
@@ -73,7 +75,20 @@ export function BrandsPage() {
   if (!projectId) return <NoProject />;
   return (
     <div className="page">
-      <PageHeader title="Brand visibility" description="Explicit brand entities matched against your owned and competitor aliases." />
+      <PageHeader
+        title="Brand visibility"
+        description="Tracked brand names and aliases detected in captured answers, ignoring letter case."
+        action={
+          <Button
+            variant="secondary"
+            disabled={query.isFetching}
+            onClick={() => void query.refetch()}
+          >
+            <RefreshCw size={14} />
+            {query.isFetching ? "Refreshing…" : "Refresh"}
+          </Button>
+        }
+      />
       <div className="brand-grid">
         {query.data?.length ? query.data.map((brand) => (
           <Card className="brand-card" key={String(brand.id)}>
