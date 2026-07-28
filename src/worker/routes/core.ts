@@ -16,6 +16,7 @@ import { writeAudit } from "../lib/audit";
 import { createSignedJobTag } from "../lib/crypto";
 import { normalizeHostname } from "../lib/domain";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
+import { listProjects } from "../lib/projects";
 import { calculateNextRun } from "../lib/schedule";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
@@ -71,21 +72,9 @@ export const coreRoutes = new Hono<AppEnv>();
 
 coreRoutes.get("/projects", async (c) => {
   const principal = c.get("principal");
-  const rows = await c.env.CONTROL_DB.prepare(
-    `SELECT
-      p.id, p.name, p.primary_domain, p.html_capture_enabled, p.created_at, p.updated_at,
-      COUNT(DISTINCT q.id) AS query_count,
-      MAX(s.captured_at) AS last_snapshot_at
-    FROM projects p
-    LEFT JOIN tracked_queries q ON q.project_id = p.id AND q.deleted_at IS NULL
-    LEFT JOIN snapshot_index s ON s.project_id = p.id
-    WHERE p.workspace_id = ? AND p.deleted_at IS NULL
-    GROUP BY p.id
-    ORDER BY p.updated_at DESC`,
-  )
-    .bind(principal.workspaceId)
-    .all();
-  return c.json({ data: rows.results });
+  return c.json({
+    data: await listProjects(c.env.CONTROL_DB, principal.workspaceId),
+  });
 });
 
 coreRoutes.post("/projects", zValidator("json", ProjectInputSchema), async (c) => {

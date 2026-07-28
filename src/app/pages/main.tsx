@@ -35,6 +35,7 @@ import {
   Label,
   Select,
   Skeleton,
+  TableSkeleton,
 } from "../components/ui";
 import { useApp } from "../context";
 import { api, patch, post } from "../lib/api";
@@ -152,7 +153,9 @@ export function OverviewPage() {
         <Card className="chart-card">
           <CardHeader title="Visibility trend" description="Daily citation and brand-mention rates" />
           <div className="chart">
-            {visibilitySeries.length > 0 ? (
+            {overview.isPending ? (
+              <Skeleton className="chart-skeleton" />
+            ) : visibilitySeries.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                 <AreaChart
                   data={visibilitySeries}
@@ -188,7 +191,9 @@ export function OverviewPage() {
             title="Recently detected products"
             description="Latest products surfaced in tracked AI answers"
           />
-          {overview.data?.recentProducts.length ? (
+          {overview.isPending ? (
+            <TableSkeleton rows={5} columns={2} />
+          ) : overview.data?.recentProducts.length ? (
             <div className="recent-products-list">
               {overview.data.recentProducts.map((product) => (
                 <a
@@ -363,8 +368,10 @@ export function PromptsPage() {
         />
       </div>
       <Card className="prompts-table-card">
-        <CardHeader title={pluralize(queries.data?.length ?? 0, "prompt")} description="Latest capture metrics with a rolling 30-day owned-brand mention rate." />
-        {queries.data?.length ? (
+        <CardHeader title={queries.isPending ? "Prompts" : pluralize(queries.data?.length ?? 0, "prompt")} description="Latest capture metrics with a rolling 30-day owned-brand mention rate." />
+        {queries.isPending ? (
+          <TableSkeleton rows={6} columns={5} />
+        ) : queries.data?.length ? (
           <DataTable
             columns={[
               { key: "query", label: "Prompt", className: "prompt-column" }, { key: "country", label: "Country" },

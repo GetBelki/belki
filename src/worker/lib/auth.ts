@@ -19,6 +19,7 @@ interface SessionRow {
   role: Role;
   csrf_hash: string;
   expires_at: string;
+  last_seen_at: string;
   status: string;
 }
 
@@ -42,7 +43,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   const row = await c.env.CONTROL_DB.prepare(
     `SELECT
       s.id AS session_id, s.user_id, m.workspace_id, u.email, u.display_name,
-      m.role, s.csrf_hash, s.expires_at, u.status
+      m.role, s.csrf_hash, s.expires_at, s.last_seen_at, u.status
     FROM sessions s
     JOIN users u ON u.id = s.user_id
     JOIN memberships m ON m.user_id = u.id
@@ -79,10 +80,26 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
     role: row.role,
   };
   c.set("principal", principal);
-  await c.env.CONTROL_DB.prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
-    .bind(nowIso(), row.session_id)
-    .run();
   await next();
+
+  const lastSeenAt = Date.parse(row.last_seen_at);
+  if (!Number.isFinite(lastSeenAt) || Date.now() - lastSeenAt >= 5 * 60 * 1000) {
+    const updateLastSeen = c.env.CONTROL_DB
+      .prepare("UPDATE sessions SET last_seen_at = ? WHERE id = ?")
+      .bind(nowIso(), row.session_id)
+      .run()
+      .catch((error: unknown) => {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            message: "session_last_seen_update_failed",
+            sessionId: row.session_id,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      });
+    c.executionCtx.waitUntil(updateLastSeen);
+  }
 });
 
 export async function createSession(c: Context<AppEnv>, userId: string): Promise<void> {

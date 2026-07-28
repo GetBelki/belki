@@ -196,6 +196,19 @@ button { border: 0; }
 .kpi-meta strong { font-size: 23px; letter-spacing: -.035em; margin: 1px 0; }
 .kpi-meta small { color: #9b94a4; font-size: 9px; }
 .kpi-skeleton { height: 85px; }
+.chart-skeleton { height: 100%; width: 100%; }
+.table-skeleton { padding: 0 16px 12px; }
+.table-skeleton-row {
+  align-items: center;
+  border-top: 1px solid #f4f4f5;
+  display: grid;
+  gap: 28px;
+  min-height: 48px;
+}
+.table-skeleton-row .skeleton { height: 9px; width: 55%; }
+.table-skeleton-row .table-skeleton-primary { width: 82%; }
+.brand-card-skeleton,
+.product-card-skeleton { height: 126px; }
 .dashboard-grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.65fr) minmax(300px, .85fr); }
 .chart { height: 300px; padding: 5px 13px 15px 2px; }
 .activity-list { padding: 0 16px 14px; }
@@ -1891,10 +1904,12 @@ a.evidence-source:hover strong {
   white-space: nowrap;
 }
 
-.country-cell .fi {
+.country-flag-image {
   border-radius: 2px;
   box-shadow: 0 0 0 1px #e4e4e7;
   flex: 0 0 auto;
+  height: 15px;
+  object-fit: cover;
   width: 20px;
 }
 

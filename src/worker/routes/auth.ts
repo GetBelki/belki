@@ -25,6 +25,7 @@ import {
   verifyPassword,
 } from "../lib/crypto";
 import { ApiError, nowIso } from "../lib/http";
+import { listProjects } from "../lib/projects";
 import { z } from "zod";
 
 interface LoginRow {
@@ -141,8 +142,9 @@ authRoutes.post("/auth/login", zValidator("json", LoginSchema), async (c) => {
   return c.json({ data: { signedIn: true } });
 });
 
-authRoutes.get("/auth/session", (c) => {
+authRoutes.get("/auth/session", async (c) => {
   const principal = c.get("principal");
+  const projects = await listProjects(c.env.CONTROL_DB, principal.workspaceId);
   return c.json({
     data: {
       user: {
@@ -152,6 +154,7 @@ authRoutes.get("/auth/session", (c) => {
         role: principal.role,
       },
       workspaceId: principal.workspaceId,
+      projects,
       csrfTokenPresent: Boolean(getCookie(c, "ai_tracker_csrf")),
     },
   });

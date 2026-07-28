@@ -14,11 +14,15 @@ export function CountryFlag({
   if (!locale?.countryCode) {
     return <span className="country-cell"><Globe2 size={15} />{showName ? "Unknown" : null}</span>;
   }
+  const countryCode = locale.countryCode.toLowerCase();
   return (
     <span className="country-cell">
-      <span
+      <img
+        alt=""
         aria-hidden="true"
-        className={`fi fi-${locale.countryCode.toLowerCase()}`}
+        className="country-flag-image"
+        loading="lazy"
+        src={`https://flagcdn.com/${countryCode}.svg`}
       />
       {showName ? <span>{locale.locationName}</span> : null}
     </span>

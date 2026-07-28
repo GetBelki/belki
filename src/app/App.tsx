@@ -60,7 +60,7 @@ export function App() {
   const session = useQuery({
     queryKey: ["session"],
     queryFn: () => api<Session>("/auth/session"),
-    enabled: status.data?.setupRequired === false && location.pathname !== "/accept-invite",
+    enabled: !["/accept-invite", "/reset-password"].includes(location.pathname),
     retry: false,
   });
 

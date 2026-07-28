@@ -114,6 +114,33 @@ export function Skeleton({ className }: { className?: string }) {
   return <div className={cn("skeleton", className)} />;
 }
 
+export function TableSkeleton({
+  rows = 5,
+  columns = 4,
+}: {
+  rows?: number;
+  columns?: number;
+}) {
+  return (
+    <div className="table-skeleton" aria-label="Loading data">
+      {Array.from({ length: rows }, (_, row) => (
+        <div
+          className="table-skeleton-row"
+          key={row}
+          style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        >
+          {Array.from({ length: columns }, (_, column) => (
+            <Skeleton
+              className={column === 0 ? "table-skeleton-primary" : undefined}
+              key={column}
+            />
+          ))}
+        </div>
+      ))}
+    </div>
+  );
+}
+
 export function Dialog({
   trigger,
   title,

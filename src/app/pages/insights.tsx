@@ -29,6 +29,8 @@ import {
   EmptyState,
   Input,
   Label,
+  Skeleton,
+  TableSkeleton,
 } from "../components/ui";
 import { useApp } from "../context";
 import { api, patch, post, type Project } from "../lib/api";
@@ -41,7 +43,6 @@ function useProjectAnalytics<T>(name: string) {
     queryKey: [name, projectId],
     queryFn: () => api<T>(`/analytics/${name}?projectId=${projectId}`),
     enabled: Boolean(projectId),
-    refetchOnMount: "always",
   });
 }
 
@@ -54,7 +55,7 @@ export function DomainsPage() {
       <PageHeader title="Domain visibility" description="Cited sources and retrieved search results remain intentionally separate." />
       <Card>
         <CardHeader title="Top domains" description="Distinct visibility aggregated over the last 30 days." />
-        {query.data?.length ? <DataTable columns={[
+        {query.isPending ? <TableSkeleton /> : query.data?.length ? <DataTable columns={[
           { key: "domain", label: "Domain" }, { key: "cited", label: "Cited snapshots" },
           { key: "citations", label: "Citations" }, { key: "retrieved", label: "Retrieved" },
           { key: "products", label: "Products" },
@@ -96,7 +97,9 @@ export function CitationSourcesPage() {
           title="Source visibility"
           description="Citation rate is the share of completed captures that cited each domain."
         />
-        {query.data?.length ? (
+        {query.isPending ? (
+          <TableSkeleton />
+        ) : query.data?.length ? (
           <DataTable
             columns={[
               { key: "domain", label: "Domain" },
@@ -149,7 +152,9 @@ export function BrandsPage() {
         }
       />
       <div className="brand-grid">
-        {query.data?.length ? query.data.map((brand) => (
+        {query.isPending ? Array.from({ length: 3 }, (_, index) => (
+          <Skeleton className="brand-card-skeleton" key={index} />
+        )) : query.data?.length ? query.data.map((brand) => (
           <Card className="brand-card" key={String(brand.id)}>
             <div className="brand-avatar">{String(brand.name).slice(0, 1).toUpperCase()}</div>
             <div><Badge tone={brand.kind === "owned" ? "info" : "neutral"}>{brand.kind}</Badge><h3>{brand.name}</h3><strong>{compact(Number(brand.mentioned_snapshot_count))}</strong><span>mentioning snapshots</span></div>
@@ -168,7 +173,9 @@ export function ProductsPage() {
     <div className="page">
       <PageHeader title="Product appearances" description="Products and merchants surfaced in ChatGPT shopping blocks." />
       <div className="products-grid">
-        {query.data?.length ? query.data.map((product) => {
+        {query.isPending ? Array.from({ length: 4 }, (_, index) => (
+          <Skeleton className="product-card-skeleton" key={index} />
+        )) : query.data?.length ? query.data.map((product) => {
           let image: string | null = null;
           try {
             const images = JSON.parse(String(product.images_json ?? "[]")) as string[];
@@ -218,10 +225,12 @@ export function ShoppingPage() {
       />
       <Card>
         <CardHeader
-          title={pluralize(query.data?.length ?? 0, "product")}
+          title={query.isPending ? "Products" : pluralize(query.data?.length ?? 0, "product")}
           description="The latest product details are shown; appearances count every captured occurrence."
         />
-        {query.data?.length ? (
+        {query.isPending ? (
+          <TableSkeleton rows={6} columns={5} />
+        ) : query.data?.length ? (
           <DataTable
             columns={[
               { key: "product", label: "Product" },
