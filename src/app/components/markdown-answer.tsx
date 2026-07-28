@@ -1,7 +1,16 @@
 import type { ComponentPropsWithoutRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { DomainFavicon } from "./domain-favicon";
 import { safeExternalUrl } from "../lib/snapshot-evidence";
+
+function domainFromUrl(value: string): string | null {
+  try {
+    return new URL(value).hostname;
+  } catch {
+    return null;
+  }
+}
 
 function MarkdownLink({
   href,
@@ -17,6 +26,7 @@ function MarkdownLink({
       target="_blank"
       rel="noreferrer"
     >
+      <DomainFavicon domain={domainFromUrl(safeHref)} size={13} />
       {children}
     </a>
   );

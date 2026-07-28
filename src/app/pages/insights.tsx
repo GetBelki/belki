@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { NoProject, PageHeader } from "../components/layout";
+import { DomainFavicon } from "../components/domain-favicon";
 import {
   Badge,
   Button,
@@ -61,7 +62,7 @@ export function DomainsPage() {
           { key: "products", label: "Products" },
         ]} rows={query.data.map((domain) => ({
           id: domain.domain,
-          domain: <div className="domain-cell"><span><Globe2 size={15}/></span><strong>{domain.domain}</strong></div>,
+          domain: <div className="domain-cell"><DomainFavicon domain={String(domain.domain)} /><strong>{domain.domain}</strong></div>,
           cited: compact(Number(domain.cited_snapshot_count)),
           citations: <strong>{compact(Number(domain.citation_count))}</strong>,
           retrieved: compact(Number(domain.retrieval_count)),
@@ -111,7 +112,7 @@ export function CitationSourcesPage() {
               id: source.domain,
               domain: (
                 <div className="domain-cell">
-                  <span><Globe2 size={15} /></span>
+                  <DomainFavicon domain={source.domain} />
                   <strong>{source.domain}</strong>
                 </div>
               ),

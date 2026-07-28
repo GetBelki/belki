@@ -13,6 +13,7 @@ import {
 import { Link, Navigate, useParams } from "react-router-dom";
 import { useEffect } from "react";
 import { NoProject, PageHeader } from "../components/layout";
+import { DomainFavicon } from "../components/domain-favicon";
 import { ProductCard, StructuredAnswer } from "../components/structured-answer";
 import {
   Badge,
@@ -286,7 +287,7 @@ function EvidenceSource({
     .join(" · ");
   const content = (
     <>
-      <div className="source-index">{Number(source.ordinal ?? 0) + 1}</div>
+      <DomainFavicon domain={textValue(source.registrable_domain)} />
       <div className="evidence-source-body">
         <div className="source-type">{kind === "citation" ? "Cited in answer" : "Retrieved result"}</div>
         <strong>{title}</strong>

@@ -230,7 +230,7 @@ tbody tr:hover { background: #fcfbfd; }
 .metric-pair { display: flex; flex-direction: column; gap: 3px; }
 .metric-pair span { align-items: center; display: flex; font-size: 10px; gap: 3px; }
 .domain-cell { align-items: center; display: flex; gap: 9px; }
-.domain-cell span { align-items: center; background: #f1eff6; border-radius: 6px; display: flex; height: 27px; justify-content: center; width: 27px; }
+.domain-cell .domain-favicon { background: #f4f4f5; border-radius: 6px; height: 27px; width: 27px; }
 .capitalize { text-transform: capitalize; }
 
 .empty-state { align-items: center; color: var(--muted); display: flex; flex-direction: column; justify-content: center; min-height: 210px; padding: 28px; text-align: center; }
@@ -1910,6 +1910,34 @@ a.evidence-source:hover strong {
   height: 15px;
   object-fit: cover;
   width: 20px;
+}
+
+.domain-favicon {
+  align-items: center;
+  color: #71717a;
+  display: inline-flex;
+  flex: 0 0 auto;
+  justify-content: center;
+  overflow: hidden;
+}
+
+.domain-favicon img {
+  display: block;
+  object-fit: contain;
+}
+
+.evidence-source > .domain-favicon {
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 4px;
+  height: 24px;
+  width: 24px;
+}
+
+.answer-citation-link .domain-favicon {
+  height: 13px;
+  margin-right: 2px;
+  width: 13px;
 }
 
 .table-actions,
