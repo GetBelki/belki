@@ -398,7 +398,11 @@ export function SnapshotDetailPage() {
               </Button>
             ) : null}
             <Button asChild variant="secondary">
-              <a href={`/api/v1/snapshots/${snapshotId}/evidence/raw`}>
+              <a
+                href={`/api/v1/snapshots/${snapshotId}/evidence/raw`}
+                target="_blank"
+                rel="noreferrer"
+              >
                 Raw JSON <FileJson size={14} />
               </a>
             </Button>

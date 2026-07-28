@@ -19,10 +19,11 @@ describe("evidence response headers", () => {
     expect(headers.get("referrer-policy")).toBe("no-referrer");
   });
 
-  it("keeps raw provider JSON downloadable", () => {
+  it("opens raw provider JSON inline", () => {
     const headers = evidenceResponseHeaders("raw", "snapshot-1");
     expect(headers.get("content-type")).toBe("application/json; charset=utf-8");
-    expect(headers.get("content-disposition")).toContain("attachment");
+    expect(headers.get("content-disposition")).toContain("inline");
+    expect(headers.get("content-disposition")).not.toContain("attachment");
     expect(headers.has("content-security-policy")).toBe(false);
   });
 });

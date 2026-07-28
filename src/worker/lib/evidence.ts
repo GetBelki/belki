@@ -18,7 +18,7 @@ export function evidenceResponseHeaders(
     headers.set("content-type", "application/json; charset=utf-8");
     headers.set(
       "content-disposition",
-      `attachment; filename="${snapshotId}-raw.json"`,
+      `inline; filename="${snapshotId}-raw.json"`,
     );
     return headers;
   }
