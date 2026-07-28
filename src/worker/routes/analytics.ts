@@ -2,8 +2,9 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { AppEnv } from "../lib/app";
+import { matchedBrandTerms } from "../lib/domain";
 import { getShard } from "../lib/shards";
-import { ApiError, exclusiveDateEnd } from "../lib/http";
+import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
 
 const DateRangeSchema = z.object({
   projectId: z.string().uuid(),
@@ -239,9 +240,11 @@ analyticsRoutes.get(
     }
     bindings.push(input.limit + 1);
     const rows = await c.env.CONTROL_DB.prepare(
-      `SELECT * FROM snapshot_index
-       WHERE ${clauses.join(" AND ")}
-       ORDER BY captured_at DESC LIMIT ?`,
+      `SELECT s.*, q.query_text
+       FROM snapshot_index s
+       JOIN tracked_queries q ON q.id = s.tracked_query_id
+       WHERE ${clauses.map((clause) => `s.${clause}`).join(" AND ")}
+       ORDER BY s.captured_at DESC LIMIT ?`,
     )
       .bind(...bindings)
       .all<{ captured_at: string }>();
@@ -268,12 +271,30 @@ analyticsRoutes.get(
       "SELECT * FROM snapshot_index WHERE id = ? AND workspace_id = ?",
     )
       .bind(id, principal.workspaceId)
-      .first<{ shard_id: number } & Record<string, unknown>>();
+      .first<{ shard_id: number; project_id: string } & Record<string, unknown>>();
     if (!index) throw new ApiError(404, "snapshot_not_found", "Snapshot not found.");
     const shard = getShard(c.env, index.shard_id);
-    const [snapshot, sources, searchResults, brands, products, domains] =
+    const [
+      snapshot,
+      sources,
+      searchResults,
+      brands,
+      products,
+      domains,
+      items,
+      trackedBrands,
+    ] =
       await Promise.all([
-        shard.prepare("SELECT * FROM snapshots WHERE id = ?").bind(id).first(),
+        shard
+          .prepare("SELECT * FROM snapshots WHERE id = ?")
+          .bind(id)
+          .first<
+            Record<string, unknown> & {
+              item_types_json: string;
+              fan_out_queries_json: string;
+              answer_markdown: string | null;
+            }
+          >(),
         shard
           .prepare("SELECT * FROM snapshot_sources WHERE snapshot_id = ? ORDER BY ordinal")
           .bind(id)
@@ -296,22 +317,88 @@ analyticsRoutes.get(
         shard
           .prepare("SELECT * FROM snapshot_products WHERE snapshot_id = ? ORDER BY ordinal")
           .bind(id)
-          .all(),
+          .all<
+            Record<string, unknown> & {
+              images_json: string;
+              product_ids_json: string;
+            }
+          >(),
         shard
           .prepare(
             "SELECT * FROM snapshot_domains WHERE snapshot_id = ? ORDER BY cited_count DESC",
           )
           .bind(id)
           .all(),
+        shard
+          .prepare(
+            `SELECT id, snapshot_id, ordinal, type, rank_group, rank_absolute,
+              markdown, payload_json
+             FROM snapshot_items WHERE snapshot_id = ? ORDER BY ordinal`,
+          )
+          .bind(id)
+          .all<Record<string, unknown> & { payload_json: string }>(),
+        c.env.CONTROL_DB.prepare(
+          `SELECT id, kind, name, aliases_json
+           FROM tracked_brands WHERE project_id = ? ORDER BY kind DESC, name`,
+        )
+          .bind(index.project_id)
+          .all<{
+            id: string;
+            kind: "owned" | "competitor";
+            name: string;
+            aliases_json: string;
+          }>(),
       ]);
+    const structuredSnapshot = snapshot
+      ? {
+          ...snapshot,
+          item_types: jsonParse<unknown[]>(
+            snapshot.item_types_json,
+            [],
+          ),
+          fan_out_queries: jsonParse<unknown[]>(
+            snapshot.fan_out_queries_json,
+            [],
+          ),
+        }
+      : null;
+    const structuredProducts = products.results.map((product) => ({
+      ...product,
+      images: jsonParse<unknown[]>(product.images_json, []),
+      product_ids: jsonParse<unknown[]>(
+        product.product_ids_json,
+        [],
+      ),
+    }));
+    const structuredItems = items.results.map((item) => ({
+      ...item,
+      payload: jsonParse<unknown>(
+        item.payload_json,
+        {},
+      ),
+    }));
+    const answerMarkdown =
+      typeof structuredSnapshot?.answer_markdown === "string"
+        ? structuredSnapshot.answer_markdown
+        : "";
+    const brandMentions = trackedBrands.results.flatMap((brand) => {
+      const matchedTerms = matchedBrandTerms(
+        answerMarkdown,
+        brand.name,
+        jsonParse<string[]>(brand.aliases_json, []),
+      );
+      return matchedTerms.length ? [{ ...brand, matchedTerms }] : [];
+    });
     return c.json({
       data: {
-        snapshot,
+        snapshot: structuredSnapshot,
         sources: sources.results,
         searchResults: searchResults.results,
         brands: brands.results,
-        products: products.results,
+        products: structuredProducts,
         domains: domains.results,
+        items: structuredItems,
+        brandMentions,
       },
     });
   },

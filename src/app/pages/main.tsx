@@ -1,8 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  ArrowDownRight,
-  ArrowUpRight,
-  ExternalLink,
   FileJson,
   Globe2,
   Plus,
@@ -12,6 +9,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { Link } from "react-router-dom";
 import {
   Area,
   AreaChart,
@@ -226,7 +224,7 @@ export function QueriesPage() {
             ]}
             rows={queries.data.map((query) => ({
               id: query.id,
-              query: <div className="primary-cell"><strong>{query.query_text}</strong><span>{localeLabel(query.location_code, query.language_code)}</span></div>,
+              query: <Link className="primary-cell table-query-link" to={`/queries/${query.id}`}><strong>{query.query_text}</strong><span>{localeLabel(query.location_code, query.language_code)}</span></Link>,
               schedule: <div className="primary-cell"><strong className="capitalize">{query.schedule_cadence}</strong><span>{query.schedule_time} · {query.schedule_timezone}</span></div>,
               status: <button className="plain-button" onClick={() => toggle.mutate({ id: query.id, isActive: !query.is_active })}><Badge tone={query.is_active ? "success" : "neutral"}>{query.is_active ? "Active" : "Paused"}</Badge></button>,
               last: <div className="primary-cell"><strong>{dateTime(query.last_snapshot_at)}</strong><span>{pluralize(query.snapshot_count, "snapshot")}</span></div>,
@@ -272,80 +270,6 @@ export function QueriesPage() {
           {error ? <p className="form-error">{error}</p> : null}
           <div className="dialog-actions"><Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button><Button disabled={createQuery.isPending}>{createQuery.isPending ? "Adding…" : "Add query"}</Button></div>
         </form>
-      </Dialog>
-    </div>
-  );
-}
-
-interface SnapshotIndex {
-  id: string;
-  captured_at: string;
-  model: string | null;
-  cited_domains_count: number;
-  retrieved_domains_count: number;
-  brand_entities_count: number;
-  products_count: number;
-  check_url: string | null;
-}
-
-interface SnapshotDetail {
-  snapshot: Record<string, string | number | null>;
-  sources: Array<Record<string, string | number | null>>;
-  searchResults: Array<Record<string, string | number | null>>;
-  brands: Array<Record<string, string | number | null>>;
-  products: Array<Record<string, string | number | null>>;
-  domains: Array<Record<string, string | number | null>>;
-}
-
-export function SnapshotExplorerPage() {
-  const { projectId } = useApp();
-  const [selected, setSelected] = useState<string | null>(null);
-  const snapshots = useQuery({
-    queryKey: ["snapshots", projectId],
-    queryFn: () => api<SnapshotIndex[]>(`/snapshots?projectId=${projectId}`),
-    enabled: Boolean(projectId),
-  });
-  const detail = useQuery({
-    queryKey: ["snapshot", selected],
-    queryFn: () => api<SnapshotDetail>(`/snapshots/${selected}`),
-    enabled: Boolean(selected),
-  });
-  const diff = useQuery({
-    queryKey: ["snapshot-diff", selected],
-    queryFn: () => api<Record<string, unknown>>(`/snapshots/${selected}/diff`),
-    enabled: Boolean(selected),
-  });
-  if (!projectId) return <NoProject />;
-  return (
-    <div className="page">
-      <PageHeader title="Snapshot explorer" description="Audit captured answers, citations, retrievals, brands, and products." />
-      <Card>
-        {snapshots.data?.length ? <DataTable columns={[
-          { key: "captured", label: "Captured" }, { key: "model", label: "Model" },
-          { key: "citations", label: "Citations" }, { key: "entities", label: "Entities" },
-          { key: "actions", label: "" },
-        ]} rows={snapshots.data.map((snapshot) => ({
-          id: snapshot.id,
-          captured: <strong>{dateTime(snapshot.captured_at)}</strong>,
-          model: <Badge tone="info">{snapshot.model ?? "Unknown"}</Badge>,
-          citations: <div className="metric-pair"><span><ArrowUpRight size={13} /> {snapshot.cited_domains_count} cited</span><span><ArrowDownRight size={13} /> {snapshot.retrieved_domains_count} retrieved</span></div>,
-          entities: <div className="metric-pair"><span>{snapshot.brand_entities_count} brands</span><span>{snapshot.products_count} products</span></div>,
-          actions: <Button variant="secondary" onClick={() => setSelected(snapshot.id)}>Inspect</Button>,
-        }))} /> : <EmptyState title="No snapshots yet" description="Completed tracking runs will appear here." />}
-      </Card>
-      <Dialog open={Boolean(selected)} onOpenChange={(open) => !open && setSelected(null)} title="Snapshot evidence" description={detail.data ? `${dateTime(String(detail.data.snapshot.captured_at))} · ${String(detail.data.snapshot.model ?? "Unknown model")}` : "Loading captured evidence…"}>
-        {detail.isPending ? <div className="form-stack"><Skeleton className="detail-skeleton" /><Skeleton className="detail-skeleton" /></div> : detail.data ? (
-          <div className="snapshot-detail">
-            <div className="snapshot-actions">
-              {detail.data.snapshot.check_url ? <Button asChild variant="secondary"><a href={String(detail.data.snapshot.check_url)} target="_blank" rel="noreferrer">Check result <ExternalLink size={14} /></a></Button> : null}
-              <Button asChild variant="secondary"><a href={`/api/v1/snapshots/${selected}/evidence/raw`}>Raw JSON <FileJson size={14} /></a></Button>
-            </div>
-            <section><h4>Answer</h4><div className="markdown-preview">{String(detail.data.snapshot.answer_markdown ?? "No answer text returned.")}</div></section>
-            <section><h4>Cited sources <Badge>{detail.data.sources.length}</Badge></h4><div className="source-list">{detail.data.sources.map((source) => <a key={String(source.id)} href={String(source.raw_url)} target="_blank" rel="noreferrer"><div><strong>{String(source.title ?? source.registrable_domain)}</strong><span>{String(source.snippet ?? source.registrable_domain ?? "")}</span></div><ExternalLink size={14} /></a>)}</div></section>
-            <section><h4>Changes</h4><pre className="json-preview">{JSON.stringify(diff.data ?? {}, null, 2)}</pre></section>
-            {detail.data.products.length ? <section><h4>Products</h4><div className="product-mini-grid">{detail.data.products.map((product) => <div key={String(product.id)}><ShoppingBag size={16}/><strong>{String(product.title)}</strong><span>{product.price ? `${String(product.price)} ${String(product.currency ?? "")}` : String(product.registrable_domain ?? "")}</span></div>)}</div></section> : null}
-          </div>
-        ) : <EmptyState title="Snapshot unavailable" description="The evidence could not be loaded." />}
       </Dialog>
     </div>
   );

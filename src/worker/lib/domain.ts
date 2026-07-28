@@ -69,3 +69,32 @@ export function normalizeBrand(value: string): string {
     .toLocaleLowerCase("en-US")
     .replace(/\s+/gu, " ");
 }
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+export function containsBrandMention(text: string, brandName: string): boolean {
+  const candidate = normalizeBrand(brandName);
+  if (!candidate) return false;
+  const normalizedText = normalizeBrand(text);
+  const pattern = escapeRegExp(candidate).replace(/\s+/gu, "\\s+");
+  return new RegExp(
+    `(^|[^\\p{L}\\p{N}])${pattern}(?=$|[^\\p{L}\\p{N}])`,
+    "u",
+  ).test(normalizedText);
+}
+
+export function matchedBrandTerms(
+  text: string,
+  name: string,
+  aliases: string[],
+): string[] {
+  return [name, ...aliases].filter(
+    (term, index, terms) =>
+      term.trim() &&
+      terms.findIndex((candidate) => normalizeBrand(candidate) === normalizeBrand(term)) ===
+        index &&
+      containsBrandMention(text, term),
+  );
+}

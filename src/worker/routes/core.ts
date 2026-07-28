@@ -402,6 +402,31 @@ coreRoutes.get(
   },
 );
 
+coreRoutes.get(
+  "/queries/:id",
+  zValidator("param", IdParamSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const { id } = c.req.valid("param");
+    const query = await c.env.CONTROL_DB.prepare(
+      `SELECT
+        q.*, p.name AS project_name,
+        MAX(s.captured_at) AS last_snapshot_at,
+        COUNT(DISTINCT s.id) AS snapshot_count
+      FROM tracked_queries q
+      JOIN projects p ON p.id = q.project_id
+      LEFT JOIN snapshot_index s ON s.tracked_query_id = q.id
+      WHERE q.id = ? AND p.workspace_id = ? AND q.deleted_at IS NULL
+        AND p.deleted_at IS NULL
+      GROUP BY q.id`,
+    )
+      .bind(id, principal.workspaceId)
+      .first();
+    if (!query) throw new ApiError(404, "query_not_found", "Tracked query not found.");
+    return c.json({ data: query });
+  },
+);
+
 coreRoutes.post(
   "/projects/:projectId/queries",
   zValidator("param", ProjectIdParamSchema),

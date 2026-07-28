@@ -1,5 +1,5 @@
 import type { NormalizeQueueMessage, RollupQueueMessage } from "../../shared/contracts";
-import { normalizeBrand, normalizeUrl } from "../lib/domain";
+import { matchedBrandTerms, normalizeBrand, normalizeUrl } from "../lib/domain";
 import { getTaskHtml } from "../lib/dataforseo";
 import { jsonParse, nowIso } from "../lib/http";
 import { sha256 } from "../lib/crypto";
@@ -340,6 +340,14 @@ export async function normalizeSnapshot(
       }
     });
   });
+  for (const brand of brands) {
+    const aliases = jsonParse<string[]>(brand.aliases_json, []);
+    if (matchedBrandTerms(result.markdown ?? "", brand.name, aliases).length === 0) {
+      continue;
+    }
+    matchedBrands.add(brand.id);
+    if (brand.kind === "owned") matchedOwnedBrands.add(brand.id);
+  }
 
   let productsCount = 0;
   result.items.forEach((item, ordinal) => {

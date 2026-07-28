@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { normalizeBrand, normalizeHostname, normalizeUrl } from "../src/worker/lib/domain";
+import {
+  containsBrandMention,
+  matchedBrandTerms,
+  normalizeBrand,
+  normalizeHostname,
+  normalizeUrl,
+} from "../src/worker/lib/domain";
 
 describe("domain normalization", () => {
   it("canonicalizes URLs and removes tracking parameters", () => {
@@ -22,5 +28,26 @@ describe("domain normalization", () => {
 
   it("normalizes brand matching without losing unicode", () => {
     expect(normalizeBrand("  Café   Déjà  ")).toBe("café déjà");
+  });
+
+  it("matches brand names independently of letter case and markdown formatting", () => {
+    expect(
+      containsBrandMention(
+        "Wenn du das **PETS DELI** Saucen Menü meinst, ist es hochwertig.",
+        "Pets Deli",
+      ),
+    ).toBe(true);
+  });
+
+  it("matches configured aliases and normalizes whitespace", () => {
+    expect(
+      matchedBrandTerms("I recommend Pets\nDeli for this query.", "Other", [
+        "pets deli",
+      ]),
+    ).toEqual(["pets deli"]);
+  });
+
+  it("does not count a brand embedded inside another word", () => {
+    expect(containsBrandMention("The carpet store is nearby.", "pet")).toBe(false);
   });
 });

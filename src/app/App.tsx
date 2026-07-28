@@ -14,7 +14,13 @@ const QueriesPage = lazy(() =>
   import("./pages/main").then((module) => ({ default: module.QueriesPage })),
 );
 const SnapshotExplorerPage = lazy(() =>
-  import("./pages/main").then((module) => ({ default: module.SnapshotExplorerPage })),
+  import("./pages/snapshots").then((module) => ({ default: module.SnapshotExplorerPage })),
+);
+const QuerySnapshotsPage = lazy(() =>
+  import("./pages/snapshots").then((module) => ({ default: module.QuerySnapshotsPage })),
+);
+const SnapshotDetailPage = lazy(() =>
+  import("./pages/snapshots").then((module) => ({ default: module.SnapshotDetailPage })),
 );
 const DomainsPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.DomainsPage })),
@@ -71,7 +77,13 @@ export function App() {
           <Route element={<AppLayout />}>
             <Route index element={<OverviewPage />} />
             <Route path="/queries" element={<QueriesPage />} />
+            <Route path="/queries/:queryId" element={<QuerySnapshotsPage />} />
+            <Route
+              path="/queries/:queryId/snapshots/:snapshotId"
+              element={<SnapshotDetailPage />}
+            />
             <Route path="/snapshots" element={<SnapshotExplorerPage />} />
+            <Route path="/snapshots/:snapshotId" element={<SnapshotDetailPage />} />
             <Route path="/domains" element={<DomainsPage />} />
             <Route path="/brands" element={<BrandsPage />} />
             <Route path="/products" element={<ProductsPage />} />
