@@ -2,7 +2,10 @@ import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
 import type { AppEnv } from "../lib/app";
-import { extractTaskHtml } from "../lib/dataforseo-html";
+import {
+  extractTaskHtml,
+  sanitizeCapturedHtmlResponse,
+} from "../lib/dataforseo-html";
 import { matchedBrandTerms } from "../lib/domain";
 import { evidenceResponseHeaders } from "../lib/evidence";
 import { getShard } from "../lib/shards";
@@ -936,7 +939,9 @@ analyticsRoutes.get(
       }
       try {
         const payload = await new Response(object.body).json();
-        return new Response(extractTaskHtml(payload), { headers });
+        return sanitizeCapturedHtmlResponse(
+          new Response(extractTaskHtml(payload), { headers }),
+        );
       } catch (error) {
         console.warn(
           JSON.stringify({
@@ -953,6 +958,9 @@ analyticsRoutes.get(
         );
       }
     }
-    return new Response(object.body, { headers });
+    const response = new Response(object.body, { headers });
+    return kind === "html"
+      ? sanitizeCapturedHtmlResponse(response)
+      : response;
   },
 );

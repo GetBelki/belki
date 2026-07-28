@@ -11,10 +11,13 @@ describe("evidence response headers", () => {
     expect(headers.get("content-security-policy")).toContain("script-src 'none'");
     expect(headers.get("content-security-policy")).toContain("sandbox");
     expect(headers.get("content-security-policy")).toContain(
-      "style-src-elem 'unsafe-inline' https://chatgpt.com https://cdn.oaistatic.com https://accounts.google.com",
+      "style-src-elem 'unsafe-inline'",
     );
     expect(headers.get("content-security-policy")).toContain(
-      "font-src data: https://chatgpt.com https://cdn.oaistatic.com",
+      "font-src https: data:",
+    );
+    expect(headers.get("content-security-policy")).not.toContain(
+      "style-src-elem 'unsafe-inline' https:",
     );
     expect(headers.get("referrer-policy")).toBe("no-referrer");
   });
