@@ -115,6 +115,15 @@ export function OverviewPage() {
     enabled: Boolean(projectId),
   });
   if (!projectId) return <NoProject />;
+  const visibilitySeries = (overview.data?.series ?? []).map((point) => ({
+    ...point,
+    citationRate: point.completed_runs
+      ? (point.cited_runs / point.completed_runs) * 100
+      : 0,
+    brandMentionRate: point.completed_runs
+      ? (point.brand_mentioned_runs / point.completed_runs) * 100
+      : 0,
+  }));
   return (
     <div className="page">
       <PageHeader
@@ -143,10 +152,10 @@ export function OverviewPage() {
         <Card className="chart-card">
           <CardHeader title="Visibility trend" description="Daily citation and brand-mention rates" />
           <div className="chart">
-            {(overview.data?.series.length ?? 0) > 0 ? (
+            {visibilitySeries.length > 0 ? (
               <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                 <AreaChart
-                  data={overview.data?.series}
+                  data={visibilitySeries}
                   margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
                 >
                   <defs>
@@ -154,10 +163,21 @@ export function OverviewPage() {
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
                   <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
-                  <YAxis width={38} tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
-                  <Tooltip contentStyle={{ borderRadius: 6, border: "1px solid #d4d4d8", boxShadow: "none" }} />
-                  <Area type="monotone" dataKey="cited_runs" name="Cited runs" stroke="#18181b" strokeWidth={2} fill="url(#citation)" />
-                  <Area type="monotone" dataKey="brand_mentioned_runs" name="Brand mentions" stroke="#71717a" strokeWidth={2} fill="transparent" />
+                  <YAxis
+                    width={42}
+                    domain={[0, 100]}
+                    ticks={[0, 25, 50, 75, 100]}
+                    tickFormatter={(value) => `${value}%`}
+                    tickLine={false}
+                    axisLine={false}
+                    tick={{ fill: "#71717a", fontSize: 11 }}
+                  />
+                  <Tooltip
+                    formatter={(value) => percent(Number(value))}
+                    contentStyle={{ borderRadius: 6, border: "1px solid #d4d4d8", boxShadow: "none" }}
+                  />
+                  <Area type="monotone" dataKey="citationRate" name="Citation rate" stroke="#18181b" strokeWidth={2} fill="url(#citation)" />
+                  <Area type="monotone" dataKey="brandMentionRate" name="Brand mention rate" stroke="#71717a" strokeWidth={2} fill="transparent" />
                 </AreaChart>
               </ResponsiveContainer>
             ) : <EmptyState title="No trend data yet" description="Your first completed tracking run will appear here." />}

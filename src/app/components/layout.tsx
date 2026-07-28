@@ -113,9 +113,6 @@ export function AppLayout() {
             <span className="eyebrow">ChatGPT Web Search</span>
             <strong>{currentProject?.name ?? "Create your first project"}</strong>
           </div>
-          <div className="topbar-status">
-            <span className="status-dot" /> Monitoring
-          </div>
         </header>
         <Outlet />
       </main>

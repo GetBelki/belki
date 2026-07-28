@@ -119,7 +119,6 @@ button { border: 0; }
 .topbar > div:first-of-type { display: flex; flex-direction: column; }
 .topbar strong { font-size: 13px; }
 .eyebrow { color: #8d839d; font-size: 9px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
-.topbar-status { align-items: center; color: #5f596d; display: flex; font-size: 11px; gap: 6px; }
 .status-dot { background: #55c989; border-radius: 50%; box-shadow: 0 0 0 3px #55c98920; display: inline-block; height: 6px; width: 6px; }
 .mobile-menu { background: transparent; color: var(--ink); display: none; }
 
@@ -344,7 +343,6 @@ tbody tr:hover { background: #fcfbfd; }
   .page-header h1 { font-size: 26px; }
   .dialog-content { border-radius: 12px; max-height: calc(100vh - 20px); }
   .product-mini-grid, .retention-grid { grid-template-columns: 1fr; }
-  .topbar-status { display: none; }
 }
 
 /* Neutral shadcn-style system: quiet surfaces, compact geometry, no elevation. */
@@ -484,11 +482,6 @@ body {
   color: #18181b;
   font-size: 13px;
   font-weight: 550;
-}
-
-.topbar-status {
-  color: #71717a;
-  font-size: 12px;
 }
 
 .status-dot {
