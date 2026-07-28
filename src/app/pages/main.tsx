@@ -128,14 +128,17 @@ export function OverviewPage() {
           <CardHeader title="Visibility trend" description="Daily citation and brand-mention rates" />
           <div className="chart">
             {(overview.data?.series.length ?? 0) > 0 ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={overview.data?.series}>
+              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                <AreaChart
+                  data={overview.data?.series}
+                  margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+                >
                   <defs>
                     <linearGradient id="citation" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#18181b" stopOpacity={0.12}/><stop offset="95%" stopColor="#18181b" stopOpacity={0}/></linearGradient>
                   </defs>
                   <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
                   <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
-                  <YAxis tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
+                  <YAxis width={38} tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                   <Tooltip contentStyle={{ borderRadius: 6, border: "1px solid #d4d4d8", boxShadow: "none" }} />
                   <Area type="monotone" dataKey="cited_runs" name="Cited runs" stroke="#18181b" strokeWidth={2} fill="url(#citation)" />
                   <Area type="monotone" dataKey="brand_mentioned_runs" name="Brand mentions" stroke="#71717a" strokeWidth={2} fill="transparent" />
@@ -287,12 +290,12 @@ export function PromptsPage() {
           ]}
         />
       </div>
-      <Card>
+      <Card className="prompts-table-card">
         <CardHeader title={pluralize(queries.data?.length ?? 0, "prompt")} description="Latest capture metrics with a rolling 30-day owned-brand mention rate." />
         {queries.data?.length ? (
           <DataTable
             columns={[
-              { key: "query", label: "Prompt" }, { key: "country", label: "Country" },
+              { key: "query", label: "Prompt", className: "prompt-column" }, { key: "country", label: "Country" },
               { key: "sources", label: "Sources" }, { key: "mentions", label: "Mentions" },
               { key: "rate", label: "Mention rate" }, { key: "citations", label: "Citations" },
               { key: "change", label: "Mention change" },

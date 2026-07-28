@@ -200,7 +200,7 @@ export function DataTable({
     <div className="table-wrap">
       <table>
         <thead>
-          <tr>{columns.map((column) => <th key={column.key}>{column.label}</th>)}</tr>
+          <tr>{columns.map((column) => <th className={column.className} key={column.key}>{column.label}</th>)}</tr>
         </thead>
         <tbody>
           {rows.map((row, index) => (

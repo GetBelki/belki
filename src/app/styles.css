@@ -2207,3 +2207,57 @@ a.evidence-source:hover strong {
     width: 100%;
   }
 }
+
+/* Keep dashboard visualizations and prompt titles usable on narrow screens. */
+.dashboard-grid > *,
+.chart-card,
+.chart,
+.chart .recharts-responsive-container,
+.prompts-table-card {
+  min-width: 0;
+}
+
+.chart-card,
+.prompts-table-card {
+  overflow: hidden;
+}
+
+.chart {
+  max-width: 100%;
+  width: 100%;
+}
+
+.prompts-table-card .table-wrap {
+  max-width: 100%;
+}
+
+.prompts-table-card .table-query-link {
+  max-width: 100%;
+  width: 100%;
+}
+
+.prompts-table-card .table-query-link strong {
+  line-height: 1.45;
+  overflow: visible;
+  overflow-wrap: anywhere;
+  text-overflow: clip;
+  white-space: normal;
+}
+
+@media (max-width: 760px) {
+  .chart {
+    height: 240px;
+    padding: 4px 8px 12px 0;
+  }
+
+  .prompts-table-card .prompt-column {
+    max-width: calc(100vw - 58px);
+    min-width: min(260px, calc(100vw - 58px));
+    width: calc(100vw - 58px);
+  }
+
+  .prompts-table-card td.prompt-column {
+    padding-bottom: 13px;
+    padding-top: 13px;
+  }
+}
