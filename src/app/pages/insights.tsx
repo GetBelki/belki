@@ -574,8 +574,23 @@ interface ShoppingRow {
 
 export function ShoppingPage() {
   const { projectId } = useApp();
-  const query = useProjectAnalytics<ShoppingRow[]>("shopping");
+  const pageSize = 10;
+  const [pagination, setPagination] = useState({ projectId, offset: 0 });
+  const offset =
+    pagination.projectId === projectId ? pagination.offset : 0;
+  const query = useQuery({
+    queryKey: ["shopping", projectId, offset],
+    queryFn: () =>
+      apiPage<ShoppingRow[]>(
+        `/analytics/shopping?projectId=${projectId}&offset=${offset}&limit=${pageSize}`,
+      ),
+    enabled: Boolean(projectId),
+  });
   if (!projectId) return <NoProject />;
+  const products = query.data?.data ?? [];
+  const total = query.data?.page.total ?? 0;
+  const firstItem = total ? offset + 1 : 0;
+  const lastItem = Math.min(offset + products.length, total);
   return (
     <div className="page">
       <PageHeader
@@ -585,59 +600,90 @@ export function ShoppingPage() {
       />
       <Card>
         <CardHeader
-          title={query.isPending ? "Products" : pluralize(query.data?.length ?? 0, "product")}
+          title={query.isPending ? "Products" : pluralize(total, "product")}
           description="The latest product details are shown; appearances count every captured occurrence."
         />
         {query.isPending ? (
-          <TableSkeleton rows={6} columns={5} />
-        ) : query.data?.length ? (
-          <DataTable
-            columns={[
-              { key: "product", label: "Product" },
-              { key: "merchant", label: "Merchant" },
-              { key: "price", label: "Latest price" },
-              { key: "rating", label: "Rating" },
-              { key: "appearances", label: "Appearances" },
-              { key: "seen", label: "Latest seen" },
-              { key: "action", label: "" },
-            ]}
-            rows={query.data.map((product) => {
-              const href = productDestination(product);
-              return {
-                id: product.id,
-                product: (
-                  <div className="shopping-table-product">
-                    <span className="shopping-table-image">
-                      {product.images[0] ? (
-                        <img src={product.images[0]} alt="" loading="lazy" />
-                      ) : (
-                        <ShoppingBag size={17} />
-                      )}
-                    </span>
-                    <strong>{product.title ?? "Untitled product"}</strong>
-                  </div>
-                ),
-                merchant: product.merchants ?? product.registrable_domain ?? "—",
-                price:
-                  product.price === null
-                    ? "—"
-                    : <strong>{product.price} {product.currency ?? ""}</strong>,
-                rating:
-                  product.rating_value === null
-                    ? "—"
-                    : `${product.rating_value}${product.rating_votes_count ? ` · ${compact(product.rating_votes_count)} reviews` : ""}`,
-                appearances: <strong>{compact(product.appearances)}</strong>,
-                seen: dateTime(product.latestSeen),
-                action: (
-                  <Button asChild variant="secondary">
-                    <a href={href} target="_blank" rel="noreferrer">
-                      Open <ExternalLink size={13} />
-                    </a>
-                  </Button>
-                ),
-              };
-            })}
-          />
+          <TableSkeleton rows={pageSize} columns={5} />
+        ) : products.length ? (
+          <>
+            <DataTable
+              columns={[
+                { key: "product", label: "Product" },
+                { key: "merchant", label: "Merchant" },
+                { key: "price", label: "Latest price" },
+                { key: "rating", label: "Rating" },
+                { key: "appearances", label: "Appearances" },
+                { key: "seen", label: "Latest seen" },
+                { key: "action", label: "" },
+              ]}
+              rows={products.map((product) => {
+                const href = productDestination(product);
+                return {
+                  id: product.id,
+                  product: (
+                    <div className="shopping-table-product">
+                      <span className="shopping-table-image">
+                        {product.images[0] ? (
+                          <img src={product.images[0]} alt="" loading="lazy" />
+                        ) : (
+                          <ShoppingBag size={17} />
+                        )}
+                      </span>
+                      <strong>{product.title ?? "Untitled product"}</strong>
+                    </div>
+                  ),
+                  merchant: product.merchants ?? product.registrable_domain ?? "—",
+                  price:
+                    product.price === null
+                      ? "—"
+                      : <strong>{product.price} {product.currency ?? ""}</strong>,
+                  rating:
+                    product.rating_value === null
+                      ? "—"
+                      : `${product.rating_value}${product.rating_votes_count ? ` · ${compact(product.rating_votes_count)} reviews` : ""}`,
+                  appearances: <strong>{compact(product.appearances)}</strong>,
+                  seen: dateTime(product.latestSeen),
+                  action: (
+                    <Button asChild variant="secondary">
+                      <a href={href} target="_blank" rel="noreferrer">
+                        Open <ExternalLink size={13} />
+                      </a>
+                    </Button>
+                  ),
+                };
+              })}
+            />
+            <div className="table-pagination">
+              <span>{firstItem}–{lastItem} of {total}</span>
+              <div>
+                <Button
+                  variant="secondary"
+                  disabled={offset === 0 || query.isFetching}
+                  onClick={() =>
+                    setPagination({
+                      projectId,
+                      offset: Math.max(0, offset - pageSize),
+                    })
+                  }
+                >
+                  <ChevronLeft size={14} /> Previous
+                </Button>
+                <Button
+                  variant="secondary"
+                  disabled={!query.data?.page.nextCursor || query.isFetching}
+                  onClick={() =>
+                    setPagination({
+                      projectId,
+                      offset: offset + pageSize,
+                    })
+                  }
+                >
+                  Next <ChevronRight size={14} />
+                </Button>
+              </div>
+            </div>
+          </>
         ) : (
           <EmptyState
             title="No shopping products"

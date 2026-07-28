@@ -17,7 +17,7 @@ const DateRangeSchema = z.object({
   from: z.string().date().optional(),
   to: z.string().date().optional(),
 });
-const CitationSourcesSchema = DateRangeSchema.extend({
+const PaginatedDateRangeSchema = DateRangeSchema.extend({
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });
@@ -469,7 +469,7 @@ analyticsRoutes.get(
 
 analyticsRoutes.get(
   "/analytics/citation-sources",
-  zValidator("query", CitationSourcesSchema),
+  zValidator("query", PaginatedDateRangeSchema),
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
@@ -558,7 +558,7 @@ analyticsRoutes.get(
 analyticsRoutes.get(
   "/analytics/citation-sources/:domain",
   zValidator("param", CitationSourceParamSchema),
-  zValidator("query", CitationSourcesSchema),
+  zValidator("query", PaginatedDateRangeSchema),
   async (c) => {
     const principal = c.get("principal");
     const { domain } = c.req.valid("param");
@@ -728,7 +728,7 @@ analyticsRoutes.get(
 
 analyticsRoutes.get(
   "/analytics/shopping",
-  zValidator("query", DateRangeSchema),
+  zValidator("query", PaginatedDateRangeSchema),
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
@@ -757,15 +757,21 @@ analyticsRoutes.get(
         products.set(key, { ...occurrence, appearances: 1 });
       }
     }
+    const sortedProducts = [...products.values()].sort(
+      (left, right) =>
+        right.appearances - left.appearances ||
+        right.captured_at.localeCompare(left.captured_at),
+    );
+    const page = sortedProducts.slice(input.offset, input.offset + input.limit);
     return c.json({
-      data: [...products.values()]
-        .sort(
-          (left, right) =>
-            right.appearances - left.appearances ||
-            right.captured_at.localeCompare(left.captured_at),
-        )
-        .slice(0, 500)
-        .map(serializedShoppingProduct),
+      data: page.map(serializedShoppingProduct),
+      page: {
+        nextCursor:
+          input.offset + page.length < sortedProducts.length
+            ? String(input.offset + page.length)
+            : null,
+        total: sortedProducts.length,
+      },
     });
   },
 );
