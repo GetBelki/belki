@@ -1,4 +1,4 @@
-import { getDomain } from "tldts";
+import { getDomain, parse } from "tldts";
 
 const TRACKING_PARAMETERS = new Set([
   "fbclid",
@@ -60,6 +60,28 @@ export function normalizeUrl(value: string | null | undefined): NormalizedUrl {
       registrableDomain: normalized.registrableDomain,
     };
   }
+}
+
+export function extractDomainsFromText(value: string | null | undefined): string[] {
+  if (!value) return [];
+
+  const domains = new Set<string>();
+  const candidates = value.matchAll(
+    /(?:https?:\/\/)?(?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+/giu,
+  );
+
+  for (const candidate of candidates) {
+    const hostname = candidate[0]
+      .replace(/^https?:\/\//iu, "")
+      .replace(/^www\./iu, "")
+      .toLowerCase();
+    const parsed = parse(hostname, { allowPrivateDomains: true });
+    if (parsed.domain && (parsed.isIcann || parsed.isPrivate)) {
+      domains.add(parsed.domain);
+    }
+  }
+
+  return [...domains];
 }
 
 export function normalizeBrand(value: string): string {

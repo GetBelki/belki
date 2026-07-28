@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   containsBrandMention,
+  extractDomainsFromText,
   matchedBrandTerms,
   normalizeBrand,
   normalizeHostname,
@@ -24,6 +25,20 @@ describe("domain normalization", () => {
       hostname: "docs.example.com",
       registrableDomain: "example.com",
     });
+  });
+
+  it("extracts and deduplicates seller domains from merchant labels", () => {
+    expect(extractDomainsFromText("Amazon.de - Amazon.de-Seller")).toEqual([
+      "amazon.de",
+    ]);
+    expect(extractDomainsFromText("dogslove.com + weitere")).toEqual([
+      "dogslove.com",
+    ]);
+  });
+
+  it("does not invent a domain when a merchant label has none", () => {
+    expect(extractDomainsFromText("Pets Deli + weitere")).toEqual([]);
+    expect(extractDomainsFromText(null)).toEqual([]);
   });
 
   it("normalizes brand matching without losing unicode", () => {

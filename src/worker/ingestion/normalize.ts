@@ -1,5 +1,10 @@
 import type { NormalizeQueueMessage, RollupQueueMessage } from "../../shared/contracts";
-import { matchedBrandTerms, normalizeBrand, normalizeUrl } from "../lib/domain";
+import {
+  extractDomainsFromText,
+  matchedBrandTerms,
+  normalizeBrand,
+  normalizeUrl,
+} from "../lib/domain";
 import { getTaskHtml } from "../lib/dataforseo";
 import { jsonParse, nowIso } from "../lib/http";
 import { sha256 } from "../lib/crypto";
@@ -126,14 +131,19 @@ export async function normalizeSnapshot(
     .all<BrandRow>();
   const brands = brandsResult.results;
   const brandAliases = new Map<string, BrandRow>();
+  const brandDomains = new Map<string, string[]>();
   const ownedDomains = new Set<string>();
   for (const brand of brands) {
     brandAliases.set(normalizeBrand(brand.name), brand);
     for (const alias of jsonParse<string[]>(brand.aliases_json, [])) {
       brandAliases.set(normalizeBrand(alias), brand);
     }
+    const normalizedBrandDomains = jsonParse<string[]>(brand.domains_json, [])
+      .map((domain) => normalizeUrl(domain).registrableDomain)
+      .filter((domain): domain is string => Boolean(domain));
+    brandDomains.set(brand.id, [...new Set(normalizedBrandDomains)]);
     if (brand.kind === "owned") {
-      for (const domain of jsonParse<string[]>(brand.domains_json, [])) ownedDomains.add(domain);
+      for (const domain of normalizedBrandDomains) ownedDomains.add(domain);
     }
   }
 
@@ -373,7 +383,22 @@ export async function normalizeSnapshot(
     );
     if (item.type !== "chat_gpt_products") return;
     (item.items ?? []).forEach((product, productOrdinal) => {
+      const merchants = productText(product.merchants);
       const normalized = normalizeUrl(productText(product.url) ?? productText(product.domain));
+      const attributedDomains = new Set(extractDomainsFromText(merchants));
+      if (normalized.registrableDomain) attributedDomains.add(normalized.registrableDomain);
+      if (merchants) {
+        for (const brand of brands) {
+          const aliases = jsonParse<string[]>(brand.aliases_json, []);
+          if (matchedBrandTerms(merchants, brand.name, aliases).length === 0) continue;
+          for (const domain of brandDomains.get(brand.id) ?? []) {
+            attributedDomains.add(domain);
+          }
+        }
+      }
+      const primaryDomain =
+        normalized.registrableDomain ?? attributedDomains.values().next().value ?? null;
+      const primaryHostname = normalized.hostname ?? primaryDomain;
       const rating =
         typeof product.rating === "object" && product.rating !== null
           ? (product.rating as Record<string, unknown>)
@@ -396,7 +421,7 @@ export async function normalizeSnapshot(
             productOrdinal,
             item.rank_absolute ?? null,
             productText(product.product_id),
-            productText(product.merchants),
+            merchants,
             productText(product.id_to_token_map),
             productText(product.title),
             productNumber(product.price),
@@ -404,8 +429,8 @@ export async function normalizeSnapshot(
             productText(product.tag),
             normalized.rawUrl,
             normalized.canonicalUrl,
-            normalized.hostname,
-            normalized.registrableDomain,
+            primaryHostname,
+            primaryDomain,
             productNumber(rating.value),
             productNumber(rating.votes_count),
             productNumber(rating.rating_max),
@@ -413,8 +438,11 @@ export async function normalizeSnapshot(
             JSON.stringify(Array.isArray(product.product_ids) ? product.product_ids : []),
           ),
       );
-      if (normalized.registrableDomain) {
-        domainFact(normalized.registrableDomain, normalized.hostname).productCount += 1;
+      for (const domain of attributedDomains) {
+        domainFact(
+          domain,
+          domain === normalized.registrableDomain ? normalized.hostname : domain,
+        ).productCount += 1;
       }
     });
   });
