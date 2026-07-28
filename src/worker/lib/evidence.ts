@@ -1,5 +1,8 @@
 export type EvidenceKind = "raw" | "html";
 
+const CAPTURE_ASSET_ORIGINS =
+  "https://chatgpt.com https://cdn.oaistatic.com";
+
 export function evidenceResponseHeaders(
   kind: EvidenceKind,
   snapshotId: string,
@@ -29,8 +32,9 @@ export function evidenceResponseHeaders(
       "sandbox allow-popups allow-popups-to-escape-sandbox",
       "default-src 'none'",
       "img-src https: data:",
-      "style-src 'unsafe-inline'",
-      "font-src data:",
+      `style-src 'unsafe-inline' ${CAPTURE_ASSET_ORIGINS}`,
+      `style-src-elem 'unsafe-inline' ${CAPTURE_ASSET_ORIGINS}`,
+      `font-src data: ${CAPTURE_ASSET_ORIGINS}`,
       "script-src 'none'",
       "connect-src 'none'",
       "media-src 'none'",

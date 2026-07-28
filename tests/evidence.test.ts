@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { extractTaskHtml } from "../src/worker/lib/dataforseo-html";
 import { evidenceResponseHeaders } from "../src/worker/lib/evidence";
+import { missingDefaultSecurityHeaders } from "../src/worker/lib/security-headers";
 
 describe("evidence response headers", () => {
   it("opens captured HTML inline with strict isolation", () => {
@@ -9,6 +10,12 @@ describe("evidence response headers", () => {
     expect(headers.get("content-disposition")).toContain("inline");
     expect(headers.get("content-security-policy")).toContain("script-src 'none'");
     expect(headers.get("content-security-policy")).toContain("sandbox");
+    expect(headers.get("content-security-policy")).toContain(
+      "style-src-elem 'unsafe-inline' https://chatgpt.com https://cdn.oaistatic.com",
+    );
+    expect(headers.get("content-security-policy")).toContain(
+      "font-src data: https://chatgpt.com https://cdn.oaistatic.com",
+    );
     expect(headers.get("referrer-policy")).toBe("no-referrer");
   });
 
@@ -17,6 +24,19 @@ describe("evidence response headers", () => {
     expect(headers.get("content-type")).toBe("application/json; charset=utf-8");
     expect(headers.get("content-disposition")).toContain("attachment");
     expect(headers.has("content-security-policy")).toBe(false);
+  });
+});
+
+describe("global security header defaults", () => {
+  it("does not overwrite route-specific isolation policies", () => {
+    const responseHeaders = evidenceResponseHeaders("html", "snapshot-1");
+    const missing = new Map(missingDefaultSecurityHeaders(responseHeaders));
+
+    expect(missing.has("content-security-policy")).toBe(false);
+    expect(missing.has("referrer-policy")).toBe(false);
+    expect(missing.get("permissions-policy")).toBe(
+      "camera=(), microphone=(), geolocation=()",
+    );
   });
 });
 

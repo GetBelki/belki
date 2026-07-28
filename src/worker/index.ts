@@ -14,6 +14,7 @@ import type { AppEnv } from "./lib/app";
 import { authMiddleware } from "./lib/auth";
 import { errorResponse, nowIso, requestId } from "./lib/http";
 import { timingSafeTextEqual, verifySignedJobTag } from "./lib/crypto";
+import { missingDefaultSecurityHeaders } from "./lib/security-headers";
 import { dispatchLiveBatch, dispatchStandardBatch, collectReadyTasks } from "./ingestion/dispatch";
 import { normalizeBatch } from "./ingestion/normalize";
 import { rollupBatch } from "./ingestion/rollup";
@@ -32,14 +33,9 @@ const app = new Hono<AppEnv>();
 app.use("*", async (c, next) => {
   c.set("requestId", c.req.header("cf-ray") ?? requestId());
   await next();
-  c.header("x-content-type-options", "nosniff");
-  c.header("referrer-policy", "strict-origin-when-cross-origin");
-  c.header("x-frame-options", "DENY");
-  c.header(
-    "content-security-policy",
-    "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' https: data:; connect-src 'self'; frame-ancestors 'none'",
-  );
-  c.header("permissions-policy", "camera=(), microphone=(), geolocation=()");
+  for (const [name, value] of missingDefaultSecurityHeaders(c.res.headers)) {
+    c.header(name, value);
+  }
 });
 
 app.onError((error, c) => errorResponse(c, error));
