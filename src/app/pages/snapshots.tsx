@@ -1,4 +1,4 @@
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDownRight,
   ArrowLeft,
@@ -10,7 +10,7 @@ import {
   Search,
   ShoppingBag,
 } from "lucide-react";
-import { Link, useParams } from "react-router-dom";
+import { Link, Navigate, useParams } from "react-router-dom";
 import { useEffect } from "react";
 import { NoProject, PageHeader } from "../components/layout";
 import { ProductCard, StructuredAnswer } from "../components/structured-answer";
@@ -25,7 +25,7 @@ import {
   Skeleton,
 } from "../components/ui";
 import { useApp } from "../context";
-import { api, post } from "../lib/api";
+import { api, apiPage, post } from "../lib/api";
 import { localeLabel } from "../lib/locale-catalog";
 import { isRunInProgress, runStatusLabel } from "../lib/run-status";
 import {
@@ -72,7 +72,7 @@ function SnapshotTable({
     <DataTable
       columns={[
         { key: "captured", label: "Captured" },
-        ...(!queryId ? [{ key: "query", label: "Query" }] : []),
+        ...(!queryId ? [{ key: "query", label: "Prompt" }] : []),
         { key: "model", label: "Model" },
         { key: "citations", label: "Sources" },
         { key: "entities", label: "Entities" },
@@ -80,7 +80,7 @@ function SnapshotTable({
       ]}
       rows={snapshots.map((snapshot) => {
         const detailPath = queryId
-          ? `/queries/${queryId}/snapshots/${snapshot.id}`
+          ? `/prompts/${queryId}/snapshots/${snapshot.id}`
           : `/snapshots/${snapshot.id}`;
         return {
           id: snapshot.id,
@@ -90,7 +90,7 @@ function SnapshotTable({
             </Link>
           ),
           query: (
-            <Link className="primary-cell table-query-link" to={`/queries/${snapshot.tracked_query_id}`}>
+            <Link className="primary-cell table-query-link" to={`/prompts/${snapshot.tracked_query_id}`}>
               <strong>{snapshot.query_text}</strong>
               <span>View capture history</span>
             </Link>
@@ -196,18 +196,26 @@ export function QuerySnapshotsPage() {
     return (
       <div className="page">
         <EmptyState
-          title="Query unavailable"
-          description="This tracked query does not exist or is no longer accessible."
-          action={<Button asChild variant="secondary"><Link to="/queries">Back to queries</Link></Button>}
+          title="Prompt unavailable"
+          description="This tracked prompt does not exist or is no longer accessible."
+          action={<Button asChild variant="secondary"><Link to="/prompts">Back to prompts</Link></Button>}
         />
       </div>
     );
   }
+  if (snapshots.data?.[0]) {
+    return (
+      <Navigate
+        replace
+        to={`/prompts/${queryId}/snapshots/${snapshots.data[0].id}`}
+      />
+    );
+  }
   return (
     <div className="page">
-      <Link className="back-link" to="/queries"><ArrowLeft size={14} /> Tracked queries</Link>
+      <Link className="back-link" to="/prompts"><ArrowLeft size={14} /> Prompts</Link>
       <PageHeader
-        eyebrow="Tracked query"
+        eyebrow="Tracked prompt"
         title={query.data.query_text}
         description={`${localeLabel(query.data.location_code, query.data.language_code)} · ${query.data.schedule_cadence} at ${query.data.schedule_time} · ${query.data.schedule_timezone}`}
         action={
@@ -233,17 +241,15 @@ export function QuerySnapshotsPage() {
       </div>
       <Card>
         <CardHeader
-          title="Capture history"
-          description="Open a capture to inspect the full answer and its supporting evidence."
+          title="No captures yet"
+          description="Run this prompt now to create its first snapshot."
         />
         {snapshots.isPending ? (
           <div className="evidence-loading"><Skeleton /><Skeleton /></div>
-        ) : snapshots.data?.length ? (
-          <SnapshotTable snapshots={snapshots.data} queryId={queryId} />
         ) : (
           <EmptyState
             title="No captures yet"
-            description="Run the query now or wait for its next scheduled capture."
+            description="Run the prompt now or wait for its next scheduled capture."
           />
         )}
       </Card>
@@ -323,6 +329,8 @@ function ChangeSummary({ diff }: { diff: SnapshotDiff | undefined }) {
 }
 
 export function SnapshotDetailPage() {
+  const { projectId } = useApp();
+  const { queryId } = useParams();
   const { snapshotId = "" } = useParams();
   const detail = useQuery({
     queryKey: ["snapshot", snapshotId],
@@ -333,6 +341,22 @@ export function SnapshotDetailPage() {
     queryKey: ["snapshot-diff", snapshotId],
     queryFn: () => api<SnapshotDiff>(`/snapshots/${snapshotId}/diff`),
     enabled: Boolean(snapshotId),
+  });
+  const trackedQueryId = queryId ?? detail.data?.snapshot.tracked_query_id;
+  const history = useInfiniteQuery({
+    queryKey: ["prompt-snapshot-history", projectId, trackedQueryId],
+    queryFn: ({ pageParam }) => {
+      const params = new URLSearchParams({
+        projectId: projectId ?? "",
+        queryId: trackedQueryId ?? "",
+        limit: "10",
+      });
+      if (pageParam) params.set("cursor", pageParam);
+      return apiPage<SnapshotIndex[]>(`/snapshots?${params}`);
+    },
+    initialPageParam: "",
+    getNextPageParam: (page) => page.page.nextCursor ?? undefined,
+    enabled: Boolean(projectId && trackedQueryId),
   });
   if (detail.isPending) {
     return (
@@ -365,14 +389,14 @@ export function SnapshotDetailPage() {
     brandMentions,
   } = detail.data;
   const fanOutQueries = snapshot.fan_out_queries.map(fanOutLabel).filter(Boolean) as string[];
-  const backPath = `/queries/${snapshot.tracked_query_id}`;
+  const backPath = "/prompts";
   const citedDomains = domains.filter((domain) => Number(domain.cited_count) > 0);
   const retrievedDomains = domains.filter((domain) => Number(domain.retrieved_count) > 0);
   const hasStructuredProducts = items.some((item) => item.type === "chat_gpt_products");
 
   return (
     <div className="page snapshot-evidence-page">
-      <Link className="back-link" to={backPath}><ArrowLeft size={14} /> Query history</Link>
+      <Link className="back-link" to={backPath}><ArrowLeft size={14} /> Prompts</Link>
       <PageHeader
         eyebrow={`Captured ${dateTime(snapshot.captured_at)}`}
         title={snapshot.keyword}
@@ -409,6 +433,39 @@ export function SnapshotDetailPage() {
           </div>
         }
       />
+
+      <Card className="snapshot-timeline-card">
+        <CardHeader
+          title="Recent captures"
+          description="Compare this result with other snapshots of the same prompt."
+          action={history.hasNextPage ? (
+            <Button
+              variant="ghost"
+              disabled={history.isFetchingNextPage}
+              onClick={() => void history.fetchNextPage()}
+            >
+              {history.isFetchingNextPage ? "Loading…" : "Load older"}
+            </Button>
+          ) : undefined}
+        />
+        <div className="snapshot-timeline">
+          {history.data?.pages.flatMap((page) => page.data).map((item, index) => {
+            const isLatest = index === 0;
+            const isCurrent = item.id === snapshotId;
+            return (
+              <Link
+                className={`snapshot-timeline-item${isCurrent ? " active" : ""}`}
+                key={item.id}
+                to={`/prompts/${snapshot.tracked_query_id}/snapshots/${item.id}`}
+              >
+                <span>{isLatest ? "Latest" : dateTime(item.captured_at)}</span>
+                <strong>{dateTime(item.captured_at)}</strong>
+                <small>{item.cited_domains_count} cited · {item.products_count} products</small>
+              </Link>
+            );
+          })}
+        </div>
+      </Card>
 
       <div className="evidence-stats">
         <div><span>Citations</span><strong>{sources.length}</strong></div>

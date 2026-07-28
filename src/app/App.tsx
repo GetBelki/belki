@@ -10,8 +10,8 @@ import { Skeleton } from "./components/ui";
 const OverviewPage = lazy(() =>
   import("./pages/main").then((module) => ({ default: module.OverviewPage })),
 );
-const QueriesPage = lazy(() =>
-  import("./pages/main").then((module) => ({ default: module.QueriesPage })),
+const PromptsPage = lazy(() =>
+  import("./pages/main").then((module) => ({ default: module.PromptsPage })),
 );
 const SnapshotExplorerPage = lazy(() =>
   import("./pages/snapshots").then((module) => ({ default: module.SnapshotExplorerPage })),
@@ -25,11 +25,17 @@ const SnapshotDetailPage = lazy(() =>
 const DomainsPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.DomainsPage })),
 );
+const CitationSourcesPage = lazy(() =>
+  import("./pages/insights").then((module) => ({ default: module.CitationSourcesPage })),
+);
 const BrandsPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.BrandsPage })),
 );
 const ProductsPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.ProductsPage })),
+);
+const ShoppingPage = lazy(() =>
+  import("./pages/insights").then((module) => ({ default: module.ShoppingPage })),
 );
 const AlertsPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.AlertsPage })),
@@ -76,7 +82,13 @@ export function App() {
         <Routes>
           <Route element={<AppLayout />}>
             <Route index element={<OverviewPage />} />
-            <Route path="/queries" element={<QueriesPage />} />
+            <Route path="/prompts" element={<PromptsPage />} />
+            <Route path="/prompts/:queryId" element={<QuerySnapshotsPage />} />
+            <Route
+              path="/prompts/:queryId/snapshots/:snapshotId"
+              element={<SnapshotDetailPage />}
+            />
+            <Route path="/queries" element={<Navigate to="/prompts" replace />} />
             <Route path="/queries/:queryId" element={<QuerySnapshotsPage />} />
             <Route
               path="/queries/:queryId/snapshots/:snapshotId"
@@ -85,8 +97,10 @@ export function App() {
             <Route path="/snapshots" element={<SnapshotExplorerPage />} />
             <Route path="/snapshots/:snapshotId" element={<SnapshotDetailPage />} />
             <Route path="/domains" element={<DomainsPage />} />
+            <Route path="/citations" element={<CitationSourcesPage />} />
             <Route path="/brands" element={<BrandsPage />} />
             <Route path="/products" element={<ProductsPage />} />
+            <Route path="/shopping" element={<ShoppingPage />} />
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/exports" element={<ExportsPage />} />
             <Route path="/users" element={<UsersPage />} />

@@ -1,17 +1,13 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
-  Bell,
-  Boxes,
   ChartNoAxesCombined,
-  FileDown,
   Globe2,
   LayoutDashboard,
   LogOut,
   Menu,
-  PackageSearch,
+  ShoppingBag,
   Search,
   Settings,
-  Tags,
   Users,
   X,
 } from "lucide-react";
@@ -24,13 +20,9 @@ import { cn } from "../lib/utils";
 
 const NAVIGATION = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
-  { to: "/queries", label: "Queries", icon: Search },
-  { to: "/snapshots", label: "Snapshots", icon: Boxes },
-  { to: "/domains", label: "Domains", icon: Globe2 },
-  { to: "/brands", label: "Brands", icon: Tags },
-  { to: "/products", label: "Products", icon: PackageSearch },
-  { to: "/alerts", label: "Alerts", icon: Bell },
-  { to: "/exports", label: "Exports", icon: FileDown },
+  { to: "/prompts", label: "Prompts", icon: Search },
+  { to: "/citations", label: "Citation Sources", icon: Globe2 },
+  { to: "/shopping", label: "Shopping", icon: ShoppingBag },
 ] as const;
 
 export function AppLayout() {

@@ -53,6 +53,7 @@
     "@tanstack/react-table": "latest",
     "class-variance-authority": "latest",
     "clsx": "latest",
+    "flag-icons": "latest",
     "hono": "latest",
     "lucide-react": "latest",
     "react": "latest",

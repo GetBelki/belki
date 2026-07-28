@@ -19,6 +19,29 @@ export async function api<T>(
   path: string,
   init: RequestInit = {},
 ): Promise<T> {
+  return (await apiResponse<T>(path, init)).data;
+}
+
+export interface ApiPage<T> {
+  data: T;
+  page: { nextCursor: string | null };
+}
+
+export async function apiPage<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<ApiPage<T>> {
+  const payload = await apiResponse<T>(path, init);
+  return {
+    data: payload.data,
+    page: payload.page ?? { nextCursor: null },
+  };
+}
+
+async function apiResponse<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<{ data: T; page?: { nextCursor: string | null } }> {
   const headers = new Headers(init.headers);
   if (init.body && !headers.has("content-type")) headers.set("content-type", "application/json");
   if (!["GET", "HEAD"].includes(init.method ?? "GET")) {
@@ -42,7 +65,7 @@ export async function api<T>(
       error?.code ?? "request_failed",
     );
   }
-  return payload.data;
+  return payload;
 }
 
 export function post<T>(path: string, body?: unknown): Promise<T> {

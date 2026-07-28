@@ -7,6 +7,7 @@ import { matchedBrandTerms } from "../lib/domain";
 import { evidenceResponseHeaders } from "../lib/evidence";
 import { getShard } from "../lib/shards";
 import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
+import { productIdentity } from "../lib/reporting";
 
 const DateRangeSchema = z.object({
   projectId: z.string().uuid(),
@@ -18,6 +19,22 @@ const EvidenceParamSchema = z.object({
   id: z.string().uuid(),
   kind: z.enum(["raw", "html"]),
 });
+const PromptAnalyticsSchema = z.object({
+  projectId: z.string().uuid(),
+  search: z.string().trim().max(200).optional(),
+  locationCode: z.coerce.number().int().optional(),
+  languageCode: z.string().trim().max(12).optional(),
+  cursor: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+
+function chunks<T>(values: T[], size = 75): T[][] {
+  const output: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    output.push(values.slice(index, index + size));
+  }
+  return output;
+}
 
 function range(input: { from?: string; to?: string }): { from: string; to: string } {
   const to = input.to ?? new Date().toISOString().slice(0, 10);
@@ -167,6 +184,366 @@ analyticsRoutes.get(
       .bind(input.projectId, dates.from, dates.to)
       .all();
     return c.json({ data: rows.results });
+  },
+);
+
+analyticsRoutes.get(
+  "/analytics/prompts",
+  zValidator("query", PromptAnalyticsSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const input = c.req.valid("query");
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    const clauses = ["q.project_id = ?", "q.deleted_at IS NULL"];
+    const bindings: Array<string | number> = [input.projectId];
+    if (input.search) {
+      clauses.push("LOWER(q.query_text) LIKE ?");
+      bindings.push(`%${input.search.toLocaleLowerCase()}%`);
+    }
+    if (input.locationCode !== undefined) {
+      clauses.push("q.location_code = ?");
+      bindings.push(input.locationCode);
+    }
+    if (input.languageCode) {
+      clauses.push("q.language_code = ?");
+      bindings.push(input.languageCode);
+    }
+    if (input.cursor) {
+      clauses.push("q.id > ?");
+      bindings.push(input.cursor);
+    }
+    bindings.push(input.limit + 1);
+    const queryRows = await c.env.CONTROL_DB.prepare(
+      `SELECT
+        q.id, q.query_text, q.location_code, q.language_code,
+        q.schedule_cadence, q.schedule_time, q.schedule_timezone, q.is_active,
+        q.shard_id,
+        (SELECT s.id FROM snapshot_index s WHERE s.tracked_query_id = q.id
+          ORDER BY s.captured_at DESC LIMIT 1) AS latest_snapshot_id,
+        (SELECT s.captured_at FROM snapshot_index s WHERE s.tracked_query_id = q.id
+          ORDER BY s.captured_at DESC LIMIT 1) AS latest_captured_at,
+        (SELECT s.id FROM snapshot_index s WHERE s.tracked_query_id = q.id
+          ORDER BY s.captured_at DESC LIMIT 1 OFFSET 1) AS previous_snapshot_id,
+        (SELECT COUNT(*) FROM snapshot_index s WHERE s.tracked_query_id = q.id)
+          AS snapshot_count,
+        (SELECT j.status FROM crawl_jobs j WHERE j.tracked_query_id = q.id
+          ORDER BY j.created_at DESC LIMIT 1) AS latest_run_status
+      FROM tracked_queries q
+      WHERE ${clauses.join(" AND ")}
+      ORDER BY q.id
+      LIMIT ?`,
+    )
+      .bind(...bindings)
+      .all<{
+        id: string;
+        query_text: string;
+        location_code: number;
+        language_code: string;
+        schedule_cadence: string;
+        schedule_time: string;
+        schedule_timezone: string;
+        is_active: number;
+        shard_id: number;
+        latest_snapshot_id: string | null;
+        latest_captured_at: string | null;
+        previous_snapshot_id: string | null;
+        snapshot_count: number;
+        latest_run_status: string | null;
+      }>();
+    const rows = queryRows.results.slice(0, input.limit);
+    const snapshotCounts = new Map<
+      string,
+      { sourceCount: number; citationCount: number }
+    >();
+    const grouped = new Map<number, string[]>();
+    for (const row of rows) {
+      for (const snapshotId of [row.latest_snapshot_id, row.previous_snapshot_id]) {
+        if (snapshotId) {
+          grouped.set(row.shard_id, [...(grouped.get(row.shard_id) ?? []), snapshotId]);
+        }
+      }
+    }
+    await Promise.all(
+      [...grouped.entries()].flatMap(([shardId, ids]) =>
+        chunks([...new Set(ids)]).map(async (snapshotIds) => {
+          const placeholders = snapshotIds.map(() => "?").join(",");
+          const result = await getShard(c.env, shardId)
+            .prepare(
+              `SELECT s.id,
+                (SELECT COUNT(*) FROM snapshot_search_results r
+                  WHERE r.snapshot_id = s.id) AS source_count,
+                (SELECT COUNT(*) FROM snapshot_sources c
+                  WHERE c.snapshot_id = s.id) AS citation_count
+               FROM snapshots s WHERE s.id IN (${placeholders})`,
+            )
+            .bind(...snapshotIds)
+            .all<{ id: string; source_count: number; citation_count: number }>();
+          for (const value of result.results) {
+            snapshotCounts.set(value.id, {
+              sourceCount: value.source_count,
+              citationCount: value.citation_count,
+            });
+          }
+        }),
+      ),
+    );
+    const contributionIds = rows
+      .flatMap((row) => [row.latest_snapshot_id, row.previous_snapshot_id])
+      .filter((value): value is string => Boolean(value));
+    const [ownedBrands, contributions, mentionRates] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        "SELECT id FROM tracked_brands WHERE project_id = ? AND kind = 'owned'",
+      )
+        .bind(input.projectId)
+        .all<{ id: string }>(),
+      contributionIds.length
+        ? c.env.CONTROL_DB.prepare(
+            `SELECT snapshot_id, brands_json FROM metric_contributions
+             WHERE snapshot_id IN (${contributionIds.map(() => "?").join(",")})`,
+          )
+            .bind(...contributionIds)
+            .all<{ snapshot_id: string; brands_json: string }>()
+        : Promise.resolve({ results: [] }),
+      c.env.CONTROL_DB.prepare(
+        `SELECT tracked_query_id,
+          SUM(completed_runs) AS completed_runs,
+          SUM(brand_mentioned_runs) AS mentioned_runs
+         FROM metric_contributions
+         WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+         GROUP BY tracked_query_id`,
+      )
+        .bind(input.projectId, range({}).from, range({}).to)
+        .all<{
+          tracked_query_id: string;
+          completed_runs: number;
+          mentioned_runs: number;
+        }>(),
+    ]);
+    const ownedIds = new Set(ownedBrands.results.map((brand) => brand.id));
+    const mentionCount = new Map(
+      contributions.results.map((contribution) => [
+        contribution.snapshot_id,
+        new Set(
+          jsonParse<string[]>(contribution.brands_json, []).filter((id) =>
+            ownedIds.has(id),
+          ),
+        ).size,
+      ]),
+    );
+    const rates = new Map(
+      mentionRates.results.map((value) => [
+        value.tracked_query_id,
+        value.completed_runs ? (value.mentioned_runs / value.completed_runs) * 100 : 0,
+      ]),
+    );
+    return c.json({
+      data: rows.map((row) => {
+        const latestMentions = row.latest_snapshot_id
+          ? mentionCount.get(row.latest_snapshot_id) ?? 0
+          : null;
+        const previousMentions = row.previous_snapshot_id
+          ? mentionCount.get(row.previous_snapshot_id) ?? 0
+          : null;
+        const latestCounts = row.latest_snapshot_id
+          ? snapshotCounts.get(row.latest_snapshot_id)
+          : undefined;
+        return {
+          id: row.id,
+          queryText: row.query_text,
+          locationCode: row.location_code,
+          languageCode: row.language_code,
+          scheduleCadence: row.schedule_cadence,
+          scheduleTime: row.schedule_time,
+          scheduleTimezone: row.schedule_timezone,
+          isActive: Boolean(row.is_active),
+          latestSnapshotId: row.latest_snapshot_id,
+          latestCapturedAt: row.latest_captured_at,
+          snapshotCount: row.snapshot_count,
+          latestRunStatus: row.latest_run_status,
+          sourceCount: row.latest_snapshot_id ? latestCounts?.sourceCount ?? 0 : null,
+          mentionCount: latestMentions,
+          mentionRate: row.latest_snapshot_id ? rates.get(row.id) ?? 0 : null,
+          citationCount: row.latest_snapshot_id
+            ? latestCounts?.citationCount ?? 0
+            : null,
+          mentionChange:
+            latestMentions !== null && previousMentions !== null
+              ? latestMentions - previousMentions
+              : null,
+        };
+      }),
+      page: {
+        nextCursor:
+          queryRows.results.length > input.limit ? rows.at(-1)?.id ?? null : null,
+      },
+    });
+  },
+);
+
+analyticsRoutes.get(
+  "/analytics/citation-sources",
+  zValidator("query", DateRangeSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const input = c.req.valid("query");
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    const dates = range(input);
+    const indexes = await c.env.CONTROL_DB.prepare(
+      `SELECT id, shard_id FROM snapshot_index
+       WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
+    )
+      .bind(input.projectId, `${dates.from}T00:00:00.000Z`, exclusiveDateEnd(dates.to))
+      .all<{ id: string; shard_id: number }>();
+    const grouped = new Map<number, string[]>();
+    for (const index of indexes.results) {
+      grouped.set(index.shard_id, [...(grouped.get(index.shard_id) ?? []), index.id]);
+    }
+    const urls = new Map<string, Set<string>>();
+    const citations = new Map<
+      string,
+      { total: number; snapshotIds: Set<string> }
+    >();
+    await Promise.all(
+      [...grouped.entries()].flatMap(([shardId, ids]) =>
+        chunks(ids).map(async (snapshotIds) => {
+          const placeholders = snapshotIds.map(() => "?").join(",");
+          const result = await getShard(c.env, shardId)
+            .prepare(
+              `SELECT snapshot_id, registrable_domain, canonical_url, raw_url
+               FROM snapshot_sources WHERE snapshot_id IN (${placeholders})`,
+            )
+            .bind(...snapshotIds)
+            .all<{
+              snapshot_id: string;
+              registrable_domain: string | null;
+              canonical_url: string | null;
+              raw_url: string | null;
+            }>();
+          for (const source of result.results) {
+            if (!source.registrable_domain) continue;
+            const url = source.canonical_url ?? source.raw_url;
+            if (url) {
+              const set = urls.get(source.registrable_domain) ?? new Set<string>();
+              set.add(url);
+              urls.set(source.registrable_domain, set);
+            }
+            const metric = citations.get(source.registrable_domain) ?? {
+              total: 0,
+              snapshotIds: new Set<string>(),
+            };
+            metric.total += 1;
+            metric.snapshotIds.add(source.snapshot_id);
+            citations.set(source.registrable_domain, metric);
+          }
+        }),
+      ),
+    );
+    const completed = indexes.results.length;
+    return c.json({
+      data: [...citations.entries()]
+        .map(([domain, metric]) => ({
+        domain,
+        citationRate: completed
+          ? (metric.snapshotIds.size / completed) * 100
+          : 0,
+        totalUrls: urls.get(domain)?.size ?? 0,
+        totalCitations: metric.total,
+        citedSnapshots: metric.snapshotIds.size,
+      }))
+        .sort(
+          (left, right) =>
+            right.totalCitations - left.totalCitations ||
+            left.domain.localeCompare(right.domain),
+        )
+        .slice(0, 250),
+    });
+  },
+);
+
+analyticsRoutes.get(
+  "/analytics/shopping",
+  zValidator("query", DateRangeSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const input = c.req.valid("query");
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    const dates = range(input);
+    const indexes = await c.env.CONTROL_DB.prepare(
+      `SELECT id, shard_id FROM snapshot_index
+       WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
+         AND products_count > 0 ORDER BY captured_at DESC`,
+    )
+      .bind(input.projectId, `${dates.from}T00:00:00.000Z`, exclusiveDateEnd(dates.to))
+      .all<{ id: string; shard_id: number }>();
+    const grouped = new Map<number, string[]>();
+    for (const index of indexes.results) {
+      grouped.set(index.shard_id, [...(grouped.get(index.shard_id) ?? []), index.id]);
+    }
+    type Product = {
+      id: string;
+      snapshot_id: string;
+      provider_product_id: string | null;
+      merchants: string | null;
+      title: string | null;
+      price: number | null;
+      currency: string | null;
+      tag: string | null;
+      raw_url: string | null;
+      canonical_url: string | null;
+      registrable_domain: string | null;
+      rating_value: number | null;
+      rating_votes_count: number | null;
+      images_json: string;
+      captured_at: string;
+    };
+    const occurrences = (
+      await Promise.all(
+        [...grouped.entries()].flatMap(([shardId, ids]) =>
+          chunks(ids).map(async (snapshotIds) => {
+            const placeholders = snapshotIds.map(() => "?").join(",");
+            return (
+              await getShard(c.env, shardId)
+                .prepare(
+                  `SELECT p.id, p.snapshot_id, p.provider_product_id, p.merchants,
+                    p.title, p.price, p.currency, p.tag, p.raw_url, p.canonical_url,
+                    p.registrable_domain, p.rating_value, p.rating_votes_count,
+                    p.images_json, s.captured_at
+                   FROM snapshot_products p JOIN snapshots s ON s.id = p.snapshot_id
+                   WHERE p.snapshot_id IN (${placeholders})`,
+                )
+                .bind(...snapshotIds)
+                .all<Product>()
+            ).results;
+          }),
+        ),
+      )
+    ).flat();
+    const products = new Map<string, Product & { appearances: number }>();
+    for (const occurrence of occurrences.sort((left, right) =>
+      right.captured_at.localeCompare(left.captured_at),
+    )) {
+      const key = productIdentity(occurrence);
+      const existing = products.get(key);
+      if (existing) {
+        existing.appearances += 1;
+      } else {
+        products.set(key, { ...occurrence, appearances: 1 });
+      }
+    }
+    return c.json({
+      data: [...products.values()]
+        .sort(
+          (left, right) =>
+            right.appearances - left.appearances ||
+            right.captured_at.localeCompare(left.captured_at),
+        )
+        .slice(0, 500)
+        .map((product) => ({
+          ...product,
+          images: jsonParse<string[]>(product.images_json, []),
+          latestSeen: product.captured_at,
+        })),
+    });
   },
 );
 

@@ -85,12 +85,19 @@ export function languagesForLocation(locationCode: string): Array<{
 }
 
 export function localeLabel(locationCode: number, languageCode: string): string {
-  const entry = LOCALE_CATALOG.find(
-    (candidate) =>
-      candidate.locationCode === locationCode &&
-      candidate.languageCode === languageCode,
-  );
+  const entry = localeEntry(locationCode, languageCode);
   return entry
     ? `${entry.locationName} · ${entry.languageName}`
     : `Location ${locationCode} · ${languageCode}`;
+}
+
+export function localeEntry(
+  locationCode: number,
+  languageCode?: string,
+): LocaleCatalogEntry | undefined {
+  return LOCALE_CATALOG.find(
+    (candidate) =>
+      candidate.locationCode === locationCode &&
+      (!languageCode || candidate.languageCode === languageCode),
+  );
 }

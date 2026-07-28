@@ -1,5 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowDown,
+  ArrowUp,
   FileJson,
   Globe2,
   Plus,
@@ -9,7 +11,7 @@ import {
   Sparkles,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import {
   Area,
   AreaChart,
@@ -20,6 +22,7 @@ import {
   YAxis,
 } from "recharts";
 import { NoProject, PageHeader } from "../components/layout";
+import { CountryFlag } from "../components/country-flag";
 import {
   Badge,
   Button,
@@ -38,7 +41,6 @@ import { api, patch, post } from "../lib/api";
 import {
   LOCATION_OPTIONS,
   languagesForLocation,
-  localeLabel,
 } from "../lib/locale-catalog";
 import { isRunInProgress, runStatusLabel } from "../lib/run-status";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
@@ -151,7 +153,7 @@ export function OverviewPage() {
                 <div><strong>{String(snapshot.query_text)}</strong><span>{dateTime(String(snapshot.captured_at))}</span></div>
                 <Badge tone={Number(snapshot.cited_domains_count) ? "success" : "neutral"}>{Number(snapshot.cited_domains_count)} cited</Badge>
               </div>
-            )) : <EmptyState title="No snapshots" description="Add a query to begin monitoring." />}
+            )) : <EmptyState title="No snapshots" description="Add a prompt to begin monitoring." />}
           </div>
         </Card>
       </div>
@@ -161,35 +163,44 @@ export function OverviewPage() {
 
 interface QueryRow {
   id: string;
-  project_id: string;
-  query_text: string;
-  location_code: number;
-  language_code: string;
-  schedule_cadence: "daily" | "weekly";
-  schedule_time: string;
-  schedule_timezone: string;
-  is_active: number;
-  next_run_at: string;
-  last_snapshot_at: string | null;
-  snapshot_count: number;
-  latest_run_status: RunStatus | null;
+  queryText: string;
+  locationCode: number;
+  languageCode: string;
+  isActive: boolean;
+  latestSnapshotId: string | null;
+  latestCapturedAt: string | null;
+  snapshotCount: number;
+  latestRunStatus: RunStatus | null;
+  sourceCount: number | null;
+  mentionCount: number | null;
+  mentionRate: number | null;
+  citationCount: number | null;
+  mentionChange: number | null;
 }
 
-export function QueriesPage() {
+export function PromptsPage() {
   const { projectId } = useApp();
   const queryClient = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [error, setError] = useState("");
   const [locationCode, setLocationCode] = useState("2840");
   const [languageCode, setLanguageCode] = useState("en");
   const languageOptions = languagesForLocation(locationCode);
+  const search = searchParams.get("search") ?? "";
+  const country = searchParams.get("country") ?? "";
+  const language = searchParams.get("language") ?? "";
+  const reportParams = new URLSearchParams({ projectId: projectId ?? "" });
+  if (search) reportParams.set("search", search);
+  if (country) reportParams.set("locationCode", country);
+  if (language) reportParams.set("languageCode", language);
   const queries = useQuery({
-    queryKey: ["queries", projectId],
-    queryFn: () => api<QueryRow[]>(`/queries?projectId=${projectId}`),
+    queryKey: ["prompts", projectId, search, country, language],
+    queryFn: () => api<QueryRow[]>(`/analytics/prompts?${reportParams}`),
     enabled: Boolean(projectId),
     refetchInterval: (current) =>
       current.state.data?.some((query) =>
-        isRunInProgress(query.latest_run_status),
+        isRunInProgress(query.latestRunStatus),
       )
         ? 3_000
         : false,
@@ -198,18 +209,18 @@ export function QueriesPage() {
     mutationFn: (body: Record<string, unknown>) => post(`/projects/${projectId}/queries`, body),
     onSuccess: async () => {
       setDialogOpen(false);
-      await queryClient.invalidateQueries({ queryKey: ["queries", projectId] });
+      await queryClient.invalidateQueries({ queryKey: ["prompts", projectId] });
     },
     onError: (value: Error) => setError(value.message),
   });
   const manualRun = useMutation({
     mutationFn: (queryId: string) => post(`/queries/${queryId}/runs`, { captureHtml: false }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["queries", projectId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts", projectId] }),
   });
   const toggle = useMutation({
     mutationFn: ({ id, isActive }: { id: string; isActive: boolean }) =>
       patch(`/queries/${id}/status`, { isActive }),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["queries", projectId] }),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts", projectId] }),
   });
   if (!projectId) return <NoProject />;
   const submit = (event: FormEvent<HTMLFormElement>) => {
@@ -228,35 +239,96 @@ export function QueriesPage() {
   };
   return (
     <div className="page">
-      <PageHeader title="Tracked queries" description="Prompts monitored against ChatGPT web Search mode." action={
-        <Button onClick={() => setDialogOpen(true)}><Plus size={16} /> Add query</Button>
+      <PageHeader title="Prompts" description="Prompts monitored against ChatGPT web Search mode." action={
+        <Button onClick={() => setDialogOpen(true)}><Plus size={16} /> Add prompt</Button>
       } />
+      <div className="report-filters">
+        <div className="search-filter">
+          <Search size={15} />
+          <Input
+            aria-label="Search prompts"
+            placeholder="Search prompts"
+            value={search}
+            onChange={(event) => {
+              const next = new URLSearchParams(searchParams);
+              if (event.target.value) next.set("search", event.target.value);
+              else next.delete("search");
+              setSearchParams(next, { replace: true });
+            }}
+          />
+        </div>
+        <Select
+          value={country || "all"}
+          onValueChange={(value) => {
+            const next = new URLSearchParams(searchParams);
+            if (value === "all") next.delete("country");
+            else next.set("country", value);
+            setSearchParams(next, { replace: true });
+          }}
+          options={[{ value: "all", label: "All countries" }, ...LOCATION_OPTIONS]}
+        />
+        <Select
+          value={language || "all"}
+          onValueChange={(value) => {
+            const next = new URLSearchParams(searchParams);
+            if (value === "all") next.delete("language");
+            else next.set("language", value);
+            setSearchParams(next, { replace: true });
+          }}
+          options={[
+            { value: "all", label: "All languages" },
+            ...Array.from(
+              new Map(
+                LOCATION_OPTIONS.flatMap((option) =>
+                  languagesForLocation(option.value).map((item) => [item.value, item]),
+                ),
+              ).values(),
+            ),
+          ]}
+        />
+      </div>
       <Card>
-        <CardHeader title={pluralize(queries.data?.length ?? 0, "query", "queries")} description="Schedules use each query’s configured timezone." />
+        <CardHeader title={pluralize(queries.data?.length ?? 0, "prompt")} description="Latest capture metrics with a rolling 30-day owned-brand mention rate." />
         {queries.data?.length ? (
           <DataTable
             columns={[
-              { key: "query", label: "Query" }, { key: "schedule", label: "Schedule" },
-              { key: "status", label: "Status" }, { key: "last", label: "Last capture" },
+              { key: "query", label: "Prompt" }, { key: "country", label: "Country" },
+              { key: "sources", label: "Sources" }, { key: "mentions", label: "Mentions" },
+              { key: "rate", label: "Mention rate" }, { key: "citations", label: "Citations" },
+              { key: "change", label: "Mention change" },
               { key: "actions", label: "" },
             ]}
             rows={queries.data.map((query) => {
-              const runInProgress = isRunInProgress(query.latest_run_status);
+              const runInProgress = isRunInProgress(query.latestRunStatus);
               const isStarting =
                 manualRun.isPending && manualRun.variables === query.id;
+              const destination = query.latestSnapshotId
+                ? `/prompts/${query.id}/snapshots/${query.latestSnapshotId}`
+                : `/prompts/${query.id}`;
               return {
                 id: query.id,
-                query: <Link className="primary-cell table-query-link" to={`/queries/${query.id}`}><strong>{query.query_text}</strong><span>{localeLabel(query.location_code, query.language_code)}</span></Link>,
-                schedule: <div className="primary-cell"><strong className="capitalize">{query.schedule_cadence}</strong><span>{query.schedule_time} · {query.schedule_timezone}</span></div>,
-                status: <button className="plain-button" onClick={() => toggle.mutate({ id: query.id, isActive: !query.is_active })}><Badge tone={query.is_active ? "success" : "neutral"}>{query.is_active ? "Active" : "Paused"}</Badge></button>,
-                last: <div className="primary-cell"><strong>{dateTime(query.last_snapshot_at)}</strong><span>{runInProgress ? runStatusLabel(query.latest_run_status) : pluralize(query.snapshot_count, "snapshot")}</span></div>,
-                actions: <Button variant="secondary" disabled={isStarting || runInProgress} onClick={() => manualRun.mutate(query.id)}><RefreshCw size={14} /> {isStarting ? "Queued…" : runStatusLabel(query.latest_run_status)}</Button>,
+                query: <Link className="primary-cell table-query-link" to={destination}><strong>{query.queryText}</strong><span>{dateTime(query.latestCapturedAt)} · {pluralize(query.snapshotCount, "capture")}</span></Link>,
+                country: <CountryFlag locationCode={query.locationCode} languageCode={query.languageCode} />,
+                sources: query.sourceCount ?? "—",
+                mentions: query.mentionCount ?? "—",
+                rate: query.mentionRate === null ? "—" : percent(query.mentionRate),
+                citations: query.citationCount ?? "—",
+                change: query.mentionChange === null
+                  ? "—"
+                  : <span className={query.mentionChange > 0 ? "metric-up" : query.mentionChange < 0 ? "metric-down" : ""}>
+                      {query.mentionChange > 0 ? <ArrowUp size={13} /> : query.mentionChange < 0 ? <ArrowDown size={13} /> : null}
+                      {query.mentionChange > 0 ? `+${query.mentionChange}` : query.mentionChange}
+                    </span>,
+                actions: <div className="table-actions">
+                  <button className="plain-button" onClick={() => toggle.mutate({ id: query.id, isActive: !query.isActive })}><Badge tone={query.isActive ? "success" : "neutral"}>{query.isActive ? "Active" : "Paused"}</Badge></button>
+                  <Button variant="secondary" disabled={isStarting || runInProgress} onClick={() => manualRun.mutate(query.id)}><RefreshCw size={14} /> {isStarting ? "Queued…" : runStatusLabel(query.latestRunStatus)}</Button>
+                </div>,
               };
             })}
           />
-        ) : <EmptyState title="No tracked queries" description="Add the prompts your audience asks ChatGPT." action={<Button onClick={() => setDialogOpen(true)}><Plus size={15} /> Add query</Button>} />}
+        ) : <EmptyState title="No prompts found" description="Add the prompts your audience asks ChatGPT or adjust the filters." action={<Button onClick={() => setDialogOpen(true)}><Plus size={15} /> Add prompt</Button>} />}
       </Card>
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen} title="Add tracked query" description="Schedule a web-grounded ChatGPT result capture.">
+      <Dialog open={dialogOpen} onOpenChange={setDialogOpen} title="Add tracked prompt" description="Schedule a web-grounded ChatGPT result capture.">
         <form className="form-stack" onSubmit={submit}>
           <Label>Prompt</Label><textarea className="textarea" name="queryText" required maxLength={2000} placeholder="What are the best project management tools for remote teams?" />
           <div className="form-grid">
@@ -291,9 +363,11 @@ export function QueriesPage() {
           </div>
           <input type="hidden" name="weekday" value="1" />
           {error ? <p className="form-error">{error}</p> : null}
-          <div className="dialog-actions"><Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button><Button disabled={createQuery.isPending}>{createQuery.isPending ? "Adding…" : "Add query"}</Button></div>
+          <div className="dialog-actions"><Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button><Button disabled={createQuery.isPending}>{createQuery.isPending ? "Adding…" : "Add prompt"}</Button></div>
         </form>
       </Dialog>
     </div>
   );
 }
+
+export const QueriesPage = PromptsPage;

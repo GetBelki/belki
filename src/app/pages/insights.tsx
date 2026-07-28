@@ -32,7 +32,7 @@ import {
 } from "../components/ui";
 import { useApp } from "../context";
 import { api, patch, post, type Project } from "../lib/api";
-import { compact, dateTime, formText, pluralize } from "../lib/utils";
+import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 
 function useProjectAnalytics<T>(name: string) {
   const { projectId } = useApp();
@@ -65,6 +65,63 @@ export function DomainsPage() {
           retrieved: compact(Number(domain.retrieval_count)),
           products: compact(Number(domain.product_count)),
         }))} /> : <EmptyState title="No domain data" description="Domain metrics appear after snapshots finish normalizing." />}
+      </Card>
+    </div>
+  );
+}
+
+interface CitationSourceRow {
+  domain: string;
+  citationRate: number;
+  totalUrls: number;
+  totalCitations: number;
+  citedSnapshots: number;
+}
+
+export function CitationSourcesPage() {
+  const { projectId } = useApp();
+  const query =
+    useProjectAnalytics<CitationSourceRow[]>("citation-sources");
+  if (!projectId) return <NoProject />;
+  return (
+    <div className="page">
+      <PageHeader
+        eyebrow="Last 30 days"
+        title="Citation sources"
+        description="Domains explicitly cited in captured answers. Retrieved but uncited sources are excluded."
+      />
+      <Card>
+        <CardHeader
+          title="Source visibility"
+          description="Citation rate is the share of completed captures that cited each domain."
+        />
+        {query.data?.length ? (
+          <DataTable
+            columns={[
+              { key: "domain", label: "Domain" },
+              { key: "rate", label: "Citation rate" },
+              { key: "urls", label: "Total URLs" },
+              { key: "citations", label: "Total citations" },
+            ]}
+            rows={query.data.map((source) => ({
+              id: source.domain,
+              domain: (
+                <div className="domain-cell">
+                  <span><Globe2 size={15} /></span>
+                  <strong>{source.domain}</strong>
+                </div>
+              ),
+              rate: <strong>{percent(source.citationRate)}</strong>,
+              urls: compact(source.totalUrls),
+              citations: compact(source.totalCitations),
+            }))}
+          />
+        ) : (
+          <EmptyState
+            title="No citation sources"
+            description="Explicitly cited domains will appear after a capture completes."
+          />
+        )}
       </Card>
     </div>
   );
@@ -126,6 +183,97 @@ export function ProductsPage() {
           );
         }) : <Card><EmptyState title="No products found" description="Product blocks will be catalogued when ChatGPT returns them." /></Card>}
       </div>
+    </div>
+  );
+}
+
+interface ShoppingRow {
+  id: string;
+  title: string | null;
+  merchants: string | null;
+  registrable_domain: string | null;
+  price: number | null;
+  currency: string | null;
+  canonical_url: string | null;
+  raw_url: string | null;
+  rating_value: number | null;
+  rating_votes_count: number | null;
+  images: string[];
+  appearances: number;
+  latestSeen: string;
+}
+
+export function ShoppingPage() {
+  const { projectId } = useApp();
+  const query = useProjectAnalytics<ShoppingRow[]>("shopping");
+  if (!projectId) return <NoProject />;
+  return (
+    <div className="page">
+      <PageHeader
+        eyebrow="Last 30 days"
+        title="Shopping"
+        description="Deduplicated products surfaced in captured shopping blocks."
+      />
+      <Card>
+        <CardHeader
+          title={pluralize(query.data?.length ?? 0, "product")}
+          description="The latest product details are shown; appearances count every captured occurrence."
+        />
+        {query.data?.length ? (
+          <DataTable
+            columns={[
+              { key: "product", label: "Product" },
+              { key: "merchant", label: "Merchant" },
+              { key: "price", label: "Latest price" },
+              { key: "rating", label: "Rating" },
+              { key: "appearances", label: "Appearances" },
+              { key: "seen", label: "Latest seen" },
+              { key: "action", label: "" },
+            ]}
+            rows={query.data.map((product) => {
+              const href = product.canonical_url ?? product.raw_url;
+              return {
+                id: product.id,
+                product: (
+                  <div className="shopping-table-product">
+                    <span className="shopping-table-image">
+                      {product.images[0] ? (
+                        <img src={product.images[0]} alt="" loading="lazy" />
+                      ) : (
+                        <ShoppingBag size={17} />
+                      )}
+                    </span>
+                    <strong>{product.title ?? "Untitled product"}</strong>
+                  </div>
+                ),
+                merchant: product.merchants ?? product.registrable_domain ?? "—",
+                price:
+                  product.price === null
+                    ? "—"
+                    : <strong>{product.price} {product.currency ?? ""}</strong>,
+                rating:
+                  product.rating_value === null
+                    ? "—"
+                    : `${product.rating_value}${product.rating_votes_count ? ` · ${compact(product.rating_votes_count)} reviews` : ""}`,
+                appearances: <strong>{compact(product.appearances)}</strong>,
+                seen: dateTime(product.latestSeen),
+                action: href ? (
+                  <Button asChild variant="secondary">
+                    <a href={href} target="_blank" rel="noreferrer">
+                      Open <ExternalLink size={13} />
+                    </a>
+                  </Button>
+                ) : null,
+              };
+            })}
+          />
+        ) : (
+          <EmptyState
+            title="No shopping products"
+            description="Products will appear when a captured answer contains a shopping block."
+          />
+        )}
+      </Card>
     </div>
   );
 }
@@ -275,7 +423,7 @@ export function SettingsPage() {
                     <strong>{project.name}</strong>
                     <span>
                       {project.primary_domain ?? "No primary domain"} ·{" "}
-                      {pluralize(project.query_count, "query", "queries")}
+                      {pluralize(project.query_count, "prompt")}
                     </span>
                   </div>
                   <div className="settings-project-actions">
