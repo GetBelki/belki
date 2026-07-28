@@ -29,6 +29,11 @@ const DomainsPage = lazy(() =>
 const CitationSourcesPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.CitationSourcesPage })),
 );
+const CitationSourceDetailPage = lazy(() =>
+  import("./pages/insights").then((module) => ({
+    default: module.CitationSourceDetailPage,
+  })),
+);
 const BrandsPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.BrandsPage })),
 );
@@ -99,6 +104,7 @@ export function App() {
             <Route path="/snapshots/:snapshotId" element={<SnapshotDetailPage />} />
             <Route path="/domains" element={<DomainsPage />} />
             <Route path="/citations" element={<CitationSourcesPage />} />
+            <Route path="/citations/:domain" element={<CitationSourceDetailPage />} />
             <Route path="/brands" element={<BrandsPage />} />
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/shopping" element={<ShoppingPage />} />

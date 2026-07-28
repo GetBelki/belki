@@ -12,6 +12,10 @@ describe("project navigation", () => {
     expect(projectChangeDestination(pathname)).toBe("/prompts");
   });
 
+  it("returns to citation sources when changing project from a source detail", () => {
+    expect(projectChangeDestination("/citations/reddit.com")).toBe("/citations");
+  });
+
   it.each([
     "/",
     "/prompts",

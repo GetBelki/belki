@@ -1981,6 +1981,131 @@ a.evidence-source:hover strong {
   padding: 4px 8px;
 }
 
+.clickable-table-row {
+  cursor: pointer;
+}
+
+.clickable-table-row:focus-visible {
+  outline: 2px solid #18181b;
+  outline-offset: -2px;
+}
+
+.source-row-action {
+  text-align: right;
+  width: 42px;
+}
+
+.source-row-chevron {
+  color: #71717a;
+  opacity: 0;
+  transform: translateX(-3px);
+  transition: opacity 120ms ease, transform 120ms ease;
+}
+
+.clickable-table-row:hover .source-row-chevron,
+.clickable-table-row:focus-visible .source-row-chevron {
+  opacity: 1;
+  transform: translateX(0);
+}
+
+.source-summary-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.source-summary-card {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  padding: 18px 20px;
+}
+
+.source-summary-card > span,
+.source-summary-card > small {
+  color: #71717a;
+}
+
+.source-summary-card > span {
+  font-size: 10px;
+}
+
+.source-summary-card > strong {
+  color: #18181b;
+  font-size: 23px;
+  letter-spacing: -.035em;
+  margin: 3px 0 2px;
+}
+
+.source-summary-card > small {
+  font-size: 9px;
+}
+
+.source-summary-skeleton {
+  height: 96px;
+}
+
+.source-trend-card {
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.source-trend-chart,
+.source-trend-skeleton {
+  height: 280px;
+  min-width: 0;
+}
+
+.source-trend-chart {
+  padding: 4px 16px 16px 4px;
+}
+
+.source-trend-skeleton {
+  margin-bottom: 16px;
+  width: 100%;
+}
+
+.source-url-cell {
+  display: flex;
+  flex-direction: column;
+  max-width: 650px;
+  min-width: 260px;
+}
+
+.source-url-cell strong,
+.source-url-cell span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.source-url-cell strong {
+  color: #27272a;
+  font-size: 11px;
+}
+
+.source-url-cell span {
+  color: #71717a;
+  font-size: 9px;
+  margin-top: 3px;
+}
+
+.source-url-action {
+  text-align: right;
+  width: 42px;
+}
+
+.source-url-link {
+  color: #52525b;
+  display: inline-flex;
+  padding: 5px;
+}
+
+.source-url-link:hover {
+  color: #09090b;
+}
+
 .prompts-table-card .actions-column {
   text-align: right;
 }
@@ -2401,6 +2526,24 @@ a.evidence-source:hover strong {
 }
 
 @media (max-width: 760px) {
+  .source-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .source-summary-card {
+    padding: 15px 16px;
+  }
+
+  .source-trend-chart,
+  .source-trend-skeleton {
+    height: 240px;
+  }
+
+  .source-row-chevron {
+    opacity: .55;
+    transform: none;
+  }
+
   .chart {
     height: 240px;
     padding: 4px 8px 12px 0;

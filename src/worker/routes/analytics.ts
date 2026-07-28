@@ -21,6 +21,9 @@ const CitationSourcesSchema = DateRangeSchema.extend({
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });
+const CitationSourceParamSchema = z.object({
+  domain: z.string().trim().min(1).max(253).transform((value) => value.toLowerCase()),
+});
 const SnapshotParamSchema = z.object({ id: z.string().uuid() });
 const EvidenceParamSchema = z.object({
   id: z.string().uuid(),
@@ -547,6 +550,177 @@ analyticsRoutes.get(
             ? String(input.offset + page.length)
             : null,
         total: sortedSources.length,
+      },
+    });
+  },
+);
+
+analyticsRoutes.get(
+  "/analytics/citation-sources/:domain",
+  zValidator("param", CitationSourceParamSchema),
+  zValidator("query", CitationSourcesSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const { domain } = c.req.valid("param");
+    const input = c.req.valid("query");
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    const dates = range(input);
+    const [dailyMetrics, indexes] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `SELECT
+          p.metric_date,
+          p.completed_runs,
+          COALESCE(d.cited_snapshot_count, 0) AS cited_snapshot_count,
+          COALESCE(d.citation_count, 0) AS citation_count
+         FROM daily_project_metrics p
+         LEFT JOIN daily_domain_metrics d
+           ON d.project_id = p.project_id
+          AND d.metric_date = p.metric_date
+          AND d.domain = ?
+         WHERE p.project_id = ? AND p.metric_date BETWEEN ? AND ?
+         ORDER BY p.metric_date`,
+      )
+        .bind(domain, input.projectId, dates.from, dates.to)
+        .all<{
+          metric_date: string;
+          completed_runs: number;
+          cited_snapshot_count: number;
+          citation_count: number;
+        }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT id, shard_id FROM snapshot_index
+         WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
+      )
+        .bind(
+          input.projectId,
+          `${dates.from}T00:00:00.000Z`,
+          exclusiveDateEnd(dates.to),
+        )
+        .all<{ id: string; shard_id: number }>(),
+    ]);
+    const grouped = new Map<number, string[]>();
+    for (const index of indexes.results) {
+      grouped.set(index.shard_id, [...(grouped.get(index.shard_id) ?? []), index.id]);
+    }
+    const sourceOccurrences = (
+      await Promise.all(
+        [...grouped.entries()].flatMap(([shardId, ids]) =>
+          chunks(ids).map(async (snapshotIds) => {
+            const placeholders = snapshotIds.map(() => "?").join(",");
+            return (
+              await getShard(c.env, shardId)
+                .prepare(
+                  `SELECT
+                    COALESCE(c.canonical_url, c.raw_url) AS url,
+                    MAX(c.title) AS title,
+                    MAX(c.source_name) AS source_name,
+                    COUNT(*) AS citation_count,
+                    COUNT(DISTINCT c.snapshot_id) AS cited_snapshots,
+                    MAX(s.captured_at) AS last_cited_at
+                   FROM snapshot_sources c
+                   JOIN snapshots s ON s.id = c.snapshot_id
+                   WHERE c.snapshot_id IN (${placeholders})
+                     AND c.registrable_domain = ?
+                     AND (c.canonical_url IS NOT NULL OR c.raw_url IS NOT NULL)
+                   GROUP BY COALESCE(c.canonical_url, c.raw_url)`,
+                )
+                .bind(...snapshotIds, domain)
+                .all<{
+                  url: string;
+                  title: string | null;
+                  source_name: string | null;
+                  citation_count: number;
+                  cited_snapshots: number;
+                  last_cited_at: string;
+                }>()
+            ).results;
+          }),
+        ),
+      )
+    ).flat();
+    const urls = new Map<
+      string,
+      {
+        url: string;
+        title: string | null;
+        sourceName: string | null;
+        citationCount: number;
+        citedSnapshots: number;
+        lastCitedAt: string;
+      }
+    >();
+    for (const source of sourceOccurrences) {
+      const existing = urls.get(source.url);
+      if (existing) {
+        existing.citationCount += source.citation_count;
+        existing.citedSnapshots += source.cited_snapshots;
+        if (source.last_cited_at > existing.lastCitedAt) {
+          existing.lastCitedAt = source.last_cited_at;
+          existing.title = source.title ?? existing.title;
+          existing.sourceName = source.source_name ?? existing.sourceName;
+        }
+      } else {
+        urls.set(source.url, {
+          url: source.url,
+          title: source.title,
+          sourceName: source.source_name,
+          citationCount: source.citation_count,
+          citedSnapshots: source.cited_snapshots,
+          lastCitedAt: source.last_cited_at,
+        });
+      }
+    }
+    const rankedUrls = [...urls.values()]
+      .map((source) => ({
+        url: source.url,
+        title: source.title,
+        sourceName: source.sourceName,
+        citationCount: source.citationCount,
+        citedSnapshots: source.citedSnapshots,
+        lastCitedAt: source.lastCitedAt,
+      }))
+      .sort(
+        (left, right) =>
+          right.citationCount - left.citationCount ||
+          right.lastCitedAt.localeCompare(left.lastCitedAt) ||
+          left.url.localeCompare(right.url),
+      );
+    const page = rankedUrls.slice(input.offset, input.offset + input.limit);
+    const totals = dailyMetrics.results.reduce(
+      (summary, point) => ({
+        completedRuns: summary.completedRuns + point.completed_runs,
+        citedSnapshots: summary.citedSnapshots + point.cited_snapshot_count,
+        totalCitations: summary.totalCitations + point.citation_count,
+      }),
+      { completedRuns: 0, citedSnapshots: 0, totalCitations: 0 },
+    );
+    return c.json({
+      data: {
+        domain,
+        summary: {
+          ...totals,
+          totalUrls: rankedUrls.length,
+          citationRate: totals.completedRuns
+            ? (totals.citedSnapshots / totals.completedRuns) * 100
+            : 0,
+        },
+        trend: dailyMetrics.results.map((point) => ({
+          date: point.metric_date,
+          completedRuns: point.completed_runs,
+          citedSnapshots: point.cited_snapshot_count,
+          citationCount: point.citation_count,
+          citationRate: point.completed_runs
+            ? (point.cited_snapshot_count / point.completed_runs) * 100
+            : 0,
+        })),
+        urls: page,
+      },
+      page: {
+        nextCursor:
+          input.offset + page.length < rankedUrls.length
+            ? String(input.offset + page.length)
+            : null,
+        total: rankedUrls.length,
       },
     });
   },

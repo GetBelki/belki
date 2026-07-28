@@ -219,9 +219,13 @@ export function Select({
 export function DataTable({
   columns,
   rows,
+  onRowClick,
+  rowAriaLabel,
 }: {
   columns: Array<{ key: string; label: string; className?: string }>;
   rows: Array<Record<string, ReactNode>>;
+  onRowClick?: (row: Record<string, ReactNode>) => void;
+  rowAriaLabel?: (row: Record<string, ReactNode>) => string;
 }) {
   return (
     <div className="table-wrap">
@@ -231,11 +235,28 @@ export function DataTable({
         </thead>
         <tbody>
           {rows.map((row, index) => (
-            <tr key={
-              typeof row.id === "string" || typeof row.id === "number"
-                ? row.id
-                : index
-            }>
+            <tr
+              aria-label={onRowClick ? rowAriaLabel?.(row) : undefined}
+              className={onRowClick ? "clickable-table-row" : undefined}
+              key={
+                typeof row.id === "string" || typeof row.id === "number"
+                  ? row.id
+                  : index
+              }
+              onClick={onRowClick ? () => onRowClick(row) : undefined}
+              onKeyDown={
+                onRowClick
+                  ? (event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        onRowClick(row);
+                      }
+                    }
+                  : undefined
+              }
+              role={onRowClick ? "link" : undefined}
+              tabIndex={onRowClick ? 0 : undefined}
+            >
               {columns.map((column) => (
                 <td className={column.className} key={column.key}>{row[column.key]}</td>
               ))}

@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
+  ArrowLeft,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
@@ -19,6 +20,16 @@ import {
   Webhook,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
+import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  Area,
+  AreaChart,
+  CartesianGrid,
+  ResponsiveContainer,
+  Tooltip,
+  XAxis,
+  YAxis,
+} from "recharts";
 import { NoProject, PageHeader } from "../components/layout";
 import { DomainFavicon } from "../components/domain-favicon";
 import {
@@ -83,8 +94,15 @@ interface CitationSourceRow {
   citedSnapshots: number;
 }
 
+function tableRowId(row: Record<string, React.ReactNode>): string {
+  return typeof row.id === "string" || typeof row.id === "number"
+    ? String(row.id)
+    : "";
+}
+
 export function CitationSourcesPage() {
   const { projectId } = useApp();
+  const navigate = useNavigate();
   const pageSize = 10;
   const [pagination, setPagination] = useState({ projectId, offset: 0 });
   const offset =
@@ -129,6 +147,7 @@ export function CitationSourcesPage() {
                 { key: "rate", label: "Citation rate" },
                 { key: "urls", label: "Total URLs" },
                 { key: "citations", label: "Total citations" },
+                { key: "action", label: "", className: "source-row-action" },
               ]}
               rows={sources.map((source) => ({
                 id: source.domain,
@@ -141,7 +160,19 @@ export function CitationSourcesPage() {
                 rate: <strong>{percent(source.citationRate)}</strong>,
                 urls: compact(source.totalUrls),
                 citations: compact(source.totalCitations),
+                action: <ChevronRight className="source-row-chevron" size={16} />,
               }))}
+              onRowClick={(row) => {
+                const sourceDomain = tableRowId(row);
+                if (sourceDomain) {
+                  void navigate(
+                    `/citations/${encodeURIComponent(sourceDomain)}`,
+                  );
+                }
+              }}
+              rowAriaLabel={(row) =>
+                `Open citation details for ${tableRowId(row)}`
+              }
             />
             <div className="table-pagination">
               <span>{firstItem}–{lastItem} of {total}</span>
@@ -180,6 +211,282 @@ export function CitationSourcesPage() {
           />
         )}
       </Card>
+    </div>
+  );
+}
+
+interface CitationSourceDetail {
+  domain: string;
+  summary: {
+    completedRuns: number;
+    citedSnapshots: number;
+    totalCitations: number;
+    totalUrls: number;
+    citationRate: number;
+  };
+  trend: Array<{
+    date: string;
+    completedRuns: number;
+    citedSnapshots: number;
+    citationCount: number;
+    citationRate: number;
+  }>;
+  urls: Array<{
+    url: string;
+    title: string | null;
+    sourceName: string | null;
+    citationCount: number;
+    citedSnapshots: number;
+    lastCitedAt: string;
+  }>;
+}
+
+function urlPathLabel(value: string): string {
+  try {
+    const url = new URL(value);
+    const path = `${url.pathname}${url.search}`;
+    return path === "/" ? url.hostname : path;
+  } catch {
+    return value;
+  }
+}
+
+export function CitationSourceDetailPage() {
+  const { projectId } = useApp();
+  const { domain: routeDomain = "" } = useParams();
+  const domain = routeDomain.trim().toLowerCase();
+  const pageSize = 10;
+  const pageKey = `${projectId ?? ""}:${domain}`;
+  const [pagination, setPagination] = useState({ pageKey, offset: 0 });
+  const offset = pagination.pageKey === pageKey ? pagination.offset : 0;
+  const query = useQuery({
+    queryKey: ["citation-source", projectId, domain, offset],
+    queryFn: () =>
+      apiPage<CitationSourceDetail>(
+        `/analytics/citation-sources/${encodeURIComponent(domain)}?projectId=${projectId}&offset=${offset}&limit=${pageSize}`,
+      ),
+    enabled: Boolean(projectId && domain),
+  });
+  if (!projectId) return <NoProject />;
+  const detail = query.data?.data;
+  const total = query.data?.page.total ?? 0;
+  const firstItem = total ? offset + 1 : 0;
+  const lastItem = Math.min(offset + (detail?.urls.length ?? 0), total);
+
+  return (
+    <div className="page citation-source-detail-page">
+      <Link className="back-link" to="/citations">
+        <ArrowLeft size={14} /> Citation sources
+      </Link>
+      <PageHeader
+        eyebrow="Last 30 days"
+        title={domain || "Citation source"}
+        description="Citation performance, trend, and cited pages for this source."
+      />
+      {query.isPending ? (
+        <>
+          <div className="source-summary-grid">
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton className="source-summary-skeleton" key={index} />
+            ))}
+          </div>
+          <Skeleton className="source-trend-skeleton" />
+          <Card><TableSkeleton rows={pageSize} /></Card>
+        </>
+      ) : detail ? (
+        <>
+          <div className="source-summary-grid">
+            <Card className="source-summary-card">
+              <span>Citation rate</span>
+              <strong>{percent(detail.summary.citationRate)}</strong>
+              <small>Share of completed captures</small>
+            </Card>
+            <Card className="source-summary-card">
+              <span>Total citations</span>
+              <strong>{compact(detail.summary.totalCitations)}</strong>
+              <small>Across the selected period</small>
+            </Card>
+            <Card className="source-summary-card">
+              <span>Cited captures</span>
+              <strong>{compact(detail.summary.citedSnapshots)}</strong>
+              <small>of {compact(detail.summary.completedRuns)} completed</small>
+            </Card>
+            <Card className="source-summary-card">
+              <span>Cited URLs</span>
+              <strong>{compact(detail.summary.totalUrls)}</strong>
+              <small>Distinct pages from this domain</small>
+            </Card>
+          </div>
+
+          <Card className="source-trend-card">
+            <CardHeader
+              title="Citation trend"
+              description="Daily share of completed captures that cited this source."
+            />
+            <div className="source-trend-chart">
+              {detail.trend.length ? (
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                  <AreaChart
+                    data={detail.trend}
+                    margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
+                  >
+                    <defs>
+                      <linearGradient
+                        id="sourceCitationRate"
+                        x1="0"
+                        x2="0"
+                        y1="0"
+                        y2="1"
+                      >
+                        <stop offset="5%" stopColor="#18181b" stopOpacity={0.12} />
+                        <stop offset="95%" stopColor="#18181b" stopOpacity={0} />
+                      </linearGradient>
+                    </defs>
+                    <CartesianGrid
+                      stroke="#e4e4e7"
+                      strokeDasharray="3 3"
+                      vertical={false}
+                    />
+                    <XAxis
+                      axisLine={false}
+                      dataKey="date"
+                      tick={{ fill: "#71717a", fontSize: 11 }}
+                      tickLine={false}
+                    />
+                    <YAxis
+                      axisLine={false}
+                      domain={[0, 100]}
+                      tick={{ fill: "#71717a", fontSize: 11 }}
+                      tickFormatter={(value) => `${value}%`}
+                      tickLine={false}
+                      ticks={[0, 25, 50, 75, 100]}
+                      width={42}
+                    />
+                    <Tooltip
+                      contentStyle={{
+                        border: "1px solid #d4d4d8",
+                        borderRadius: 6,
+                        boxShadow: "none",
+                      }}
+                      formatter={(value) => [
+                        percent(Number(value)),
+                        "Citation rate",
+                      ]}
+                    />
+                    <Area
+                      dataKey="citationRate"
+                      dot={{ fill: "#fff", r: 3, stroke: "#18181b", strokeWidth: 2 }}
+                      fill="url(#sourceCitationRate)"
+                      name="Citation rate"
+                      stroke="#18181b"
+                      strokeWidth={2}
+                      type="monotone"
+                    />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState
+                  title="No trend data"
+                  description="Citation history will appear after completed prompt runs."
+                />
+              )}
+            </div>
+          </Card>
+
+          <Card>
+            <CardHeader
+              title="Cited pages"
+              description="Pages from this domain explicitly referenced in captured answers."
+              action={
+                total ? (
+                  <span className="table-total">{pluralize(total, "URL")}</span>
+                ) : undefined
+              }
+            />
+            {detail.urls.length ? (
+              <>
+                <DataTable
+                  columns={[
+                    { key: "page", label: "Page" },
+                    { key: "citations", label: "Citations" },
+                    { key: "captures", label: "Cited captures" },
+                    { key: "lastCited", label: "Last cited" },
+                    { key: "open", label: "", className: "source-url-action" },
+                  ]}
+                  rows={detail.urls.map((source) => ({
+                    id: source.url,
+                    page: (
+                      <div className="source-url-cell">
+                        <strong>{source.title || urlPathLabel(source.url)}</strong>
+                        <span>
+                          {source.sourceName
+                            ? `${source.sourceName} · ${urlPathLabel(source.url)}`
+                            : urlPathLabel(source.url)}
+                        </span>
+                      </div>
+                    ),
+                    citations: <strong>{compact(source.citationCount)}</strong>,
+                    captures: compact(source.citedSnapshots),
+                    lastCited: dateTime(source.lastCitedAt),
+                    open: (
+                      <a
+                        aria-label={`Open ${source.title || source.url}`}
+                        className="source-url-link"
+                        href={source.url}
+                        rel="noreferrer"
+                        target="_blank"
+                      >
+                        <ExternalLink size={15} />
+                      </a>
+                    ),
+                  }))}
+                />
+                <div className="table-pagination">
+                  <span>{firstItem}–{lastItem} of {total}</span>
+                  <div>
+                    <Button
+                      variant="secondary"
+                      disabled={offset === 0 || query.isFetching}
+                      onClick={() =>
+                        setPagination({
+                          pageKey,
+                          offset: Math.max(0, offset - pageSize),
+                        })
+                      }
+                    >
+                      <ChevronLeft size={14} /> Previous
+                    </Button>
+                    <Button
+                      variant="secondary"
+                      disabled={!query.data?.page.nextCursor || query.isFetching}
+                      onClick={() =>
+                        setPagination({
+                          pageKey,
+                          offset: offset + pageSize,
+                        })
+                      }
+                    >
+                      Next <ChevronRight size={14} />
+                    </Button>
+                  </div>
+                </div>
+              </>
+            ) : (
+              <EmptyState
+                title="No cited pages"
+                description="This source has no cited URLs in the selected period."
+              />
+            )}
+          </Card>
+        </>
+      ) : (
+        <Card>
+          <EmptyState
+            title="Source unavailable"
+            description="Citation details for this source could not be loaded."
+          />
+        </Card>
+      )}
     </div>
   );
 }

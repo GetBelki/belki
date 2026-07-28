@@ -1,17 +1,24 @@
 import { matchPath } from "react-router-dom";
 
 const PROJECT_DETAIL_ROUTES = [
-  "/prompts/:queryId",
-  "/prompts/:queryId/snapshots/:snapshotId",
-  "/queries/:queryId",
-  "/queries/:queryId/snapshots/:snapshotId",
-  "/snapshots/:snapshotId",
+  { path: "/prompts/:queryId", destination: "/prompts" },
+  {
+    path: "/prompts/:queryId/snapshots/:snapshotId",
+    destination: "/prompts",
+  },
+  { path: "/queries/:queryId", destination: "/prompts" },
+  {
+    path: "/queries/:queryId/snapshots/:snapshotId",
+    destination: "/prompts",
+  },
+  { path: "/snapshots/:snapshotId", destination: "/prompts" },
+  { path: "/citations/:domain", destination: "/citations" },
 ] as const;
 
 export function projectChangeDestination(pathname: string): string | null {
-  return PROJECT_DETAIL_ROUTES.some((path) =>
-    matchPath({ path, end: true }, pathname)
-  )
-    ? "/prompts"
-    : null;
+  return (
+    PROJECT_DETAIL_ROUTES.find(({ path }) =>
+      matchPath({ path, end: true }, pathname)
+    )?.destination ?? null
+  );
 }
