@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  extractTaskHtml,
-  stripExecutableCapturedHtml,
-} from "../src/worker/lib/dataforseo-html";
+import { extractTaskHtml } from "../src/worker/lib/dataforseo-html";
 import { evidenceResponseHeaders } from "../src/worker/lib/evidence";
 import { missingDefaultSecurityHeaders } from "../src/worker/lib/security-headers";
 
@@ -45,27 +42,6 @@ describe("global security header defaults", () => {
 });
 
 describe("DataForSEO HTML evidence", () => {
-  it("removes executable documents while preserving captured presentation", () => {
-    const captured = stripExecutableCapturedHtml(`
-      <!doctype html>
-      <html>
-        <head>
-          <link rel="stylesheet" href="https://chatgpt.com/cdn/assets/root.css">
-          <script type="module">window.boot()</script>
-        </head>
-        <body>
-          <h1>Captured answer</h1>
-          <iframe src="https://chatgpt.com"></iframe>
-        </body>
-      </html>
-    `);
-
-    expect(captured).not.toContain("<script");
-    expect(captured).not.toContain("<iframe");
-    expect(captured).toContain('rel="stylesheet"');
-    expect(captured).toContain("<h1>Captured answer</h1>");
-  });
-
   it("extracts the captured document from the provider JSON envelope", () => {
     expect(
       extractTaskHtml({

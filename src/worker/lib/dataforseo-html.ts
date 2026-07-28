@@ -103,9 +103,13 @@ const removeCapturedHttpEquiv: CapturedHtmlElementHandlers = {
 
 const makeCapturedElementInert: CapturedHtmlElementHandlers = {
   element(element) {
-    for (const attribute of element.attributes) {
-      const attributeName = attribute[0];
-      if (!attributeName) continue;
+    // HTMLRewriter exposes a live iterator and rejects attribute mutations
+    // while it is being consumed. Snapshot the names before changing them.
+    const attributeNames = Array.from(
+      element.attributes,
+      (attribute) => attribute[0],
+    ).filter((attributeName): attributeName is string => Boolean(attributeName));
+    for (const attributeName of attributeNames) {
       const normalizedName = attributeName.toLowerCase();
       if (
         normalizedName.startsWith("on") ||
@@ -166,28 +170,8 @@ function getCapturedHtmlRewriter(): CapturedHtmlRewriter {
  * the final security boundary; this transformation prevents the browser from
  * attempting blocked scripts, frames, preloads, and executable attributes.
  */
-export function stripExecutableCapturedHtml(html: string): string {
-  return html
-    .replace(
-      /<(script|iframe|frame|object|embed|portal)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
-      "",
-    )
-    .replace(
-      /<(script|iframe|frame|object|embed|portal)\b[^>]*\/?\s*>/gi,
-      "",
-    );
-}
-
-export async function sanitizeCapturedHtmlResponse(
-  response: Response,
-): Promise<Response> {
-  const sanitizedSource = stripExecutableCapturedHtml(await response.text());
-  const rewritten = new Response(sanitizedSource, {
-    headers: response.headers,
-    status: response.status,
-    statusText: response.statusText,
-  });
-  return getCapturedHtmlRewriter().transform(rewritten);
+export function sanitizeCapturedHtmlResponse(response: Response): Response {
+  return getCapturedHtmlRewriter().transform(response);
 }
 
 export function extractTaskHtml(payload: unknown): string {

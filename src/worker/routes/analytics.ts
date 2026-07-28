@@ -939,7 +939,7 @@ analyticsRoutes.get(
     if (kind === "html" && key.endsWith(".json")) {
       try {
         const payload = await new Response(object.body).json();
-        return await sanitizeCapturedHtmlResponse(
+        return sanitizeCapturedHtmlResponse(
           new Response(extractTaskHtml(payload), { headers }),
         );
       } catch (error) {
@@ -960,7 +960,7 @@ analyticsRoutes.get(
     }
     const response = new Response(object.body, { headers });
     return kind === "html"
-      ? await sanitizeCapturedHtmlResponse(response)
+      ? sanitizeCapturedHtmlResponse(response)
       : response;
   },
 );
