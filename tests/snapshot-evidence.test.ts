@@ -28,6 +28,14 @@ const product: ProductEvidence = {
     {
       type: "chat_gpt_google_shopping_product",
       query: "sensitive+dog+food",
+      catalog_id: "7532324203553513537",
+      headline_offer_docid: "5398337953081206135",
+      image_docid: "1297225385981891981",
+      rds: "PC_3310192661423604640|PROD_PC_3310192661423604640",
+      gpcid: "3310192661423604640",
+      mid: "576462853665945217",
+      pvt: "hg",
+      uule: "w+CAIQICITG93ZXIgL2F4b255LEdlcm1hbnk",
       gl: "de",
       hl: "de",
     },
@@ -53,10 +61,25 @@ describe("snapshot evidence helpers", () => {
   it("falls back to the provider's localized Google Shopping query", () => {
     const url = new URL(productDestination(product));
     expect(url.origin).toBe("https://www.google.com");
+    expect(url.searchParams.get("ibp")).toBe("oshop");
     expect(url.searchParams.get("udm")).toBe("28");
     expect(url.searchParams.get("q")).toBe("sensitive dog food");
     expect(url.searchParams.get("gl")).toBe("de");
     expect(url.searchParams.get("hl")).toBe("de");
+    expect(url.searchParams.get("uule")).toBe(
+      "w+CAIQICITG93ZXIgL2F4b255LEdlcm1hbnk",
+    );
+    expect(url.searchParams.get("prds")).toBe(
+      [
+        "catalogid:7532324203553513537",
+        "headlineOfferDocid:5398337953081206135",
+        "imageDocid:1297225385981891981",
+        "rds:PC_3310192661423604640|PROD_PC_3310192661423604640",
+        "gpcid:3310192661423604640",
+        "mid:576462853665945217",
+        "pvt:hg",
+      ].join(","),
+    );
     expect(googleShoppingUrl(product)).toBe(url.href);
   });
 

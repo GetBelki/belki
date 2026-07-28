@@ -127,12 +127,73 @@ type ProductDestinationData = Pick<
   "canonical_url" | "raw_url" | "title" | "merchants" | "product_ids"
 >;
 
+function productIdText(
+  productId: Record<string, unknown>,
+  ...keys: string[]
+): string | null {
+  for (const key of keys) {
+    const value = productId[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function googleShoppingCandidateUrl(
+  productId: Record<string, unknown>,
+): string | null {
+  const catalogId = productIdText(productId, "catalog_id", "catalogid");
+  if (!catalogId) return null;
+
+  const descriptor = [`catalogid:${catalogId}`];
+  const descriptorFields = [
+    ["headlineOfferDocid", "headline_offer_docid", "headlineOfferDocid"],
+    ["imageDocid", "image_docid", "imageDocid"],
+    ["rds", "rds"],
+    ["gpcid", "gpcid"],
+    ["mid", "mid"],
+    ["pvt", "pvt"],
+  ] as const;
+  for (const [label, ...keys] of descriptorFields) {
+    const value = productIdText(productId, ...keys);
+    if (value) descriptor.push(`${label}:${value}`);
+  }
+  if (!descriptor.some((part) => part.startsWith("pvt:"))) {
+    descriptor.push("pvt:hg");
+  }
+
+  const params = new URLSearchParams();
+  params.set("ibp", "oshop");
+  params.set("udm", "28");
+  params.set(
+    "q",
+    (productIdText(productId, "query") ?? "").replaceAll("+", " "),
+  );
+  for (const key of ["hl", "gl", "uule"] as const) {
+    const value = productIdText(productId, key);
+    if (value) params.set(key, value);
+  }
+  params.set("prds", descriptor.join(","));
+
+  const query = params
+    .toString()
+    .replaceAll("%3A", ":")
+    .replaceAll("%2C", ",");
+  return `https://www.google.com/search?${query}`;
+}
+
 export function googleShoppingUrl(
   product: Pick<ProductDestinationData, "title" | "merchants" | "product_ids">,
 ): string {
-  const productId = product.product_ids.find(
+  const productIds = product.product_ids.filter(
     (value): value is Record<string, unknown> =>
       Boolean(value && typeof value === "object" && !Array.isArray(value)),
+  );
+  for (const productId of productIds) {
+    const candidate = googleShoppingCandidateUrl(productId);
+    if (candidate) return candidate;
+  }
+  const productId = productIds.find(
+    (value) => typeof value.query === "string" && value.query.trim(),
   );
   const providerQuery =
     typeof productId?.query === "string"
