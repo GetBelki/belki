@@ -210,7 +210,7 @@ button { border: 0; }
 .brand-card-skeleton,
 .product-card-skeleton { height: 126px; }
 .dashboard-grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.65fr) minmax(300px, .85fr); }
-.chart { height: 300px; padding: 5px 13px 15px 2px; }
+.chart { height: 300px; padding: 5px 13px 15px; }
 .activity-list { padding: 0 16px 14px; }
 .activity-row { align-items: center; border-top: 1px solid #eeebf1; display: flex; gap: 10px; padding: 12px 2px; }
 .activity-icon { align-items: center; background: #f1eff8; border-radius: 7px; color: #675c79; display: flex; height: 28px; justify-content: center; width: 28px; }
@@ -2558,7 +2558,7 @@ a.evidence-source:hover strong {
 
   .chart {
     height: 240px;
-    padding: 4px 8px 12px 0;
+    padding: 4px 8px 12px;
   }
 
   .prompts-table-card .prompt-column {
