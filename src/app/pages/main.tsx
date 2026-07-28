@@ -54,6 +54,9 @@ interface Overview {
     citationRate: number;
     brandMentionRate: number;
     productBlockRate: number;
+    trackedPromptCount: number;
+    productPromptCount: number;
+    productPromptCoverage: number;
   };
   series: Array<{
     metric_date: string;
@@ -108,7 +111,13 @@ export function OverviewPage() {
         <div className="kpi-grid">
           <KpiCard label="Citation rate" value={percent(overview.data?.summary.citationRate ?? 0)} detail={pluralize(overview.data?.summary.cited_runs ?? 0, "cited run")} icon={<Globe2 size={19} />} />
           <KpiCard label="Brand mention rate" value={percent(overview.data?.summary.brandMentionRate ?? 0)} detail={pluralize(overview.data?.summary.brand_mentioned_runs ?? 0, "mention")} icon={<Sparkles size={19} />} tone="blue" />
-          <KpiCard label="Product block rate" value={percent(overview.data?.summary.productBlockRate ?? 0)} detail={pluralize(overview.data?.summary.product_runs ?? 0, "product result")} icon={<ShoppingBag size={19} />} tone="green" />
+          <KpiCard
+            label="Product prompt coverage"
+            value={percent(overview.data?.summary.productPromptCoverage ?? 0)}
+            detail={`${overview.data?.summary.productPromptCount ?? 0} of ${overview.data?.summary.trackedPromptCount ?? 0} tracked prompts`}
+            icon={<ShoppingBag size={19} />}
+            tone="green"
+          />
           <KpiCard label="Completed runs" value={compact(overview.data?.summary.completed_runs ?? 0)} detail={`${pluralize(overview.data?.summary.total_citations ?? 0, "citation")} captured`} icon={<Search size={19} />} tone="amber" />
         </div>
       )}

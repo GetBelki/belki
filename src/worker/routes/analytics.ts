@@ -49,7 +49,7 @@ analyticsRoutes.get(
     const input = c.req.valid("query");
     await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
     const dates = range(input);
-    const [summary, series, recent] = await Promise.all([
+    const [summary, productCoverage, series, recent] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT
           COALESCE(SUM(completed_runs), 0) AS completed_runs,
@@ -67,6 +67,34 @@ analyticsRoutes.get(
           brand_mentioned_runs: number;
           product_runs: number;
           total_citations: number;
+        }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT
+          COUNT(q.id) AS tracked_prompt_count,
+          COALESCE(SUM(
+            CASE WHEN (
+              SELECT s.has_product_block
+              FROM snapshot_index s
+              WHERE s.tracked_query_id = q.id
+                AND s.captured_at >= ?
+                AND s.captured_at < ?
+              ORDER BY s.captured_at DESC
+              LIMIT 1
+            ) = 1 THEN 1 ELSE 0 END
+          ), 0) AS product_prompt_count
+        FROM tracked_queries q
+        WHERE q.project_id = ?
+          AND q.is_active = 1
+          AND q.deleted_at IS NULL`,
+      )
+        .bind(
+          `${dates.from}T00:00:00.000Z`,
+          exclusiveDateEnd(dates.to),
+          input.projectId,
+        )
+        .first<{
+          tracked_prompt_count: number;
+          product_prompt_count: number;
         }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT * FROM daily_project_metrics
@@ -89,10 +117,16 @@ analyticsRoutes.get(
         .all(),
     ]);
     const completed = summary?.completed_runs ?? 0;
+    const trackedPrompts = productCoverage?.tracked_prompt_count ?? 0;
     return c.json({
       data: {
         summary: {
           ...summary,
+          trackedPromptCount: trackedPrompts,
+          productPromptCount: productCoverage?.product_prompt_count ?? 0,
+          productPromptCoverage: trackedPrompts
+            ? ((productCoverage?.product_prompt_count ?? 0) / trackedPrompts) * 100
+            : 0,
           citationRate: completed ? ((summary?.cited_runs ?? 0) / completed) * 100 : 0,
           brandMentionRate: completed
             ? ((summary?.brand_mentioned_runs ?? 0) / completed) * 100
