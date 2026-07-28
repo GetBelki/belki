@@ -1158,6 +1158,10 @@ tbody tr:hover {
   border-bottom: 1px solid #f4f4f5;
 }
 
+.evidence-section > .card-content {
+  padding-top: var(--space-4);
+}
+
 .answer-copy {
   color: #27272a;
   font-size: 13px;
