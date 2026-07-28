@@ -16,7 +16,7 @@ function AuthShell({ children, title, description }: React.PropsWithChildren<{
         <div className="loader-brand"><span className="brand-mark">A</span> AI Visibility Tracker</div>
         <div className="story-content">
           <span className="eyebrow">Built for answer visibility</span>
-          <h1>Know when AI recommends you—and when it doesn’t.</h1>
+          <h1>Know when AI recommends you, and when it doesn’t.</h1>
           <p>Track citations, brand mentions, domains, products, and evidence from ChatGPT web Search mode.</p>
           <div className="signal-card">
             <Radar size={24} />
