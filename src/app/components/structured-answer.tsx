@@ -88,10 +88,24 @@ function productsForItem(
   );
 }
 
-export function ProductCard({ product }: { product: ProductEvidence }) {
+export function ProductCard({
+  product,
+  compact = false,
+}: {
+  product: ProductEvidence;
+  compact?: boolean;
+}) {
   const image = productImage(product);
   const listingUrl = safeExternalUrl(product.canonical_url ?? product.raw_url);
   const price = formatPrice(product.price, product.currency);
+  const ratingMaximum =
+    product.rating_max && product.rating_max > 0 ? product.rating_max : 5;
+  const ratingOutOfFive =
+    product.rating_value === null
+      ? null
+      : Math.max(0, Math.min(5, (product.rating_value / ratingMaximum) * 5));
+  const filledStars =
+    ratingOutOfFive === null ? 0 : Math.round(ratingOutOfFive);
   const rating =
     product.rating_value === null
       ? null
@@ -100,6 +114,59 @@ export function ProductCard({ product }: { product: ProductEvidence }) {
             ? ` · ${pluralize(product.rating_votes_count, "review")}`
             : ""
         }`;
+  if (compact) {
+    const title = product.title ?? "Untitled product";
+    const destination = listingUrl ?? googleShoppingUrl(product);
+    return (
+      <article className="shopping-card shopping-card-compact">
+        <a
+          className="shopping-card-link"
+          href={destination}
+          target="_blank"
+          rel="noreferrer"
+          aria-label={`Open ${title}`}
+        >
+          <div className="shopping-image">
+            {image ? (
+              <img src={image} alt="" loading="lazy" />
+            ) : <ShoppingBag size={24} />}
+          </div>
+          <div className="shopping-card-body">
+            <div className="shopping-card-summary">
+              <h3>{title}</h3>
+              {price ? <strong>{price}</strong> : null}
+            </div>
+            {ratingOutOfFive !== null ? (
+              <div
+                className="shopping-rating"
+                aria-label={`Rated ${product.rating_value} out of ${ratingMaximum}${
+                  product.rating_votes_count
+                    ? ` from ${pluralize(product.rating_votes_count, "review")}`
+                    : ""
+                }`}
+              >
+                <span className="shopping-stars" aria-hidden="true">
+                  {Array.from({ length: 5 }, (_, index) => (
+                    <span
+                      className={index < filledStars ? "is-filled" : undefined}
+                      key={index}
+                    >
+                      ★
+                    </span>
+                  ))}
+                </span>
+                <span aria-hidden="true">({product.rating_value})</span>
+              </div>
+            ) : (
+              <span className="shopping-merchant">
+                {product.merchants ?? product.registrable_domain ?? "View product"}
+              </span>
+            )}
+          </div>
+        </a>
+      </article>
+    );
+  }
   return (
     <article className="shopping-card">
       <div className="shopping-image">
@@ -187,7 +254,9 @@ function ProductBlock({
         </div>
       </div>
       <div className="shopping-carousel" ref={carouselRef}>
-        {values.map((product) => <ProductCard key={product.id} product={product} />)}
+        {values.map((product) => (
+          <ProductCard compact key={product.id} product={product} />
+        ))}
       </div>
     </section>
   );

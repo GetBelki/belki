@@ -65,6 +65,11 @@ describe("StructuredAnswer", () => {
     expect(blocks[0]).toHaveTextContent("Before products");
     expect(blocks[1]).toHaveTextContent("Sensitive dog food");
     expect(blocks[2]).toHaveTextContent("After products");
+    expect(
+      screen.getByRole("link", { name: "Open Sensitive dog food" }),
+    ).toHaveAttribute("href", "https://example.test/product");
+    expect(screen.getByLabelText("Rated 4.8 out of 5 from 12 reviews"))
+      .toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Next products" })).not.toBeInTheDocument();
   });
 

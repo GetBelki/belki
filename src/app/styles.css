@@ -1470,8 +1470,8 @@ tbody tr:hover {
 
 .shopping-carousel {
   display: grid;
-  gap: 12px;
-  grid-auto-columns: minmax(224px, 252px);
+  gap: 8px;
+  grid-auto-columns: 180px;
   grid-auto-flow: column;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
@@ -1485,55 +1485,102 @@ tbody tr:hover {
 }
 
 .shopping-carousel .shopping-card {
-  grid-template-columns: 1fr;
-  grid-template-rows: 154px minmax(176px, 1fr);
-  min-height: 330px;
+  display: block;
+  min-height: 0;
   scroll-snap-align: start;
+}
+
+.shopping-card-link {
+  color: inherit;
+  display: grid;
+  grid-template-rows: 112px minmax(68px, auto);
+  height: 100%;
+  text-decoration: none;
+}
+
+.shopping-card-link:focus-visible {
+  outline: 2px solid #18181b;
+  outline-offset: -2px;
+}
+
+.shopping-carousel .shopping-card-link:hover .shopping-card-summary h3 {
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .shopping-carousel .shopping-image {
   border-bottom: 1px solid #e4e4e7;
   border-right: 0;
-  min-height: 154px;
-  padding: 16px;
+  min-height: 112px;
+  padding: 10px;
 }
 
 .shopping-carousel .shopping-image img {
-  max-height: 122px;
+  max-height: 92px;
 }
 
 .shopping-carousel .shopping-card-body {
-  padding: 14px;
+  justify-content: space-between;
+  padding: 9px 11px 10px;
 }
 
-.shopping-carousel .shopping-meta {
-  flex-wrap: nowrap;
+.shopping-card-summary {
+  align-items: baseline;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 4px;
 }
 
-.shopping-carousel .shopping-card h3 {
+.shopping-carousel .shopping-card-summary h3 {
   display: -webkit-box;
-  min-height: 36px;
+  flex: 1 1 auto;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 15px;
+  margin: 0;
   overflow: hidden;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
 }
 
-.shopping-carousel .shopping-facts {
-  align-items: baseline;
-  flex-direction: column;
-  gap: 3px;
-}
-
-.shopping-carousel .shopping-actions {
-  display: grid;
-  gap: 6px;
-  grid-template-columns: 1fr;
-}
-
-.shopping-carousel .shopping-actions .button {
-  justify-content: space-between;
+.shopping-card-summary strong {
+  color: #3f3f46;
+  font-size: 11px;
+  line-height: 15px;
   white-space: nowrap;
-  width: 100%;
+}
+
+.shopping-rating {
+  align-items: center;
+  color: #71717a;
+  display: flex;
+  font-size: 10px;
+  gap: 4px;
+  line-height: 14px;
+  margin-top: 5px;
+}
+
+.shopping-stars {
+  color: #d4d4d8;
+  display: inline-flex;
+  font-size: 13px;
+  gap: 0;
+  letter-spacing: -1px;
+  line-height: 1;
+}
+
+.shopping-stars .is-filled {
+  color: #f59e0b;
+}
+
+.shopping-merchant {
+  color: #71717a;
+  display: block;
+  font-size: 9px;
+  margin-top: 5px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .structured-image-grid {
@@ -1966,7 +2013,7 @@ a.evidence-source:hover strong {
   }
 
   .shopping-carousel {
-    grid-auto-columns: minmax(224px, 252px);
+    grid-auto-columns: 180px;
   }
 
   .structured-image-grid {
@@ -1994,7 +2041,7 @@ a.evidence-source:hover strong {
   }
 
   .shopping-carousel {
-    grid-auto-columns: minmax(220px, 88%);
+    grid-auto-columns: 168px;
   }
 
   .settings-list > div {
