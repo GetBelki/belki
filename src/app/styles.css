@@ -1906,7 +1906,6 @@ a.evidence-source:hover strong {
 
 .country-flag-image {
   border-radius: 2px;
-  box-shadow: 0 0 0 1px #e4e4e7;
   flex: 0 0 auto;
   height: 15px;
   object-fit: cover;
@@ -1924,6 +1923,16 @@ a.evidence-source:hover strong {
   gap: 8px;
   justify-content: flex-end;
   white-space: nowrap;
+}
+
+.prompts-table-card .actions-column {
+  text-align: right;
+}
+
+.prompt-action-button {
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 8px;
 }
 
 .metric-up,

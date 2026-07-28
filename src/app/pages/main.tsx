@@ -4,6 +4,8 @@ import {
   ArrowUp,
   ExternalLink,
   Globe2,
+  Pause,
+  Play,
   Plus,
   RefreshCw,
   Search,
@@ -24,7 +26,6 @@ import {
 import { NoProject, PageHeader } from "../components/layout";
 import { CountryFlag } from "../components/country-flag";
 import {
-  Badge,
   Button,
   Card,
   CardHeader,
@@ -378,12 +379,14 @@ export function PromptsPage() {
               { key: "sources", label: "Sources" }, { key: "mentions", label: "Mentions" },
               { key: "rate", label: "Mention rate" }, { key: "citations", label: "Citations" },
               { key: "change", label: "Mention change" },
-              { key: "actions", label: "" },
+              { key: "actions", label: "Actions", className: "actions-column" },
             ]}
             rows={queries.data.map((query) => {
               const runInProgress = isRunInProgress(query.latestRunStatus);
               const isStarting =
                 manualRun.isPending && manualRun.variables === query.id;
+              const isToggling =
+                toggle.isPending && toggle.variables?.id === query.id;
               const destination = query.latestSnapshotId
                 ? `/prompts/${query.id}/snapshots/${query.latestSnapshotId}`
                 : `/prompts/${query.id}`;
@@ -402,8 +405,29 @@ export function PromptsPage() {
                       {query.mentionChange > 0 ? `+${query.mentionChange}` : query.mentionChange}
                     </span>,
                 actions: <div className="table-actions">
-                  <button className="plain-button" onClick={() => toggle.mutate({ id: query.id, isActive: !query.isActive })}><Badge tone={query.isActive ? "success" : "neutral"}>{query.isActive ? "Active" : "Paused"}</Badge></button>
-                  <Button variant="secondary" disabled={isStarting || runInProgress} onClick={() => manualRun.mutate(query.id)}><RefreshCw size={14} /> {isStarting ? "Queued…" : runStatusLabel(query.latestRunStatus)}</Button>
+                  <Button
+                    className="prompt-action-button"
+                    variant="secondary"
+                    disabled={isToggling}
+                    onClick={() =>
+                      toggle.mutate({
+                        id: query.id,
+                        isActive: !query.isActive,
+                      })
+                    }
+                  >
+                    {query.isActive ? <Pause size={13} /> : <Play size={13} />}
+                    {isToggling ? "Saving…" : query.isActive ? "Pause" : "Resume"}
+                  </Button>
+                  <Button
+                    className="prompt-action-button"
+                    variant="secondary"
+                    disabled={isStarting || runInProgress}
+                    onClick={() => manualRun.mutate(query.id)}
+                  >
+                    <RefreshCw size={13} />
+                    {isStarting ? "Queued…" : runStatusLabel(query.latestRunStatus)}
+                  </Button>
                 </div>,
               };
             })}
