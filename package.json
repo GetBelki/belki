@@ -57,8 +57,10 @@
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
+    "react-markdown": "latest",
     "react-router-dom": "latest",
     "recharts": "latest",
+    "remark-gfm": "latest",
     "tailwind-merge": "latest",
     "tldts": "latest",
     "zod": "latest"

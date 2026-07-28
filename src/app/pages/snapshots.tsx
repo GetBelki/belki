@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
 import { NoProject, PageHeader } from "../components/layout";
+import { MarkdownAnswer } from "../components/markdown-answer";
 import {
   Badge,
   Button,
@@ -429,9 +430,9 @@ export function SnapshotDetailPage() {
           <Card className="evidence-section answer-section">
             <CardHeader title="Captured answer" description="The answer text returned for this prompt." />
             <CardContent>
-              <div className="answer-copy">
-                {snapshot.answer_markdown || "No answer text was returned."}
-              </div>
+              <MarkdownAnswer
+                markdown={snapshot.answer_markdown || "No answer text was returned."}
+              />
             </CardContent>
           </Card>
 
