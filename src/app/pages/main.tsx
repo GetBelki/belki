@@ -40,7 +40,9 @@ import {
   languagesForLocation,
   localeLabel,
 } from "../lib/locale-catalog";
+import { isRunInProgress, runStatusLabel } from "../lib/run-status";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
+import type { RunStatus } from "../../shared/contracts";
 
 interface Overview {
   summary: {
@@ -161,6 +163,7 @@ interface QueryRow {
   next_run_at: string;
   last_snapshot_at: string | null;
   snapshot_count: number;
+  latest_run_status: RunStatus | null;
 }
 
 export function QueriesPage() {
@@ -175,6 +178,12 @@ export function QueriesPage() {
     queryKey: ["queries", projectId],
     queryFn: () => api<QueryRow[]>(`/queries?projectId=${projectId}`),
     enabled: Boolean(projectId),
+    refetchInterval: (current) =>
+      current.state.data?.some((query) =>
+        isRunInProgress(query.latest_run_status),
+      )
+        ? 3_000
+        : false,
   });
   const createQuery = useMutation({
     mutationFn: (body: Record<string, unknown>) => post(`/projects/${projectId}/queries`, body),
@@ -222,14 +231,19 @@ export function QueriesPage() {
               { key: "status", label: "Status" }, { key: "last", label: "Last capture" },
               { key: "actions", label: "" },
             ]}
-            rows={queries.data.map((query) => ({
-              id: query.id,
-              query: <Link className="primary-cell table-query-link" to={`/queries/${query.id}`}><strong>{query.query_text}</strong><span>{localeLabel(query.location_code, query.language_code)}</span></Link>,
-              schedule: <div className="primary-cell"><strong className="capitalize">{query.schedule_cadence}</strong><span>{query.schedule_time} · {query.schedule_timezone}</span></div>,
-              status: <button className="plain-button" onClick={() => toggle.mutate({ id: query.id, isActive: !query.is_active })}><Badge tone={query.is_active ? "success" : "neutral"}>{query.is_active ? "Active" : "Paused"}</Badge></button>,
-              last: <div className="primary-cell"><strong>{dateTime(query.last_snapshot_at)}</strong><span>{pluralize(query.snapshot_count, "snapshot")}</span></div>,
-              actions: <Button variant="secondary" disabled={manualRun.isPending} onClick={() => manualRun.mutate(query.id)}><RefreshCw size={14} /> Run now</Button>,
-            }))}
+            rows={queries.data.map((query) => {
+              const runInProgress = isRunInProgress(query.latest_run_status);
+              const isStarting =
+                manualRun.isPending && manualRun.variables === query.id;
+              return {
+                id: query.id,
+                query: <Link className="primary-cell table-query-link" to={`/queries/${query.id}`}><strong>{query.query_text}</strong><span>{localeLabel(query.location_code, query.language_code)}</span></Link>,
+                schedule: <div className="primary-cell"><strong className="capitalize">{query.schedule_cadence}</strong><span>{query.schedule_time} · {query.schedule_timezone}</span></div>,
+                status: <button className="plain-button" onClick={() => toggle.mutate({ id: query.id, isActive: !query.is_active })}><Badge tone={query.is_active ? "success" : "neutral"}>{query.is_active ? "Active" : "Paused"}</Badge></button>,
+                last: <div className="primary-cell"><strong>{dateTime(query.last_snapshot_at)}</strong><span>{runInProgress ? runStatusLabel(query.latest_run_status) : pluralize(query.snapshot_count, "snapshot")}</span></div>,
+                actions: <Button variant="secondary" disabled={isStarting || runInProgress} onClick={() => manualRun.mutate(query.id)}><RefreshCw size={14} /> {isStarting ? "Queued…" : runStatusLabel(query.latest_run_status)}</Button>,
+              };
+            })}
           />
         ) : <EmptyState title="No tracked queries" description="Add the prompts your audience asks ChatGPT." action={<Button onClick={() => setDialogOpen(true)}><Plus size={15} /> Add query</Button>} />}
       </Card>

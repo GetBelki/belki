@@ -378,7 +378,14 @@ coreRoutes.get(
       `SELECT
         q.*, p.name AS project_name,
         MAX(s.captured_at) AS last_snapshot_at,
-        COUNT(DISTINCT s.id) AS snapshot_count
+        COUNT(DISTINCT s.id) AS snapshot_count,
+        (
+          SELECT j.status
+          FROM crawl_jobs j
+          WHERE j.tracked_query_id = q.id
+          ORDER BY j.created_at DESC, j.id DESC
+          LIMIT 1
+        ) AS latest_run_status
       FROM tracked_queries q
       JOIN projects p ON p.id = q.project_id
       LEFT JOIN snapshot_index s ON s.tracked_query_id = q.id
@@ -412,7 +419,14 @@ coreRoutes.get(
       `SELECT
         q.*, p.name AS project_name,
         MAX(s.captured_at) AS last_snapshot_at,
-        COUNT(DISTINCT s.id) AS snapshot_count
+        COUNT(DISTINCT s.id) AS snapshot_count,
+        (
+          SELECT j.status
+          FROM crawl_jobs j
+          WHERE j.tracked_query_id = q.id
+          ORDER BY j.created_at DESC, j.id DESC
+          LIMIT 1
+        ) AS latest_run_status
       FROM tracked_queries q
       JOIN projects p ON p.id = q.project_id
       LEFT JOIN snapshot_index s ON s.tracked_query_id = q.id

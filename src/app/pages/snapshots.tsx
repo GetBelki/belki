@@ -11,6 +11,7 @@ import {
   ShoppingBag,
 } from "lucide-react";
 import { Link, useParams } from "react-router-dom";
+import { useEffect } from "react";
 import { NoProject, PageHeader } from "../components/layout";
 import { ProductCard, StructuredAnswer } from "../components/structured-answer";
 import {
@@ -26,6 +27,7 @@ import {
 import { useApp } from "../context";
 import { api, post } from "../lib/api";
 import { localeLabel } from "../lib/locale-catalog";
+import { isRunInProgress, runStatusLabel } from "../lib/run-status";
 import {
   fanOutLabel,
   safeExternalUrl,
@@ -35,6 +37,7 @@ import {
   type SnapshotIndex,
 } from "../lib/snapshot-evidence";
 import { dateTime } from "../lib/utils";
+import type { RunStatus } from "../../shared/contracts";
 
 interface TrackedQuery {
   id: string;
@@ -49,6 +52,7 @@ interface TrackedQuery {
   is_active: number;
   last_snapshot_at: string | null;
   snapshot_count: number;
+  latest_run_status: RunStatus | null;
 }
 
 function textValue(value: unknown, fallback = ""): string {
@@ -153,6 +157,8 @@ export function QuerySnapshotsPage() {
     queryKey: ["query", queryId],
     queryFn: () => api<TrackedQuery>(`/queries/${queryId}`),
     enabled: Boolean(queryId),
+    refetchInterval: (current) =>
+      isRunInProgress(current.state.data?.latest_run_status) ? 3_000 : false,
   });
   const snapshots = useQuery({
     queryKey: ["snapshots", projectId, queryId],
@@ -169,6 +175,19 @@ export function QuerySnapshotsPage() {
       ]);
     },
   });
+  useEffect(() => {
+    if (query.data?.latest_run_status === "completed") {
+      void queryClient.invalidateQueries({
+        queryKey: ["snapshots", projectId, queryId],
+      });
+    }
+  }, [
+    projectId,
+    query.data?.latest_run_status,
+    query.data?.snapshot_count,
+    queryClient,
+    queryId,
+  ]);
   if (!projectId) return <NoProject />;
   if (query.isPending) {
     return <div className="page evidence-page-loading"><Skeleton /><Skeleton /></div>;
@@ -194,11 +213,16 @@ export function QuerySnapshotsPage() {
         action={
           <Button
             variant="secondary"
-            disabled={manualRun.isPending}
+            disabled={
+              manualRun.isPending ||
+              isRunInProgress(query.data.latest_run_status)
+            }
             onClick={() => manualRun.mutate()}
           >
             <RefreshCw size={14} />
-            {manualRun.isPending ? "Queued…" : "Run now"}
+            {manualRun.isPending
+              ? "Queued…"
+              : runStatusLabel(query.data.latest_run_status)}
           </Button>
         }
       />

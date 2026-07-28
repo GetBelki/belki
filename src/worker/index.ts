@@ -161,7 +161,7 @@ async function scheduled(
   if (event.cron === "*/5 * * * *") {
     metrics.enqueued = await enqueueDueQueries(env);
     metrics.reconciledJobs = await reconcileJobs(env);
-  } else if (event.cron === "*/15 * * * *") {
+  } else if (event.cron === "* * * * *") {
     metrics.recoveredPostbacks = await collectReadyTasks(env);
   } else if (event.cron === "0 3 * * *") {
     await runRetention(env);
