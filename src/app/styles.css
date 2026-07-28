@@ -2244,6 +2244,90 @@ a.evidence-source:hover strong {
   white-space: normal;
 }
 
+.recent-products-list {
+  padding: 0 20px 14px;
+}
+
+.recent-product-row {
+  align-items: center;
+  border-top: 1px solid #f4f4f5;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: 46px minmax(0, 1fr) auto;
+  min-width: 0;
+  padding: 12px 0;
+}
+
+.recent-product-row:hover .recent-product-copy > strong {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.recent-product-image {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 5px;
+  color: #a1a1aa;
+  display: flex;
+  height: 46px;
+  justify-content: center;
+  overflow: hidden;
+  padding: 4px;
+  width: 46px;
+}
+
+.recent-product-image img {
+  height: 100%;
+  object-fit: contain;
+  width: 100%;
+}
+
+.recent-product-copy,
+.recent-product-meta {
+  display: flex;
+  min-width: 0;
+}
+
+.recent-product-copy {
+  flex-direction: column;
+  gap: 2px;
+}
+
+.recent-product-copy > strong {
+  color: #27272a;
+  display: -webkit-box;
+  font-size: 11px;
+  line-height: 15px;
+  overflow: hidden;
+  overflow-wrap: anywhere;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.recent-product-copy > span,
+.recent-product-copy > small {
+  color: #71717a;
+  font-size: 9px;
+  line-height: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.recent-product-meta {
+  align-items: flex-end;
+  color: #71717a;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.recent-product-meta strong {
+  color: #27272a;
+  font-size: 10px;
+  white-space: nowrap;
+}
+
 @media (max-width: 760px) {
   .chart {
     height: 240px;
@@ -2259,5 +2343,24 @@ a.evidence-source:hover strong {
   .prompts-table-card td.prompt-column {
     padding-bottom: 13px;
     padding-top: 13px;
+  }
+}
+
+@media (max-width: 420px) {
+  .recent-products-list {
+    padding-left: 16px;
+    padding-right: 16px;
+  }
+
+  .recent-product-row {
+    align-items: start;
+    grid-template-columns: 46px minmax(0, 1fr);
+  }
+
+  .recent-product-meta {
+    align-items: center;
+    flex-direction: row;
+    grid-column: 2;
+    margin-top: -3px;
   }
 }

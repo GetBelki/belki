@@ -39,6 +39,73 @@ function chunks<T>(values: T[], size = 75): T[][] {
   return output;
 }
 
+type ProductSnapshotIndex = {
+  id: string;
+  shard_id: number;
+};
+
+type ShoppingProductOccurrence = {
+  id: string;
+  snapshot_id: string;
+  provider_product_id: string | null;
+  merchants: string | null;
+  title: string | null;
+  price: number | null;
+  currency: string | null;
+  tag: string | null;
+  raw_url: string | null;
+  canonical_url: string | null;
+  registrable_domain: string | null;
+  rating_value: number | null;
+  rating_votes_count: number | null;
+  images_json: string;
+  product_ids_json: string;
+  captured_at: string;
+};
+
+async function loadShoppingProductOccurrences(
+  env: Env,
+  indexes: ProductSnapshotIndex[],
+): Promise<ShoppingProductOccurrence[]> {
+  const grouped = new Map<number, string[]>();
+  for (const index of indexes) {
+    grouped.set(index.shard_id, [...(grouped.get(index.shard_id) ?? []), index.id]);
+  }
+  return (
+    await Promise.all(
+      [...grouped.entries()].flatMap(([shardId, ids]) =>
+        chunks(ids).map(async (snapshotIds) => {
+          const placeholders = snapshotIds.map(() => "?").join(",");
+          return (
+            await getShard(env, shardId)
+              .prepare(
+                `SELECT p.id, p.snapshot_id, p.provider_product_id, p.merchants,
+                  p.title, p.price, p.currency, p.tag, p.raw_url, p.canonical_url,
+                  p.registrable_domain, p.rating_value, p.rating_votes_count,
+                  p.images_json, p.product_ids_json, s.captured_at
+                 FROM snapshot_products p JOIN snapshots s ON s.id = p.snapshot_id
+                 WHERE p.snapshot_id IN (${placeholders})`,
+              )
+              .bind(...snapshotIds)
+              .all<ShoppingProductOccurrence>()
+          ).results;
+        }),
+      ),
+    )
+  ).flat();
+}
+
+function serializedShoppingProduct(
+  product: ShoppingProductOccurrence & { appearances?: number },
+) {
+  return {
+    ...product,
+    images: jsonParse<string[]>(product.images_json, []),
+    product_ids: jsonParse<unknown[]>(product.product_ids_json, []),
+    latestSeen: product.captured_at,
+  };
+}
+
 function range(input: { from?: string; to?: string }): { from: string; to: string } {
   const to = input.to ?? new Date().toISOString().slice(0, 10);
   const from =
@@ -69,7 +136,7 @@ analyticsRoutes.get(
     const input = c.req.valid("query");
     await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
     const dates = range(input);
-    const [summary, productCoverage, series, recent] = await Promise.all([
+    const [summary, productCoverage, series, recentProductIndexes] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT
           COALESCE(SUM(completed_runs), 0) AS completed_runs,
@@ -124,18 +191,26 @@ analyticsRoutes.get(
         .bind(input.projectId, dates.from, dates.to)
         .all(),
       c.env.CONTROL_DB.prepare(
-        `SELECT
-          s.id, s.tracked_query_id, s.captured_at, s.model,
-          s.cited_domains_count, s.brand_entities_count, s.products_count,
-          q.query_text
-        FROM snapshot_index s
-        JOIN tracked_queries q ON q.id = s.tracked_query_id
-        WHERE s.project_id = ?
-        ORDER BY s.captured_at DESC LIMIT 10`,
+        `SELECT id, shard_id FROM snapshot_index
+         WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
+           AND products_count > 0
+         ORDER BY captured_at DESC LIMIT 24`,
       )
-        .bind(input.projectId)
-        .all(),
+        .bind(
+          input.projectId,
+          `${dates.from}T00:00:00.000Z`,
+          exclusiveDateEnd(dates.to),
+        )
+        .all<ProductSnapshotIndex>(),
     ]);
+    const recentOccurrences = (
+      await loadShoppingProductOccurrences(c.env, recentProductIndexes.results)
+    ).sort((left, right) => right.captured_at.localeCompare(left.captured_at));
+    const recentProducts = new Map<string, ShoppingProductOccurrence>();
+    for (const product of recentOccurrences) {
+      const key = productIdentity(product);
+      if (!recentProducts.has(key)) recentProducts.set(key, product);
+    }
     const completed = summary?.completed_runs ?? 0;
     const trackedPrompts = productCoverage?.tracked_prompt_count ?? 0;
     return c.json({
@@ -156,7 +231,9 @@ analyticsRoutes.get(
             : 0,
         },
         series: series.results,
-        recentSnapshots: recent.results,
+        recentProducts: [...recentProducts.values()]
+          .slice(0, 8)
+          .map(serializedShoppingProduct),
       },
     });
   },
@@ -478,51 +555,11 @@ analyticsRoutes.get(
     )
       .bind(input.projectId, `${dates.from}T00:00:00.000Z`, exclusiveDateEnd(dates.to))
       .all<{ id: string; shard_id: number }>();
-    const grouped = new Map<number, string[]>();
-    for (const index of indexes.results) {
-      grouped.set(index.shard_id, [...(grouped.get(index.shard_id) ?? []), index.id]);
-    }
-    type Product = {
-      id: string;
-      snapshot_id: string;
-      provider_product_id: string | null;
-      merchants: string | null;
-      title: string | null;
-      price: number | null;
-      currency: string | null;
-      tag: string | null;
-      raw_url: string | null;
-      canonical_url: string | null;
-      registrable_domain: string | null;
-      rating_value: number | null;
-      rating_votes_count: number | null;
-      images_json: string;
-      product_ids_json: string;
-      captured_at: string;
-    };
-    const occurrences = (
-      await Promise.all(
-        [...grouped.entries()].flatMap(([shardId, ids]) =>
-          chunks(ids).map(async (snapshotIds) => {
-            const placeholders = snapshotIds.map(() => "?").join(",");
-            return (
-              await getShard(c.env, shardId)
-                .prepare(
-                  `SELECT p.id, p.snapshot_id, p.provider_product_id, p.merchants,
-                    p.title, p.price, p.currency, p.tag, p.raw_url, p.canonical_url,
-                    p.registrable_domain, p.rating_value, p.rating_votes_count,
-                    p.images_json, p.product_ids_json, s.captured_at
-                   FROM snapshot_products p JOIN snapshots s ON s.id = p.snapshot_id
-                   WHERE p.snapshot_id IN (${placeholders})`,
-                )
-                .bind(...snapshotIds)
-                .all<Product>()
-            ).results;
-          }),
-        ),
-      )
-    ).flat();
-    const products = new Map<string, Product & { appearances: number }>();
+    const occurrences = await loadShoppingProductOccurrences(c.env, indexes.results);
+    const products = new Map<
+      string,
+      ShoppingProductOccurrence & { appearances: number }
+    >();
     for (const occurrence of occurrences.sort((left, right) =>
       right.captured_at.localeCompare(left.captured_at),
     )) {
@@ -542,12 +579,7 @@ analyticsRoutes.get(
             right.captured_at.localeCompare(left.captured_at),
         )
         .slice(0, 500)
-        .map((product) => ({
-          ...product,
-          images: jsonParse<string[]>(product.images_json, []),
-          product_ids: jsonParse<unknown[]>(product.product_ids_json, []),
-          latestSeen: product.captured_at,
-        })),
+        .map(serializedShoppingProduct),
     });
   },
 );

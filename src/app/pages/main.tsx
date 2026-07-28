@@ -2,7 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
-  FileJson,
+  ExternalLink,
   Globe2,
   Plus,
   RefreshCw,
@@ -43,6 +43,10 @@ import {
   languagesForLocation,
 } from "../lib/locale-catalog";
 import { isRunInProgress, runStatusLabel } from "../lib/run-status";
+import {
+  formatPrice,
+  productDestination,
+} from "../lib/snapshot-evidence";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 import type { RunStatus } from "../../shared/contracts";
 
@@ -67,7 +71,19 @@ interface Overview {
     brand_mentioned_runs: number;
     product_runs: number;
   }>;
-  recentSnapshots: Array<Record<string, string | number | null>>;
+  recentProducts: Array<{
+    id: string;
+    title: string | null;
+    merchants: string | null;
+    registrable_domain: string | null;
+    price: number | null;
+    currency: string | null;
+    canonical_url: string | null;
+    raw_url: string | null;
+    images: string[];
+    product_ids: unknown[];
+    latestSeen: string;
+  }>;
 }
 
 function KpiCard({
@@ -147,17 +163,53 @@ export function OverviewPage() {
             ) : <EmptyState title="No trend data yet" description="Your first completed tracking run will appear here." />}
           </div>
         </Card>
-        <Card>
-          <CardHeader title="Recent AI responses" description="Latest completed prompt runs" />
-          <div className="activity-list">
-            {overview.data?.recentSnapshots.length ? overview.data.recentSnapshots.map((snapshot) => (
-              <div className="activity-row" key={String(snapshot.id)}>
-                <span className="activity-icon"><FileJson size={15} /></span>
-                <div><strong>{String(snapshot.query_text)}</strong><span>{dateTime(String(snapshot.captured_at))}</span></div>
-                <Badge tone={Number(snapshot.cited_domains_count) ? "success" : "neutral"}>{Number(snapshot.cited_domains_count)} cited</Badge>
-              </div>
-            )) : <EmptyState title="No responses yet" description="Add a prompt to begin monitoring." />}
-          </div>
+        <Card className="recent-products-card">
+          <CardHeader
+            title="Recently detected products"
+            description="Latest products surfaced in tracked AI answers"
+          />
+          {overview.data?.recentProducts.length ? (
+            <div className="recent-products-list">
+              {overview.data.recentProducts.map((product) => (
+                <a
+                  className="recent-product-row"
+                  href={productDestination(product)}
+                  key={product.id}
+                  rel="noreferrer"
+                  target="_blank"
+                >
+                  <span className="recent-product-image">
+                    {product.images[0] ? (
+                      <img src={product.images[0]} alt="" loading="lazy" />
+                    ) : (
+                      <ShoppingBag size={17} />
+                    )}
+                  </span>
+                  <span className="recent-product-copy">
+                    <strong>{product.title ?? "Untitled product"}</strong>
+                    <span>
+                      {product.merchants ??
+                        product.registrable_domain ??
+                        "Merchant unavailable"}
+                    </span>
+                    <small>{dateTime(product.latestSeen)}</small>
+                  </span>
+                  <span className="recent-product-meta">
+                    <strong>
+                      {formatPrice(product.price, product.currency) ??
+                        "Price unavailable"}
+                    </strong>
+                    <ExternalLink size={13} />
+                  </span>
+                </a>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="No products detected yet"
+              description="Products will appear when a tracked answer contains a shopping block."
+            />
+          )}
         </Card>
       </div>
     </div>
