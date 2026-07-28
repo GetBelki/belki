@@ -1377,6 +1377,49 @@ tbody tr:hover {
   gap: 6px;
 }
 
+.carousel-heading-actions,
+.carousel-controls {
+  align-items: center;
+  display: flex;
+}
+
+.carousel-heading-actions {
+  gap: 8px;
+}
+
+.carousel-controls {
+  border: 1px solid #e4e4e7;
+  border-radius: 5px;
+  overflow: hidden;
+}
+
+.carousel-control {
+  align-items: center;
+  background: #fff;
+  border: 0;
+  color: #52525b;
+  cursor: pointer;
+  display: flex;
+  height: 26px;
+  justify-content: center;
+  padding: 0;
+  width: 28px;
+}
+
+.carousel-control + .carousel-control {
+  border-left: 1px solid #e4e4e7;
+}
+
+.carousel-control:hover {
+  background: #f4f4f5;
+  color: #18181b;
+}
+
+.carousel-control:focus-visible {
+  outline: 2px solid #18181b;
+  outline-offset: -2px;
+}
+
 .structured-product-block,
 .structured-image-block,
 .structured-link-block {
@@ -1386,17 +1429,69 @@ tbody tr:hover {
 .shopping-carousel {
   display: grid;
   gap: 12px;
-  grid-auto-columns: minmax(280px, 42%);
+  grid-auto-columns: minmax(224px, 252px);
   grid-auto-flow: column;
   overflow-x: auto;
   overscroll-behavior-inline: contain;
-  padding-bottom: 8px;
+  padding: 1px;
   scroll-snap-type: inline mandatory;
-  scrollbar-width: thin;
+  scrollbar-width: none;
+}
+
+.shopping-carousel::-webkit-scrollbar {
+  display: none;
 }
 
 .shopping-carousel .shopping-card {
+  grid-template-columns: 1fr;
+  grid-template-rows: 154px minmax(176px, 1fr);
+  min-height: 330px;
   scroll-snap-align: start;
+}
+
+.shopping-carousel .shopping-image {
+  border-bottom: 1px solid #e4e4e7;
+  border-right: 0;
+  min-height: 154px;
+  padding: 16px;
+}
+
+.shopping-carousel .shopping-image img {
+  max-height: 122px;
+}
+
+.shopping-carousel .shopping-card-body {
+  padding: 14px;
+}
+
+.shopping-carousel .shopping-meta {
+  flex-wrap: nowrap;
+}
+
+.shopping-carousel .shopping-card h3 {
+  display: -webkit-box;
+  min-height: 36px;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+
+.shopping-carousel .shopping-facts {
+  align-items: baseline;
+  flex-direction: column;
+  gap: 3px;
+}
+
+.shopping-carousel .shopping-actions {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: 1fr;
+}
+
+.shopping-carousel .shopping-actions .button {
+  justify-content: space-between;
+  white-space: nowrap;
+  width: 100%;
 }
 
 .structured-image-grid {
@@ -1829,7 +1924,7 @@ a.evidence-source:hover strong {
   }
 
   .shopping-carousel {
-    grid-auto-columns: minmax(270px, 78%);
+    grid-auto-columns: minmax(224px, 252px);
   }
 
   .structured-image-grid {
@@ -1857,6 +1952,6 @@ a.evidence-source:hover strong {
   }
 
   .shopping-carousel {
-    grid-auto-columns: minmax(260px, 92%);
+    grid-auto-columns: minmax(220px, 88%);
   }
 }

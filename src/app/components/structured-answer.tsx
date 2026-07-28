@@ -1,4 +1,13 @@
-import { ExternalLink, Image as ImageIcon, MapPin, Search, ShoppingBag } from "lucide-react";
+import {
+  ChevronLeft,
+  ChevronRight,
+  ExternalLink,
+  Image as ImageIcon,
+  MapPin,
+  Search,
+  ShoppingBag,
+} from "lucide-react";
+import { useRef } from "react";
 import { MarkdownAnswer } from "./markdown-answer";
 import { Badge, Button } from "./ui";
 import {
@@ -94,7 +103,13 @@ export function ProductCard({ product }: { product: ProductEvidence }) {
   return (
     <article className="shopping-card">
       <div className="shopping-image">
-        {image ? <img src={image} alt="" loading="lazy" /> : <ShoppingBag size={24} />}
+        {image ? (
+          <img
+            src={image}
+            alt={product.title ?? "Product"}
+            loading="lazy"
+          />
+        ) : <ShoppingBag size={24} />}
       </div>
       <div className="shopping-card-body">
         <div className="shopping-meta">
@@ -133,14 +148,45 @@ function ProductBlock({
   products: ProductEvidence[];
 }) {
   const values = productsForItem(item, products);
+  const carouselRef = useRef<HTMLDivElement>(null);
+  const moveCarousel = (direction: -1 | 1) => {
+    const carousel = carouselRef.current;
+    if (!carousel) return;
+    carousel.scrollBy({
+      left: direction * Math.max(carousel.clientWidth * 0.75, 280),
+      behavior: "smooth",
+    });
+  };
   if (!values.length) return null;
   return (
     <section className="structured-product-block" aria-label="Shopping products">
       <div className="structured-block-heading">
         <span>Shopping products</span>
-        <Badge>{values.length}</Badge>
+        <div className="carousel-heading-actions">
+          <Badge>{values.length}</Badge>
+          {values.length > 1 ? (
+            <div className="carousel-controls">
+              <button
+                type="button"
+                className="carousel-control"
+                aria-label="Previous products"
+                onClick={() => moveCarousel(-1)}
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <button
+                type="button"
+                className="carousel-control"
+                aria-label="Next products"
+                onClick={() => moveCarousel(1)}
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+          ) : null}
+        </div>
       </div>
-      <div className="shopping-carousel">
+      <div className="shopping-carousel" ref={carouselRef}>
         {values.map((product) => <ProductCard key={product.id} product={product} />)}
       </div>
     </section>

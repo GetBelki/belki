@@ -65,6 +65,23 @@ describe("StructuredAnswer", () => {
     expect(blocks[0]).toHaveTextContent("Before products");
     expect(blocks[1]).toHaveTextContent("Sensitive dog food");
     expect(blocks[2]).toHaveTextContent("After products");
+    expect(screen.queryByRole("button", { name: "Next products" })).not.toBeInTheDocument();
+  });
+
+  it("adds explicit navigation controls when a product group overflows", () => {
+    render(
+      <StructuredAnswer
+        items={[item("products-1", "chat_gpt_products", 0, { items: [] })]}
+        products={[
+          product,
+          { ...product, id: "product-2", title: "Second product" },
+        ]}
+        fallbackMarkdown="Fallback"
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Previous products" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Next products" })).toBeInTheDocument();
   });
 
   it("renders images, navigation sources, and local result details", () => {
