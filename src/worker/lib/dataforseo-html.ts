@@ -43,7 +43,6 @@ const REMOVED_CAPTURE_ELEMENTS = [
   "embed",
   "portal",
   "base",
-  "link",
 ] as const;
 
 const URL_ATTRIBUTES = [
@@ -132,6 +131,15 @@ const makeCapturedElementInert: CapturedHtmlElementHandlers = {
   },
 };
 
+const filterCapturedLink: CapturedHtmlElementHandlers = {
+  element(element) {
+    const relationship = element.getAttribute("rel")?.toLowerCase() ?? "";
+    if (!relationship.split(/\s+/).includes("stylesheet")) {
+      element.remove();
+    }
+  },
+};
+
 let capturedHtmlRewriter: CapturedHtmlRewriter | undefined;
 
 function getCapturedHtmlRewriter(): CapturedHtmlRewriter {
@@ -146,6 +154,7 @@ function getCapturedHtmlRewriter(): CapturedHtmlRewriter {
   for (const tagName of REMOVED_CAPTURE_ELEMENTS) {
     rewriter.on(tagName, removeCapturedElement);
   }
+  rewriter.on("link", filterCapturedLink);
   rewriter.on("meta[http-equiv]", removeCapturedHttpEquiv);
   rewriter.on("*", makeCapturedElementInert);
   capturedHtmlRewriter = rewriter;
@@ -155,10 +164,30 @@ function getCapturedHtmlRewriter(): CapturedHtmlRewriter {
 /**
  * Converts a captured third-party page into a static replay. The CSP remains
  * the final security boundary; this transformation prevents the browser from
- * attempting blocked scripts, frames, stylesheets, and executable attributes.
+ * attempting blocked scripts, frames, preloads, and executable attributes.
  */
-export function sanitizeCapturedHtmlResponse(response: Response): Response {
-  return getCapturedHtmlRewriter().transform(response);
+export function stripExecutableCapturedHtml(html: string): string {
+  return html
+    .replace(
+      /<(script|iframe|frame|object|embed|portal)\b[^>]*>[\s\S]*?<\/\1\s*>/gi,
+      "",
+    )
+    .replace(
+      /<(script|iframe|frame|object|embed|portal)\b[^>]*\/?\s*>/gi,
+      "",
+    );
+}
+
+export async function sanitizeCapturedHtmlResponse(
+  response: Response,
+): Promise<Response> {
+  const sanitizedSource = stripExecutableCapturedHtml(await response.text());
+  const rewritten = new Response(sanitizedSource, {
+    headers: response.headers,
+    status: response.status,
+    statusText: response.statusText,
+  });
+  return getCapturedHtmlRewriter().transform(rewritten);
 }
 
 export function extractTaskHtml(payload: unknown): string {

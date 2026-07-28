@@ -926,20 +926,20 @@ analyticsRoutes.get(
     if (!key) throw new ApiError(404, "evidence_not_found", "Evidence is not available.");
     const object = await c.env.EVIDENCE_BUCKET.get(key);
     if (!object) throw new ApiError(404, "evidence_not_found", "Evidence is not available.");
+    if (kind === "html" && object.size > 20 * 1024 * 1024) {
+      throw new ApiError(
+        422,
+        "evidence_too_large",
+        "The stored HTML evidence is too large to open safely.",
+      );
+    }
     const metadata = new Headers();
     object.writeHttpMetadata(metadata);
     const headers = evidenceResponseHeaders(kind, id, metadata);
     if (kind === "html" && key.endsWith(".json")) {
-      if (object.size > 20 * 1024 * 1024) {
-        throw new ApiError(
-          422,
-          "evidence_too_large",
-          "The stored HTML evidence is too large to open safely.",
-        );
-      }
       try {
         const payload = await new Response(object.body).json();
-        return sanitizeCapturedHtmlResponse(
+        return await sanitizeCapturedHtmlResponse(
           new Response(extractTaskHtml(payload), { headers }),
         );
       } catch (error) {
@@ -960,7 +960,7 @@ analyticsRoutes.get(
     }
     const response = new Response(object.body, { headers });
     return kind === "html"
-      ? sanitizeCapturedHtmlResponse(response)
+      ? await sanitizeCapturedHtmlResponse(response)
       : response;
   },
 );
