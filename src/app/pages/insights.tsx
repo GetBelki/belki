@@ -7,6 +7,7 @@ import {
   FileDown,
   Globe2,
   KeyRound,
+  Pencil,
   Plus,
   RefreshCw,
   Send,
@@ -30,7 +31,7 @@ import {
   Label,
 } from "../components/ui";
 import { useApp } from "../context";
-import { api, post } from "../lib/api";
+import { api, patch, post, type Project } from "../lib/api";
 import { compact, dateTime, formText, pluralize } from "../lib/utils";
 
 function useProjectAnalytics<T>(name: string) {
@@ -206,12 +207,30 @@ export function SettingsPage() {
   const { projects, projectId, session } = useApp();
   const queryClient = useQueryClient();
   const [projectOpen, setProjectOpen] = useState(false);
+  const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [webhookOpen, setWebhookOpen] = useState(false);
   const [webhookSecret, setWebhookSecret] = useState("");
   const health = useQuery({ queryKey: ["health"], queryFn: () => api<Record<string, unknown>>("/settings/health"), enabled: session.user.role === "owner" || session.user.role === "admin" });
   const createProject = useMutation({
     mutationFn: (body: Record<string, unknown>) => post("/projects", body),
     onSuccess: async () => { setProjectOpen(false); await queryClient.invalidateQueries({ queryKey: ["projects"] }); },
+  });
+  const updateProject = useMutation({
+    mutationFn: ({
+      id,
+      body,
+    }: {
+      id: string;
+      body: {
+        name: string;
+        primaryDomain: string | null;
+        htmlCaptureEnabled: boolean;
+      };
+    }) => patch(`/projects/${id}`, body),
+    onSuccess: async () => {
+      setEditingProject(null);
+      await queryClient.invalidateQueries({ queryKey: ["projects"] });
+    },
   });
   const createWebhook = useMutation({
     mutationFn: (body: Record<string, string>) => post<{ signingSecret: string }>("/webhook-destinations", body),
@@ -221,6 +240,19 @@ export function SettingsPage() {
     event.preventDefault(); const data = new FormData(event.currentTarget);
     createProject.mutate({ name:data.get("name"),primaryDomain:data.get("primaryDomain") || null,ownedBrandName:data.get("brand"),ownedBrandAliases:[],competitorBrands:[],htmlCaptureEnabled:data.get("html") === "on" });
   };
+  const projectUpdateSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!editingProject) return;
+    const data = new FormData(event.currentTarget);
+    updateProject.mutate({
+      id: editingProject.id,
+      body: {
+        name: formText(data, "name"),
+        primaryDomain: formText(data, "primaryDomain") || null,
+        htmlCaptureEnabled: data.get("html") === "on",
+      },
+    });
+  };
   const webhookSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const data = new FormData(event.currentTarget);
     createWebhook.mutate({ name: formText(data, "name"), url: formText(data, "url") });
@@ -229,12 +261,110 @@ export function SettingsPage() {
     <div className="page">
       <PageHeader title="Settings & diagnostics" description="Manage projects, evidence policy, delivery, and installation health." action={<Button onClick={() => setProjectOpen(true)}><Plus size={15}/> New project</Button>} />
       <div className="settings-grid">
-        <Card><CardHeader title="Projects" description={`${pluralize(projects.length, "project")} configured`} />{projects.length ? <div className="settings-list">{projects.map((project) => <div key={project.id}><span className="settings-icon"><Globe2/></span><div><strong>{project.name}</strong><span>{project.primary_domain ?? "No primary domain"} · {pluralize(project.query_count, "query", "queries")}</span></div>{project.id === projectId ? <Badge tone="success">Selected</Badge> : null}</div>)}</div> : <EmptyState title="Create your first project" description="Add an owned brand and domain to start tracking." />}</Card>
+        <Card>
+          <CardHeader
+            title="Projects"
+            description={`${pluralize(projects.length, "project")} configured`}
+          />
+          {projects.length ? (
+            <div className="settings-list">
+              {projects.map((project) => (
+                <div key={project.id}>
+                  <span className="settings-icon"><Globe2 /></span>
+                  <div>
+                    <strong>{project.name}</strong>
+                    <span>
+                      {project.primary_domain ?? "No primary domain"} ·{" "}
+                      {pluralize(project.query_count, "query", "queries")}
+                    </span>
+                  </div>
+                  <div className="settings-project-actions">
+                    <Badge tone={project.html_capture_enabled ? "success" : "neutral"}>
+                      HTML {project.html_capture_enabled ? "on" : "off"}
+                    </Badge>
+                    {project.id === projectId ? <Badge tone="info">Selected</Badge> : null}
+                    {session.user.role !== "viewer" ? (
+                      <Button
+                        variant="secondary"
+                        className="settings-edit-button"
+                        onClick={() => {
+                          updateProject.reset();
+                          setEditingProject(project);
+                        }}
+                      >
+                        <Pencil size={13} />
+                        Edit
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            <EmptyState
+              title="Create your first project"
+              description="Add an owned brand and domain to start tracking."
+            />
+          )}
+        </Card>
         <Card><CardHeader title="Provider & infrastructure" description="Health checks from the last 24 hours." />{health.isPending ? <CardContent><p className="muted">Checking infrastructure…</p></CardContent> : health.data ? <div className="health-panel"><div><CheckCircle2/><span><strong>Control database</strong>Connected</span></div><div><ServerCog/><span><strong>Snapshot shards</strong>32 shards configured</span></div><div><KeyRound/><span><strong>Runtime configuration</strong>Bindings available</span></div></div> : <CardContent><p className="muted">Administrator access is required to view health checks.</p></CardContent>}</Card>
         <Card><CardHeader title="Webhook delivery" description="Send signed alerts to external systems." action={<Button variant="secondary" onClick={() => {setWebhookSecret("");setWebhookOpen(true);}}><Webhook size={14}/> Add</Button>} /><CardContent className="settings-note"><p className="muted">Alert payloads include an event ID, timestamp, and HMAC-SHA256 signature.</p></CardContent></Card>
         <Card><CardHeader title="Evidence retention" description="Private R2 lifecycle policy." /><div className="retention-grid"><div><strong>730 days</strong><span>Raw evidence</span></div><div><strong>90 days</strong><span>Opt-in HTML</span></div><div><strong>7 days</strong><span>Exports</span></div></div></Card>
       </div>
-      <Dialog open={projectOpen} onOpenChange={setProjectOpen} title="Create project" description="Define the brand and domain used for visibility metrics."><form className="form-stack" onSubmit={projectSubmit}><Label>Project name</Label><Input name="name" required /><Label>Owned brand</Label><Input name="brand" required /><Label>Primary domain</Label><Input name="primaryDomain" placeholder="example.com" /><label className="checkbox-row"><input name="html" type="checkbox" /> Retain HTML evidence for scheduled runs</label><Button>Create project</Button></form></Dialog>
+      <Dialog open={projectOpen} onOpenChange={setProjectOpen} title="Create project" description="Define the brand and domain used for visibility metrics."><form className="form-stack" onSubmit={projectSubmit}><Label>Project name</Label><Input name="name" required /><Label>Owned brand</Label><Input name="brand" required /><Label>Primary domain</Label><Input name="primaryDomain" placeholder="example.com" /><label className="checkbox-row"><input name="html" type="checkbox" /> Retain HTML evidence for future runs</label><Button>Create project</Button></form></Dialog>
+      <Dialog
+        open={Boolean(editingProject)}
+        onOpenChange={(open) => {
+          if (!open) setEditingProject(null);
+        }}
+        title="Edit project"
+        description="Update project details and evidence retention for future runs."
+      >
+        {editingProject ? (
+          <form
+            key={editingProject.id}
+            className="form-stack"
+            onSubmit={projectUpdateSubmit}
+          >
+            <Label>Project name</Label>
+            <Input name="name" defaultValue={editingProject.name} required />
+            <Label>Primary domain</Label>
+            <Input
+              name="primaryDomain"
+              defaultValue={editingProject.primary_domain ?? ""}
+              placeholder="example.com"
+            />
+            <label className="checkbox-row evidence-checkbox">
+              <input
+                name="html"
+                type="checkbox"
+                defaultChecked={editingProject.html_capture_enabled === 1}
+              />
+              <span>
+                <strong>Retain HTML evidence</strong>
+                <small>
+                  Applies to new scheduled and manual runs. Existing snapshots are unchanged.
+                </small>
+              </span>
+            </label>
+            {updateProject.isError ? (
+              <p className="form-error">{updateProject.error.message}</p>
+            ) : null}
+            <div className="dialog-actions">
+              <Button
+                type="button"
+                variant="ghost"
+                onClick={() => setEditingProject(null)}
+              >
+                Cancel
+              </Button>
+              <Button disabled={updateProject.isPending}>
+                {updateProject.isPending ? "Saving…" : "Save changes"}
+              </Button>
+            </div>
+          </form>
+        ) : null}
+      </Dialog>
       <Dialog open={webhookOpen} onOpenChange={setWebhookOpen} title="Add webhook destination" description="Only public HTTPS targets are accepted.">{webhookSecret ? <div className="success-panel"><CheckCircle2/><p>Store this signing secret now; it will not be shown again.</p><code className="invite-link">{webhookSecret}</code><Button onClick={() => void navigator.clipboard.writeText(webhookSecret)}>Copy secret</Button></div> : <form className="form-stack" onSubmit={webhookSubmit}><Label>Name</Label><Input name="name" required /><Label>HTTPS URL</Label><Input name="url" type="url" placeholder="https://example.com/hooks/ai-tracker" required /><Button>Create destination</Button></form>}</Dialog>
     </div>
   );

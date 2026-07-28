@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ProjectInputSchema,
+  ProjectUpdateSchema,
   QueryInputSchema,
   SetupSchema,
 } from "../src/shared/contracts";
@@ -38,5 +39,11 @@ describe("API contracts", () => {
       competitorBrands: [],
       htmlCaptureEnabled: false,
     });
+  });
+
+  it("accepts enabling HTML retention on an existing project", () => {
+    expect(
+      ProjectUpdateSchema.parse({ htmlCaptureEnabled: true }),
+    ).toEqual({ htmlCaptureEnabled: true });
   });
 });
