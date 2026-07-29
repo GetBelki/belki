@@ -3,7 +3,6 @@ import {
   ArrowDown,
   ArrowUp,
   ExternalLink,
-  Globe2,
   Pause,
   Play,
   Plus,
@@ -25,6 +24,10 @@ import {
 } from "recharts";
 import { NoProject, PageHeader } from "../components/layout";
 import { CountryFlag } from "../components/country-flag";
+import {
+  CompletedRunsIcon,
+  SourcesIcon,
+} from "../components/navigation-icons";
 import {
   TagChip,
   TagPicker,
@@ -144,7 +147,7 @@ export function OverviewPage() {
         <div className="kpi-grid">{Array.from({ length: 4 }, (_, i) => <Skeleton className="kpi-skeleton" key={i} />)}</div>
       ) : (
         <div className="kpi-grid">
-          <KpiCard label="Citation rate" value={percent(overview.data?.summary.citationRate ?? 0)} detail={pluralize(overview.data?.summary.cited_runs ?? 0, "cited run")} icon={<Globe2 size={19} />} />
+          <KpiCard label="Citation rate" value={percent(overview.data?.summary.citationRate ?? 0)} detail={pluralize(overview.data?.summary.cited_runs ?? 0, "cited run")} icon={<SourcesIcon size={19} />} />
           <KpiCard label="Brand mention rate" value={percent(overview.data?.summary.brandMentionRate ?? 0)} detail={pluralize(overview.data?.summary.brand_mentioned_runs ?? 0, "mention")} icon={<Sparkles size={19} />} tone="blue" />
           <KpiCard
             label="Product prompt coverage"
@@ -153,7 +156,7 @@ export function OverviewPage() {
             icon={<ShoppingBag size={19} />}
             tone="green"
           />
-          <KpiCard label="Completed runs" value={compact(overview.data?.summary.completed_runs ?? 0)} detail={`${pluralize(overview.data?.summary.total_citations ?? 0, "citation")} captured`} icon={<Search size={19} />} tone="amber" />
+          <KpiCard label="Completed runs" value={compact(overview.data?.summary.completed_runs ?? 0)} detail={`${pluralize(overview.data?.summary.total_citations ?? 0, "citation")} captured`} icon={<CompletedRunsIcon size={19} />} tone="amber" />
         </div>
       )}
       <div className="dashboard-grid">
