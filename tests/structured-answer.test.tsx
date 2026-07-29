@@ -74,11 +74,14 @@ describe("StructuredAnswer", () => {
     expect(
       screen.getByRole("link", { name: "Open Sensitive dog food" }),
     ).toHaveAttribute("href", "https://example.test/product");
-    expect(
-      screen.getByRole("link", {
-        name: "View product performance for Sensitive dog food",
-      }).getAttribute("href"),
-    ).toMatch(/^\/shopping\/[A-Za-z0-9_-]+$/u);
+    const performanceLink = screen.getByRole("link", {
+      name: "View product performance for Sensitive dog food",
+    });
+    expect(performanceLink.getAttribute("href")).toMatch(
+      /^\/shopping\/[A-Za-z0-9_-]+$/u,
+    );
+    expect(performanceLink).toHaveAttribute("target", "_blank");
+    expect(performanceLink).toHaveAttribute("rel", "noreferrer");
     expect(screen.getByLabelText("Rated 4.8 out of 5 from 12 reviews"))
       .toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Next products" })).not.toBeInTheDocument();

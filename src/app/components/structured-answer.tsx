@@ -206,6 +206,8 @@ export function ProductCard({
         <Link
           className="shopping-performance-link"
           to={performanceUrl}
+          target="_blank"
+          rel="noreferrer"
           aria-label={`View product performance for ${title}`}
         >
           <ProductPerformanceIcon />
@@ -241,7 +243,12 @@ export function ProductCard({
               Open product <ExternalLink size={13} />
             </a>
           </Button>
-          <Link className="shopping-performance-button" to={performanceUrl}>
+          <Link
+            className="shopping-performance-button"
+            to={performanceUrl}
+            target="_blank"
+            rel="noreferrer"
+          >
             <ProductPerformanceIcon />
             Product performance
           </Link>
