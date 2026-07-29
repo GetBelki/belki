@@ -1,4 +1,6 @@
 import { cleanup, render, screen, within } from "@testing-library/react";
+import type { ReactNode } from "react";
+import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { StructuredAnswer } from "../src/app/components/structured-answer";
 import type {
@@ -7,6 +9,10 @@ import type {
 } from "../src/app/lib/snapshot-evidence";
 
 afterEach(cleanup);
+
+function renderWithRouter(children: ReactNode) {
+  return render(<MemoryRouter>{children}</MemoryRouter>);
+}
 
 const product: ProductEvidence = {
   id: "product-1",
@@ -47,7 +53,7 @@ function item(
 
 describe("StructuredAnswer", () => {
   it("reconstructs the provider result stream in its original order", () => {
-    render(
+    renderWithRouter(
       <StructuredAnswer
         items={[
           item("text-1", "chat_gpt_text", 0, {}, "Before products"),
@@ -68,13 +74,18 @@ describe("StructuredAnswer", () => {
     expect(
       screen.getByRole("link", { name: "Open Sensitive dog food" }),
     ).toHaveAttribute("href", "https://example.test/product");
+    expect(
+      screen.getByRole("link", {
+        name: "View product performance for Sensitive dog food",
+      }).getAttribute("href"),
+    ).toMatch(/^\/shopping\/[A-Za-z0-9_-]+$/u);
     expect(screen.getByLabelText("Rated 4.8 out of 5 from 12 reviews"))
       .toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Next products" })).not.toBeInTheDocument();
   });
 
   it("adds explicit navigation controls when a product group overflows", () => {
-    render(
+    renderWithRouter(
       <StructuredAnswer
         items={[item("products-1", "chat_gpt_products", 0, { items: [] })]}
         products={[
@@ -90,7 +101,7 @@ describe("StructuredAnswer", () => {
   });
 
   it("keeps products clickable when the provider omits a direct listing", () => {
-    render(
+    renderWithRouter(
       <StructuredAnswer
         items={[item("products-1", "chat_gpt_products", 0, { items: [] })]}
         products={[{ ...product, canonical_url: null, raw_url: null }]}
@@ -108,7 +119,7 @@ describe("StructuredAnswer", () => {
   });
 
   it("recovers a direct listing URL from the provider payload", () => {
-    render(
+    renderWithRouter(
       <StructuredAnswer
         items={[
           item("products-1", "chat_gpt_products", 0, {
@@ -129,7 +140,7 @@ describe("StructuredAnswer", () => {
   });
 
   it("renders images, navigation sources, and local result details", () => {
-    render(
+    renderWithRouter(
       <StructuredAnswer
         items={[
           item("images", "chat_gpt_images", 0, {
@@ -169,7 +180,7 @@ describe("StructuredAnswer", () => {
   });
 
   it("falls back to the combined Markdown for legacy captures", () => {
-    render(
+    renderWithRouter(
       <StructuredAnswer
         items={[]}
         products={[]}

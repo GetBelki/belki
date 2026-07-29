@@ -3,11 +3,16 @@ import {
   fanOutLabel,
   formatProviderCost,
   googleShoppingUrl,
+  productAnalyticsKey,
   productDestination,
   productImage,
   safeExternalUrl,
   type ProductEvidence,
 } from "../src/app/lib/snapshot-evidence";
+import {
+  productIdentity,
+  productIdentityFromKey,
+} from "../src/worker/lib/reporting";
 
 const product: ProductEvidence = {
   id: "product-1",
@@ -102,5 +107,11 @@ describe("snapshot evidence helpers", () => {
     expect(formatProviderCost(0.0024)).toBe("$0.002400");
     expect(formatProviderCost(0.00004)).toBe("$0.000040");
     expect(formatProviderCost(null)).toBe("—");
+  });
+
+  it("builds product report keys that match backend product identities", () => {
+    expect(productIdentityFromKey(productAnalyticsKey(product))).toBe(
+      productIdentity(product),
+    );
   });
 });

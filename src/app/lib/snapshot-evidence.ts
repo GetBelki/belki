@@ -86,6 +86,40 @@ export interface SnapshotDiff {
   productBlockChanged?: boolean;
 }
 
+type ProductAnalyticsIdentityData = Pick<
+  ProductEvidence,
+  | "provider_product_id"
+  | "canonical_url"
+  | "raw_url"
+  | "title"
+  | "merchants"
+  | "registrable_domain"
+>;
+
+function productAnalyticsIdentity(product: ProductAnalyticsIdentityData): string {
+  if (product.provider_product_id) return `id:${product.provider_product_id}`;
+  if (product.canonical_url || product.raw_url) {
+    return `url:${product.canonical_url ?? product.raw_url}`;
+  }
+  const normalized = (value: string | null) =>
+    (value ?? "").trim().toLowerCase().replace(/\s+/gu, " ");
+  return `fallback:${normalized(product.title)}|${normalized(
+    product.merchants ?? product.registrable_domain,
+  )}`;
+}
+
+export function productAnalyticsKey(
+  product: ProductAnalyticsIdentityData,
+): string {
+  const bytes = new TextEncoder().encode(productAnalyticsIdentity(product));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+}
+
 export function formatProviderCost(value: number | null): string {
   if (value === null) return "—";
   return new Intl.NumberFormat("en-US", {

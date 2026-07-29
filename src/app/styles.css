@@ -1543,7 +1543,8 @@ tbody tr:hover {
 }
 
 .shopping-carousel .shopping-card {
-  display: block;
+  display: flex;
+  flex-direction: column;
   min-height: 0;
   scroll-snap-align: start;
 }
@@ -1551,8 +1552,8 @@ tbody tr:hover {
 .shopping-card-link {
   color: inherit;
   display: grid;
+  flex: 1;
   grid-template-rows: 112px minmax(68px, auto);
-  height: 100%;
   text-decoration: none;
 }
 
@@ -1568,6 +1569,32 @@ tbody tr:hover {
 
 .shopping-card-link.is-static {
   cursor: default;
+}
+
+.shopping-performance-link {
+  align-items: center;
+  background: #f3f5ff;
+  border-top: 1px solid #e1e6ff;
+  color: #4054a8;
+  display: flex;
+  font-size: 10px;
+  font-weight: 650;
+  gap: 6px;
+  justify-content: center;
+  min-height: 34px;
+  padding: 7px 9px;
+  text-decoration: none;
+}
+
+.shopping-performance-link:hover,
+.shopping-performance-link:focus-visible {
+  background: #e9edff;
+  color: #293c8d;
+}
+
+.shopping-performance-link:focus-visible {
+  outline: 2px solid #4054a8;
+  outline-offset: -2px;
 }
 
 .shopping-carousel .shopping-image {
@@ -2490,6 +2517,25 @@ a.evidence-source:hover strong {
 .shopping-actions .button {
   min-height: 30px;
   padding: 6px 9px;
+}
+
+.shopping-performance-button {
+  align-items: center;
+  background: #f3f5ff;
+  border: 1px solid #e1e6ff;
+  border-radius: 6px;
+  color: #4054a8;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 650;
+  gap: 6px;
+  min-height: 30px;
+  padding: 6px 9px;
+}
+
+.shopping-performance-button:hover {
+  background: #e9edff;
+  color: #293c8d;
 }
 
 .change-summary {

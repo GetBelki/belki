@@ -11,7 +11,7 @@ export function productIdentity(product: {
     return `url:${product.canonical_url ?? product.raw_url}`;
   }
   const normalized = (value: string | null) =>
-    (value ?? "").trim().toLocaleLowerCase().replace(/\s+/gu, " ");
+    (value ?? "").trim().toLowerCase().replace(/\s+/gu, " ");
   return `fallback:${normalized(product.title)}|${normalized(
     product.merchants ?? product.registrable_domain,
   )}`;
