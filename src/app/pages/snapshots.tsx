@@ -31,7 +31,6 @@ import { localeLabel } from "../lib/locale-catalog";
 import { isRunInProgress, runStatusLabel } from "../lib/run-status";
 import {
   fanOutLabel,
-  formatProviderCost,
   safeExternalUrl,
   type EvidenceRow,
   type SnapshotDetail,
@@ -546,16 +545,6 @@ export function SnapshotDetailPage() {
           <Card className="evidence-section">
             <CardHeader title="Changes" description="Difference from the previous capture." />
             <CardContent><ChangeSummary diff={diff.data} /></CardContent>
-          </Card>
-
-          <Card className="evidence-section">
-            <CardHeader title="Capture details" />
-            <CardContent className="capture-details">
-              <div><span>Model</span><strong>{snapshot.model ?? "Unknown"}</strong></div>
-              <div><span>Search results</span><strong>{snapshot.se_results_count ?? "—"}</strong></div>
-              <div><span>Provider status</span><strong>{snapshot.provider_status_code ?? "—"}</strong></div>
-              <div><span>Provider cost</span><strong>{formatProviderCost(snapshot.provider_cost_usd)}</strong></div>
-            </CardContent>
           </Card>
 
           <Card className="evidence-section snapshot-timeline-card">

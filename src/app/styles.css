@@ -1874,7 +1874,6 @@ a.evidence-source:hover strong {
 }
 
 .coverage-list,
-.capture-details,
 .entity-list,
 .change-summary {
   display: flex;
@@ -2586,32 +2585,6 @@ a.evidence-source:hover strong {
 
 .change-lines strong {
   color: #3f3f46;
-}
-
-.capture-details > div {
-  align-items: baseline;
-  border-top: 1px solid #f4f4f5;
-  display: flex;
-  gap: 12px;
-  justify-content: space-between;
-  padding: 9px 0;
-}
-
-.capture-details > div:first-child {
-  border-top: 0;
-  padding-top: 0;
-}
-
-.capture-details span {
-  color: #71717a;
-  font-size: 10px;
-}
-
-.capture-details strong {
-  color: #27272a;
-  font-size: 10px;
-  font-weight: 600;
-  text-align: right;
 }
 
 @media (max-width: 1120px) {
