@@ -31,6 +31,7 @@ import { localeLabel } from "../lib/locale-catalog";
 import { isRunInProgress, runStatusLabel } from "../lib/run-status";
 import {
   fanOutLabel,
+  formatProviderCost,
   safeExternalUrl,
   type EvidenceRow,
   type SnapshotDetail,
@@ -586,7 +587,7 @@ export function SnapshotDetailPage() {
               <div><span>Model</span><strong>{snapshot.model ?? "Unknown"}</strong></div>
               <div><span>Search results</span><strong>{snapshot.se_results_count ?? "—"}</strong></div>
               <div><span>Provider status</span><strong>{snapshot.provider_status_code ?? "—"}</strong></div>
-              <div><span>Provider cost</span><strong>{snapshot.provider_cost_usd === null ? "—" : `$${snapshot.provider_cost_usd.toFixed(4)}`}</strong></div>
+              <div><span>Provider cost</span><strong>{formatProviderCost(snapshot.provider_cost_usd)}</strong></div>
             </CardContent>
           </Card>
         </aside>

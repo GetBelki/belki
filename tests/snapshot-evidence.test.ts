@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   fanOutLabel,
+  formatProviderCost,
   googleShoppingUrl,
   productDestination,
   productImage,
@@ -95,5 +96,11 @@ describe("snapshot evidence helpers", () => {
       "https://example.test/path",
     );
     expect(productImage(product)).toBe("https://images.example.test/product.jpg");
+  });
+
+  it("shows small provider costs without rounding them to zero", () => {
+    expect(formatProviderCost(0.0024)).toBe("$0.002400");
+    expect(formatProviderCost(0.00004)).toBe("$0.000040");
+    expect(formatProviderCost(null)).toBe("—");
   });
 });

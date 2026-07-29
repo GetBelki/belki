@@ -86,6 +86,16 @@ export interface SnapshotDiff {
   productBlockChanged?: boolean;
 }
 
+export function formatProviderCost(value: number | null): string {
+  if (value === null) return "—";
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: 6,
+    maximumFractionDigits: 8,
+  }).format(value);
+}
+
 export function safeExternalUrl(value: unknown): string | null {
   if (typeof value !== "string" || !value) return null;
   try {

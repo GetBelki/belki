@@ -1,4 +1,5 @@
 import type { NormalizeQueueMessage, RollupQueueMessage } from "../../shared/contracts";
+import { resolveProviderCost } from "../../shared/provider-cost";
 import {
   extractDomainsFromText,
   matchedBrandTerms,
@@ -19,6 +20,7 @@ interface JobRow {
   shard_id: number;
   capture_html: number;
   delivery_method: string;
+  request_cost_usd: number | null;
 }
 
 interface BrandRow {
@@ -93,7 +95,7 @@ export async function normalizeSnapshot(
   const job = await env.CONTROL_DB.prepare(
     `SELECT
       id, workspace_id, project_id, tracked_query_id, shard_id,
-      capture_html, delivery_method
+      capture_html, delivery_method, request_cost_usd
      FROM crawl_jobs WHERE id = ?`,
   )
     .bind(message.jobId)
@@ -122,6 +124,10 @@ export async function normalizeSnapshot(
   if (!providerTask || !result) {
     throw new Error(providerTask?.status_message ?? "DataForSEO returned no Advanced result");
   }
+  const providerCost = resolveProviderCost(
+    job.request_cost_usd,
+    providerTask.cost,
+  );
 
   const brandsResult = await env.CONTROL_DB.prepare(
     `SELECT id, kind, name, aliases_json, domains_json
@@ -195,7 +201,7 @@ export async function normalizeSnapshot(
         JSON.stringify(result.fan_out_queries),
         message.rawR2Key,
         htmlR2Key,
-        providerTask.cost ?? null,
+        providerCost,
         providerTask.status_code ?? null,
         providerTask.status_message ?? null,
         createdAt,

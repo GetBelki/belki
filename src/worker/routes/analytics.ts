@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import { zValidator } from "@hono/zod-validator";
 import { z } from "zod";
+import { resolveProviderCost } from "../../shared/provider-cost";
 import type { AppEnv } from "../lib/app";
 import {
   extractTaskHtml,
@@ -913,7 +914,11 @@ analyticsRoutes.get(
       "SELECT * FROM snapshot_index WHERE id = ? AND workspace_id = ?",
     )
       .bind(id, principal.workspaceId)
-      .first<{ shard_id: number; project_id: string } & Record<string, unknown>>();
+      .first<{
+        shard_id: number;
+        project_id: string;
+        crawl_job_id: string;
+      } & Record<string, unknown>>();
     if (!index) throw new ApiError(404, "snapshot_not_found", "Snapshot not found.");
     const shard = getShard(c.env, index.shard_id);
     const [
@@ -925,6 +930,7 @@ analyticsRoutes.get(
       domains,
       items,
       trackedBrands,
+      crawlJob,
     ] =
       await Promise.all([
         shard
@@ -935,6 +941,7 @@ analyticsRoutes.get(
               item_types_json: string;
               fan_out_queries_json: string;
               answer_markdown: string | null;
+              provider_cost_usd: number | null;
             }
           >(),
         shard
@@ -990,10 +997,21 @@ analyticsRoutes.get(
             name: string;
             aliases_json: string;
           }>(),
+        c.env.CONTROL_DB.prepare(
+          `SELECT request_cost_usd
+           FROM crawl_jobs
+           WHERE id = ? AND workspace_id = ?`,
+        )
+          .bind(index.crawl_job_id, principal.workspaceId)
+          .first<{ request_cost_usd: number | null }>(),
       ]);
     const structuredSnapshot = snapshot
       ? {
           ...snapshot,
+          provider_cost_usd: resolveProviderCost(
+            crawlJob?.request_cost_usd,
+            snapshot.provider_cost_usd,
+          ),
           has_html_evidence: Boolean(snapshot.html_r2_key),
           item_types: jsonParse<unknown[]>(
             snapshot.item_types_json,
