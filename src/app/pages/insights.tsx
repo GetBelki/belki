@@ -368,7 +368,7 @@ export function CitationSourceDetailPage() {
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <AreaChart
                     data={detail.trend}
-                    margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
+                    margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
                   >
                     <defs>
                       <linearGradient
@@ -1325,7 +1325,7 @@ export function ProductAnalyticsPage() {
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <AreaChart
                     data={detail.visibilityTrend}
-                    margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
+                    margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
                   >
                     <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
                     <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
@@ -1344,7 +1344,7 @@ export function ProductAnalyticsPage() {
               <div className="product-chart">
                 {priceChartData.length ? (
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <LineChart data={priceChartData} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                    <LineChart data={priceChartData} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
                       <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
                       <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
                       <YAxis axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} width={40} />
@@ -1375,7 +1375,7 @@ export function ProductAnalyticsPage() {
               <div className="product-chart">
                 {detail.reviewTrend.some((point) => point.reviews !== null) ? (
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <LineChart data={detail.reviewTrend} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                    <LineChart data={detail.reviewTrend} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
                       <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
                       <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
                       <YAxis axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => compact(Number(value))} tickLine={false} width={40} />

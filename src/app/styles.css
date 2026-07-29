@@ -2141,7 +2141,7 @@ a.evidence-source:hover strong {
 }
 
 .source-trend-chart {
-  padding: 4px 16px 16px 4px;
+  padding: 4px 16px 16px;
 }
 
 .source-trend-skeleton {
@@ -2307,7 +2307,7 @@ a.evidence-source:hover strong {
 }
 
 .product-chart {
-  padding: 2px 12px 14px 2px;
+  padding: 2px 16px 14px;
 }
 
 .product-chart .empty-state {
