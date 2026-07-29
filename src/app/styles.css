@@ -2730,12 +2730,20 @@ a.evidence-source:hover strong {
   border-top: 1px solid #f4f4f5;
   display: grid;
   gap: 10px;
-  grid-template-columns: 38px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-width: 0;
   padding: 9px 0;
 }
 
-.recent-product-row:hover .recent-product-copy > strong {
+.recent-product-details {
+  align-items: center;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: 38px minmax(0, 1fr);
+  min-width: 0;
+}
+
+.recent-product-details:hover .recent-product-copy > strong {
   text-decoration: underline;
   text-underline-offset: 3px;
 }
@@ -2802,6 +2810,23 @@ a.evidence-source:hover strong {
   color: #27272a;
   font-size: 10px;
   white-space: nowrap;
+}
+
+.recent-product-external {
+  align-items: center;
+  border-radius: 4px;
+  color: #71717a;
+  display: inline-flex;
+  height: 20px;
+  justify-content: center;
+  width: 20px;
+}
+
+.recent-product-external:hover,
+.recent-product-external:focus-visible {
+  background: #f4f4f5;
+  color: #18181b;
+  outline: none;
 }
 
 .billing-period-toggle {
@@ -3012,15 +3037,15 @@ a.evidence-source:hover strong {
   }
 
   .recent-product-row {
-    align-items: start;
-    grid-template-columns: 38px minmax(0, 1fr);
+    align-items: center;
+    grid-template-columns: minmax(0, 1fr) auto;
   }
 
   .recent-product-meta {
-    align-items: center;
-    flex-direction: row;
-    grid-column: 2;
-    margin-top: -3px;
+    align-items: flex-end;
+    flex-direction: column;
+    grid-column: auto;
+    margin-top: 0;
   }
 }
 

@@ -56,6 +56,7 @@ import {
 import { isRunInProgress, runStatusLabel } from "../lib/run-status";
 import {
   formatPrice,
+  productAnalyticsKey,
   productDestination,
 } from "../lib/snapshot-evidence";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
@@ -84,6 +85,7 @@ interface Overview {
   }>;
   recentProducts: Array<{
     id: string;
+    provider_product_id: string | null;
     title: string | null;
     merchants: string | null;
     registrable_domain: string | null;
@@ -206,37 +208,50 @@ export function OverviewPage() {
           ) : overview.data?.recentProducts.length ? (
             <div className="recent-products-list">
               {overview.data.recentProducts.map((product) => (
-                <a
+                <div
                   className="recent-product-row"
-                  href={productDestination(product)}
                   key={product.id}
-                  rel="noreferrer"
-                  target="_blank"
                 >
-                  <span className="recent-product-image">
-                    {product.images[0] ? (
-                      <img src={product.images[0]} alt="" loading="lazy" />
-                    ) : (
-                      <ShoppingBag size={17} />
-                    )}
-                  </span>
-                  <span className="recent-product-copy">
-                    <strong>{product.title ?? "Untitled product"}</strong>
-                    <span>
-                      {product.merchants ??
-                        product.registrable_domain ??
-                        "Merchant unavailable"}
+                  <Link
+                    aria-label={`View performance for ${
+                      product.title ?? "product"
+                    }`}
+                    className="recent-product-details"
+                    to={`/shopping/${productAnalyticsKey(product)}`}
+                  >
+                    <span className="recent-product-image">
+                      {product.images[0] ? (
+                        <img src={product.images[0]} alt="" loading="lazy" />
+                      ) : (
+                        <ShoppingBag size={17} />
+                      )}
                     </span>
-                    <small>{dateTime(product.latestSeen)}</small>
-                  </span>
+                    <span className="recent-product-copy">
+                      <strong>{product.title ?? "Untitled product"}</strong>
+                      <span>
+                        {product.merchants ??
+                          product.registrable_domain ??
+                          "Merchant unavailable"}
+                      </span>
+                      <small>{dateTime(product.latestSeen)}</small>
+                    </span>
+                  </Link>
                   <span className="recent-product-meta">
                     <strong>
                       {formatPrice(product.price, product.currency) ??
                         "Price unavailable"}
                     </strong>
-                    <ExternalLink size={13} />
+                    <a
+                      aria-label={`Open ${product.title ?? "product"} externally`}
+                      className="recent-product-external"
+                      href={productDestination(product)}
+                      rel="noreferrer"
+                      target="_blank"
+                    >
+                      <ExternalLink size={13} />
+                    </a>
                   </span>
-                </a>
+                </div>
               ))}
             </div>
           ) : (
