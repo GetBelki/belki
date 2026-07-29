@@ -2382,16 +2382,14 @@ a.evidence-source:hover strong {
 .metric-down { color: #b91c1c; }
 
 .snapshot-timeline-card {
-  margin-bottom: 16px;
   overflow: hidden;
 }
 
 .snapshot-timeline {
   display: flex;
+  flex-direction: column;
   gap: 8px;
-  overflow-x: auto;
-  padding: 0 20px 18px;
-  scrollbar-width: thin;
+  padding: 0 16px 16px;
 }
 
 .snapshot-timeline-item {
@@ -2399,11 +2397,12 @@ a.evidence-source:hover strong {
   border-radius: 6px;
   color: #52525b;
   display: flex;
-  flex: 0 0 178px;
+  flex: 0 0 auto;
   flex-direction: column;
   gap: 3px;
   padding: 10px 12px;
   text-decoration: none;
+  width: 100%;
 }
 
 .snapshot-timeline-item:hover {

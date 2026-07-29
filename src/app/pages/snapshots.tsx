@@ -429,39 +429,6 @@ export function SnapshotDetailPage() {
         }
       />
 
-      <Card className="snapshot-timeline-card">
-        <CardHeader
-          title="Recent captures"
-          description="Compare this result with other snapshots of the same prompt."
-          action={history.hasNextPage ? (
-            <Button
-              variant="ghost"
-              disabled={history.isFetchingNextPage}
-              onClick={() => void history.fetchNextPage()}
-            >
-              {history.isFetchingNextPage ? "Loading…" : "Load older"}
-            </Button>
-          ) : undefined}
-        />
-        <div className="snapshot-timeline">
-          {history.data?.pages.flatMap((page) => page.data).map((item, index) => {
-            const isLatest = index === 0;
-            const isCurrent = item.id === snapshotId;
-            return (
-              <Link
-                className={`snapshot-timeline-item${isCurrent ? " active" : ""}`}
-                key={item.id}
-                to={`/prompts/${snapshot.tracked_query_id}/snapshots/${item.id}`}
-              >
-                <span>{isLatest ? "Latest" : dateTime(item.captured_at)}</span>
-                <strong>{dateTime(item.captured_at)}</strong>
-                <small>{item.cited_domains_count} cited · {item.products_count} products</small>
-              </Link>
-            );
-          })}
-        </div>
-      </Card>
-
       <div className="evidence-stats">
         <div><span>Citations</span><strong>{sources.length}</strong></div>
         <div><span>Retrieved results</span><strong>{searchResults.length}</strong></div>
@@ -524,6 +491,39 @@ export function SnapshotDetailPage() {
         </main>
 
         <aside className="evidence-rail">
+          <Card className="evidence-section snapshot-timeline-card">
+            <CardHeader
+              title="Recent captures"
+              description="Compare snapshots of this prompt."
+              action={history.hasNextPage ? (
+                <Button
+                  variant="ghost"
+                  disabled={history.isFetchingNextPage}
+                  onClick={() => void history.fetchNextPage()}
+                >
+                  {history.isFetchingNextPage ? "Loading…" : "Load older"}
+                </Button>
+              ) : undefined}
+            />
+            <div className="snapshot-timeline">
+              {history.data?.pages.flatMap((page) => page.data).map((item, index) => {
+                const isLatest = index === 0;
+                const isCurrent = item.id === snapshotId;
+                return (
+                  <Link
+                    className={`snapshot-timeline-item${isCurrent ? " active" : ""}`}
+                    key={item.id}
+                    to={`/prompts/${snapshot.tracked_query_id}/snapshots/${item.id}`}
+                  >
+                    <span>{isLatest ? "Latest" : dateTime(item.captured_at)}</span>
+                    <strong>{dateTime(item.captured_at)}</strong>
+                    <small>{item.cited_domains_count} cited · {item.products_count} products</small>
+                  </Link>
+                );
+              })}
+            </div>
+          </Card>
+
           <Card className="evidence-section">
             <CardHeader title="Fan-out queries" description="Related searches generated to expand the answer." />
             <CardContent>
