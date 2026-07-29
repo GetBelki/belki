@@ -940,15 +940,23 @@ export function ProductAnalyticsPage() {
         }
         action={
           <div className="product-analytics-header-actions">
-            <div className="product-period-toggle" aria-label="Report period">
+            <div
+              className="product-period-toggle"
+              data-period={period}
+              role="group"
+              aria-label="Report period"
+            >
+              <span className="product-period-indicator" aria-hidden="true" />
               {(["30d", "90d", "365d"] as const).map((value) => (
-                <Button
+                <button
+                  aria-pressed={period === value}
+                  className={period === value ? "active" : undefined}
                   key={value}
-                  variant={period === value ? "default" : "secondary"}
                   onClick={() => setPeriod(value)}
+                  type="button"
                 >
                   {value.replace("d", " days")}
-                </Button>
+                </button>
               ))}
             </div>
             {productHref ? (
@@ -1150,22 +1158,29 @@ export function ProductAnalyticsPage() {
                 { key: "seen", label: "Last seen" },
                 { key: "open", label: "" },
               ]}
-              rows={promptRows.map((prompt) => ({
-                id: prompt.queryId,
-                prompt: <strong>{prompt.prompt}</strong>,
-                country: <CountryFlag locationCode={prompt.locationCode} languageCode={prompt.languageCode} />,
-                appearances: compact(prompt.appearances),
-                position: `#${prompt.latestPosition}`,
-                price: observedPrice(prompt.latestPrice, prompt.latestCurrency) ?? "—",
-                seen: dateTime(prompt.latestSeen),
-                open: (
-                  <Button asChild variant="secondary">
-                    <Link to={`/prompts/${prompt.queryId}/snapshots/${prompt.latestSnapshotId}`}>
-                      View response
+              rows={promptRows.map((prompt) => {
+                const responsePath = `/prompts/${prompt.queryId}/snapshots/${prompt.latestSnapshotId}`;
+                return {
+                  id: prompt.queryId,
+                  prompt: (
+                    <Link className="product-prompt-link" to={responsePath}>
+                      {prompt.prompt}
                     </Link>
-                  </Button>
-                ),
-              }))}
+                  ),
+                  country: <CountryFlag locationCode={prompt.locationCode} languageCode={prompt.languageCode} />,
+                  appearances: compact(prompt.appearances),
+                  position: `#${prompt.latestPosition}`,
+                  price: observedPrice(prompt.latestPrice, prompt.latestCurrency) ?? "—",
+                  seen: dateTime(prompt.latestSeen),
+                  open: (
+                    <Button asChild className="product-response-button" variant="secondary">
+                      <Link to={responsePath}>
+                      View response
+                      </Link>
+                    </Button>
+                  ),
+                };
+              })}
             />
             {detail.prompts.length > pageSize ? (
               <div className="table-pagination">

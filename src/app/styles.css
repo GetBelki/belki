@@ -2175,18 +2175,72 @@ a.evidence-source:hover strong {
 
 .product-period-toggle {
   align-items: center;
-  background: #f4f4f5;
+  background: #f1f1f3;
   border: 1px solid #e4e4e7;
-  border-radius: 6px;
-  display: inline-flex;
-  gap: 2px;
+  border-radius: 7px;
+  display: inline-grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   padding: 2px;
+  position: relative;
 }
 
-.product-period-toggle .button {
+.product-period-indicator {
+  background: #18181b;
+  border-radius: 5px;
+  bottom: 2px;
+  left: 2px;
+  position: absolute;
+  top: 2px;
+  transform: translateX(0);
+  transition: transform 220ms cubic-bezier(.22, 1, .36, 1);
+  width: calc((100% - 4px) / 3);
+}
+
+.product-period-toggle[data-period="90d"] .product-period-indicator {
+  transform: translateX(100%);
+}
+
+.product-period-toggle[data-period="365d"] .product-period-indicator {
+  transform: translateX(200%);
+}
+
+.product-period-toggle button {
+  background: transparent;
   border: 0;
+  color: #52525b;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
   min-height: 29px;
   padding: 5px 9px;
+  position: relative;
+  transition: color 160ms ease;
+  white-space: nowrap;
+  z-index: 1;
+}
+
+.product-period-toggle button:hover {
+  color: #18181b;
+}
+
+.product-period-toggle button.active {
+  color: #fff;
+}
+
+.product-prompt-link {
+  color: inherit;
+  display: inline-block;
+  font-weight: 650;
+  text-decoration: none;
+}
+
+.product-prompt-link:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.product-response-button {
+  white-space: nowrap;
 }
 
 .product-analytics-charts {
@@ -2845,8 +2899,8 @@ a.evidence-source:hover strong {
     width: 100%;
   }
 
-  .product-period-toggle .button {
-    flex: 1;
+  .product-period-toggle button {
+    width: 100%;
   }
 
   .product-analytics-header-actions > .button {
