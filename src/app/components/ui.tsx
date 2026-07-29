@@ -222,7 +222,7 @@ export function DataTable({
   onRowClick,
   rowAriaLabel,
 }: {
-  columns: Array<{ key: string; label: string; className?: string }>;
+  columns: Array<{ key: string; label: ReactNode; className?: string }>;
   rows: Array<Record<string, ReactNode>>;
   onRowClick?: (row: Record<string, ReactNode>) => void;
   rowAriaLabel?: (row: Record<string, ReactNode>) => string;

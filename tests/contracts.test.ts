@@ -38,6 +38,7 @@ describe("API contracts", () => {
     });
     expect(result.queryTexts).toHaveLength(2);
     expect(result.forceWebSearch).toBe(true);
+    expect(result.tags).toEqual([]);
   });
 
   it("rejects bulk prompt uploads above the limit", () => {
@@ -67,5 +68,37 @@ describe("API contracts", () => {
     expect(
       ProjectUpdateSchema.parse({ htmlCaptureEnabled: true }),
     ).toEqual({ htmlCaptureEnabled: true });
+  });
+
+  it("normalizes and de-duplicates prompt tags without changing their display case", () => {
+    const result = QueryInputSchema.parse({
+      queryText: "best analytics platform",
+      locationCode: 2840,
+      languageCode: "en",
+      schedule: { cadence: "daily", time: "09:00", timezone: "UTC" },
+      tags: ["  Awareness  ", "Product   research", "awareness"],
+    });
+    expect(result.tags).toEqual(["Awareness", "Product research"]);
+  });
+
+  it("enforces prompt tag count and length limits", () => {
+    const base = {
+      queryText: "best analytics platform",
+      locationCode: 2840,
+      languageCode: "en",
+      schedule: { cadence: "daily", time: "09:00", timezone: "UTC" },
+    };
+    expect(
+      QueryInputSchema.safeParse({
+        ...base,
+        tags: Array.from({ length: 11 }, (_, index) => `Tag ${index}`),
+      }).success,
+    ).toBe(false);
+    expect(
+      QueryInputSchema.safeParse({
+        ...base,
+        tags: ["x".repeat(41)],
+      }).success,
+    ).toBe(false);
   });
 });

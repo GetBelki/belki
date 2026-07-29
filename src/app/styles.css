@@ -2764,3 +2764,353 @@ a.evidence-source:hover strong {
     margin-top: -3px;
   }
 }
+
+/* Prompt taxonomy */
+.report-filters {
+  grid-template-columns: minmax(240px, 1fr) 190px 190px 190px;
+}
+
+.tag-picker-trigger {
+  align-items: center;
+  background: #ffffff;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  color: #3f3f46;
+  cursor: pointer;
+  display: inline-flex;
+  font-size: 11px;
+  font-weight: 550;
+  gap: 7px;
+  justify-content: center;
+  min-height: 30px;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+
+.tag-picker-trigger:hover {
+  background: #fafafa;
+  border-color: #a1a1aa;
+}
+
+.tag-picker-trigger:focus-visible {
+  outline: 2px solid #18181b;
+  outline-offset: 2px;
+}
+
+.tag-picker-trigger:disabled {
+  cursor: not-allowed;
+  opacity: .5;
+}
+
+.tag-filter-trigger {
+  height: 38px;
+  justify-content: flex-start;
+  width: 100%;
+}
+
+.tag-picker-count {
+  align-items: center;
+  background: #f4f4f5;
+  border-radius: 3px;
+  color: #52525b;
+  display: inline-flex;
+  font-size: 9px;
+  height: 18px;
+  justify-content: center;
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 4px;
+}
+
+.tag-picker-content {
+  background: #ffffff;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  box-shadow: none;
+  min-width: 230px;
+  padding: 5px;
+  width: var(--radix-dropdown-menu-trigger-width);
+  z-index: 100;
+}
+
+.tag-picker-search {
+  align-items: center;
+  border-bottom: 1px solid #e4e4e7;
+  display: flex;
+  gap: 7px;
+  margin: -1px -1px 4px;
+  padding: 7px 8px 9px;
+}
+
+.tag-picker-search svg {
+  color: #71717a;
+  flex: 0 0 auto;
+}
+
+.tag-picker-search input {
+  border: 0;
+  color: #18181b;
+  font-size: 11px;
+  min-width: 0;
+  outline: 0;
+  width: 100%;
+}
+
+.tag-picker-options {
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.tag-picker-option {
+  align-items: center;
+  border-radius: 4px;
+  color: #27272a;
+  cursor: pointer;
+  display: flex;
+  gap: 7px;
+  min-height: 32px;
+  outline: 0;
+  padding: 5px 7px;
+}
+
+.tag-picker-option[data-highlighted] {
+  background: #f4f4f5;
+}
+
+.tag-picker-option[data-disabled] {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.tag-picker-option > svg:last-child {
+  margin-left: auto;
+}
+
+.tag-picker-usage {
+  color: #a1a1aa;
+  font-size: 9px;
+  margin-left: auto;
+}
+
+.tag-picker-create {
+  font-size: 11px;
+}
+
+.tag-picker-empty,
+.tag-picker-limit {
+  color: #71717a;
+  font-size: 10px;
+  margin: 0;
+  padding: 9px 8px;
+}
+
+.tag-picker-limit {
+  border-top: 1px solid #e4e4e7;
+  margin-top: 4px;
+}
+
+.prompt-tag-chip {
+  align-items: center;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  display: inline-flex;
+  font-size: 10px;
+  font-weight: 600;
+  gap: 4px;
+  line-height: 16px;
+  max-width: 180px;
+  min-height: 22px;
+  padding: 2px 6px;
+}
+
+.prompt-tag-chip > span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.prompt-tag-chip-compact {
+  font-size: 9px;
+  line-height: 14px;
+  min-height: 19px;
+  padding: 1px 5px;
+}
+
+.prompt-tag-chip button {
+  align-items: center;
+  background: transparent;
+  color: currentColor;
+  cursor: pointer;
+  display: inline-flex;
+  margin-right: -2px;
+  opacity: .7;
+  padding: 0;
+}
+
+.prompt-tag-chip button:hover {
+  opacity: 1;
+}
+
+.prompt-tag-tone-0 { background: #fce7f3; border-color: #fbcfe8; color: #9d174d; }
+.prompt-tag-tone-1 { background: #ede9fe; border-color: #ddd6fe; color: #5b21b6; }
+.prompt-tag-tone-2 { background: #dbeafe; border-color: #bfdbfe; color: #1e40af; }
+.prompt-tag-tone-3 { background: #cffafe; border-color: #a5f3fc; color: #155e75; }
+.prompt-tag-tone-4 { background: #dcfce7; border-color: #bbf7d0; color: #166534; }
+.prompt-tag-tone-5 { background: #fef3c7; border-color: #fde68a; color: #92400e; }
+.prompt-tag-tone-6 { background: #ffedd5; border-color: #fed7aa; color: #9a3412; }
+.prompt-tag-tone-7 { background: #f3f4f6; border-color: #e5e7eb; color: #374151; }
+
+.active-tag-filters {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin: -4px 0 14px;
+}
+
+.active-tag-filters > span:first-child {
+  color: #71717a;
+  font-size: 10px;
+  margin-right: 2px;
+}
+
+.clear-tag-filters,
+.prompt-selection-clear {
+  background: transparent;
+  color: #52525b;
+  cursor: pointer;
+  font-size: 10px;
+  padding: 3px 4px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+.prompt-bulk-toolbar {
+  align-items: center;
+  background: #fafafa;
+  border-top: 1px solid #e4e4e7;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  min-height: 48px;
+  padding: 8px 16px;
+}
+
+.prompt-bulk-toolbar > strong {
+  font-size: 11px;
+  margin-right: 3px;
+}
+
+.prompt-tag-error {
+  background: #fef2f2;
+  border-top: 1px solid #fecaca;
+  color: #991b1b;
+  font-size: 10px;
+  margin: 0;
+  padding: 8px 16px;
+}
+
+.prompt-select-column {
+  padding-left: 16px !important;
+  padding-right: 4px !important;
+  text-align: center;
+  width: 38px;
+}
+
+.prompt-select-column input,
+.prompts-table-card input[type="checkbox"] {
+  accent-color: #18181b;
+  cursor: pointer;
+  height: 14px;
+  width: 14px;
+}
+
+.prompt-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  min-width: 0;
+}
+
+.prompt-row-tags {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.prompt-tag-overflow {
+  color: #71717a;
+  font-size: 9px;
+  padding: 2px 3px;
+}
+
+.prompt-row-tag-trigger {
+  border-color: transparent;
+  color: #71717a;
+  min-height: 21px;
+  padding: 1px 4px;
+}
+
+.prompt-row-tag-trigger:hover {
+  background: #f4f4f5;
+  border-color: #e4e4e7;
+  color: #27272a;
+}
+
+.create-prompt-tags {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.create-prompt-tags .label {
+  margin: 0;
+}
+
+.create-prompt-tag-row {
+  align-items: center;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 42px;
+  padding: 6px;
+}
+
+.create-prompt-tag-row .tag-picker-trigger {
+  border-color: transparent;
+}
+
+.prompt-tags-hint {
+  color: #71717a;
+  font-size: 9px;
+  margin: -3px 0 0;
+}
+
+@media (max-width: 1100px) {
+  .report-filters {
+    grid-template-columns: minmax(220px, 1fr) repeat(3, minmax(150px, .65fr));
+  }
+}
+
+@media (max-width: 900px) {
+  .report-filters {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 520px) {
+  .prompt-bulk-toolbar {
+    align-items: stretch;
+  }
+
+  .prompt-bulk-toolbar > strong {
+    width: 100%;
+  }
+
+  .prompt-bulk-toolbar .tag-picker-trigger {
+    flex: 1;
+  }
+}

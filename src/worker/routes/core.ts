@@ -5,6 +5,7 @@ import {
   BrandInputSchema,
   BulkQueryInputSchema,
   ManualRunSchema,
+  PromptTagMutationSchema,
   ProjectInputSchema,
   ProjectUpdateSchema,
   QueryInputSchema,
@@ -18,6 +19,14 @@ import { createSignedJobTag } from "../lib/crypto";
 import { normalizeHostname } from "../lib/domain";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
 import { listProjects } from "../lib/projects";
+import {
+  assignPromptTagStatements,
+  assertPromptTagCapacity,
+  insertPromptTagStatements,
+  promptTagAssignments,
+  removePromptTagStatements,
+  resolvePromptTags,
+} from "../lib/prompt-tags";
 import { calculateNextRun } from "../lib/schedule";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
@@ -348,6 +357,112 @@ coreRoutes.delete(
 );
 
 coreRoutes.get(
+  "/projects/:projectId/tags",
+  zValidator("param", ProjectIdParamSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const { projectId } = c.req.valid("param");
+    await requireProject(c.env.CONTROL_DB, principal.workspaceId, projectId);
+    const tags = await c.env.CONTROL_DB.prepare(
+      `SELECT
+        t.id, t.name, t.color_index,
+        COUNT(q.id) AS usage_count
+       FROM prompt_tags t
+       LEFT JOIN tracked_query_tags qt ON qt.tag_id = t.id
+       LEFT JOIN tracked_queries q
+         ON q.id = qt.tracked_query_id AND q.deleted_at IS NULL
+       WHERE t.project_id = ?
+       GROUP BY t.id, t.name, t.color_index
+       HAVING COUNT(q.id) > 0
+       ORDER BY usage_count DESC, lower(t.name), t.id`,
+    )
+      .bind(projectId)
+      .all<{
+        id: string;
+        name: string;
+        color_index: number;
+        usage_count: number;
+      }>();
+    return c.json({
+      data: tags.results.map((tag) => ({
+        id: tag.id,
+        name: tag.name,
+        colorIndex: tag.color_index,
+        usageCount: tag.usage_count,
+      })),
+    });
+  },
+);
+
+coreRoutes.patch(
+  "/projects/:projectId/queries/tags",
+  zValidator("param", ProjectIdParamSchema),
+  zValidator("json", PromptTagMutationSchema),
+  async (c) => {
+    const principal = requireRole(c, "editor");
+    const { projectId } = c.req.valid("param");
+    const input = c.req.valid("json");
+    await requireProject(c.env.CONTROL_DB, principal.workspaceId, projectId);
+    const assignments = await promptTagAssignments(
+      c.env.CONTROL_DB,
+      projectId,
+      input.queryIds,
+    );
+    const now = nowIso();
+    if (input.mode === "add") {
+      const resolved = await resolvePromptTags(
+        c.env.CONTROL_DB,
+        projectId,
+        input.tagNames,
+      );
+      assertPromptTagCapacity(assignments, resolved.tags);
+      await c.env.CONTROL_DB.batch([
+        ...insertPromptTagStatements(
+          c.env.CONTROL_DB,
+          projectId,
+          resolved.missing,
+          now,
+        ),
+        ...assignPromptTagStatements(
+          c.env.CONTROL_DB,
+          projectId,
+          input.queryIds,
+          resolved.tags,
+          now,
+        ),
+      ]);
+    } else {
+      await c.env.CONTROL_DB.batch(
+        removePromptTagStatements(
+          c.env.CONTROL_DB,
+          projectId,
+          input.queryIds,
+          input.tagNames,
+        ),
+      );
+    }
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "query.tags_updated",
+      resourceType: "project",
+      resourceId: projectId,
+      metadata: {
+        mode: input.mode,
+        queryCount: input.queryIds.length,
+        tagNames: input.tagNames,
+      },
+    });
+    return c.json({
+      data: {
+        updatedCount: input.queryIds.length,
+        mode: input.mode,
+      },
+    });
+  },
+);
+
+coreRoutes.get(
   "/queries",
   zValidator("query", QueryListSchema),
   async (c) => {
@@ -453,38 +568,23 @@ coreRoutes.post(
     const placeholders = normalizedPrompts.map(() => "?").join(", ");
     const existing = normalizedPrompts.length
       ? await c.env.CONTROL_DB.prepare(
-          `SELECT query_text
+          `SELECT id, query_text
            FROM tracked_queries
            WHERE project_id = ? AND deleted_at IS NULL
              AND lower(trim(query_text)) IN (${placeholders})`,
         )
           .bind(projectId, ...normalizedPrompts)
-          .all<{ query_text: string }>()
+          .all<{ id: string; query_text: string }>()
       : { results: [] };
-    const existingPrompts = new Set(
-      existing.results.map((row) => row.query_text.trim().toLowerCase()),
+    const existingPrompts = new Map(
+      existing.results.map((row) => [
+        row.query_text.trim().toLowerCase(),
+        row.id,
+      ]),
     );
     const promptsToCreate = [...uniquePrompts.entries()]
       .filter(([normalized]) => !existingPrompts.has(normalized))
       .map(([, queryText]) => queryText);
-
-    if (promptsToCreate.length === 0) {
-      return c.json({
-        data: {
-          ids: [],
-          createdCount: 0,
-          skippedCount: input.queryTexts.length,
-        },
-      });
-    }
-
-    const shard = await c.env.CONTROL_DB.prepare(
-      `SELECT shard_id FROM shard_registry
-       WHERE status = 'active'
-       ORDER BY assigned_queries ASC, estimated_bytes ASC, shard_id ASC
-       LIMIT 1`,
-    ).first<{ shard_id: number }>();
-    if (!shard) throw new ApiError(503, "no_shard_available", "No snapshot shard is available.");
 
     const now = nowIso();
     const nextRunAt = calculateNextRun(input.schedule);
@@ -492,6 +592,32 @@ coreRoutes.post(
       id: crypto.randomUUID(),
       queryText,
     }));
+    const shard = records.length
+      ? await c.env.CONTROL_DB.prepare(
+          `SELECT shard_id FROM shard_registry
+           WHERE status = 'active'
+           ORDER BY assigned_queries ASC, estimated_bytes ASC, shard_id ASC
+           LIMIT 1`,
+        ).first<{ shard_id: number }>()
+      : null;
+    if (records.length && !shard) {
+      throw new ApiError(503, "no_shard_available", "No snapshot shard is available.");
+    }
+    const duplicateIds = [...uniquePrompts.keys()]
+      .map((normalized) => existingPrompts.get(normalized))
+      .filter((id): id is string => Boolean(id));
+    const targetIds = [...records.map((record) => record.id), ...duplicateIds];
+    const resolvedTags = await resolvePromptTags(
+      c.env.CONTROL_DB,
+      projectId,
+      input.tags,
+    );
+    if (duplicateIds.length && resolvedTags.tags.length) {
+      assertPromptTagCapacity(
+        await promptTagAssignments(c.env.CONTROL_DB, projectId, duplicateIds),
+        resolvedTags.tags,
+      );
+    }
     const statements = records.map((record) =>
       c.env.CONTROL_DB.prepare(
         `INSERT INTO tracked_queries (
@@ -511,18 +637,44 @@ coreRoutes.post(
         input.schedule.cadence === "weekly" ? input.schedule.weekday : null,
         input.schedule.timezone,
         nextRunAt,
-        shard.shard_id,
+        shard!.shard_id,
         now,
         now,
       ),
     );
-    statements.push(
+    statements.unshift(
+      ...insertPromptTagStatements(
+        c.env.CONTROL_DB,
+        projectId,
+        resolvedTags.missing,
+        now,
+      ),
+    );
+    if (records.length) statements.push(
       c.env.CONTROL_DB.prepare(
         `UPDATE shard_registry
          SET assigned_queries = assigned_queries + ?, updated_at = ?
          WHERE shard_id = ?`,
-      ).bind(records.length, now, shard.shard_id),
+      ).bind(records.length, now, shard!.shard_id),
     );
+    statements.push(
+      ...assignPromptTagStatements(
+        c.env.CONTROL_DB,
+        projectId,
+        targetIds,
+        resolvedTags.tags,
+        now,
+      ),
+    );
+    if (!statements.length) {
+      return c.json({
+        data: {
+          ids: [],
+          createdCount: 0,
+          skippedCount: input.queryTexts.length,
+        },
+      });
+    }
     await c.env.CONTROL_DB.batch(statements);
     await writeAudit(c.env.CONTROL_DB, {
       workspaceId: principal.workspaceId,
@@ -535,6 +687,8 @@ coreRoutes.post(
         cadence: input.schedule.cadence,
         createdCount: records.length,
         skippedCount: input.queryTexts.length - records.length,
+        tagNames: input.tags,
+        taggedPromptCount: targetIds.length,
       },
     });
     return c.json(
@@ -570,7 +724,18 @@ coreRoutes.post(
     const queryId = crypto.randomUUID();
     const now = nowIso();
     const nextRunAt = calculateNextRun(input.schedule);
+    const resolvedTags = await resolvePromptTags(
+      c.env.CONTROL_DB,
+      projectId,
+      input.tags,
+    );
     await c.env.CONTROL_DB.batch([
+      ...insertPromptTagStatements(
+        c.env.CONTROL_DB,
+        projectId,
+        resolvedTags.missing,
+        now,
+      ),
       c.env.CONTROL_DB.prepare(
         `INSERT INTO tracked_queries (
           id, project_id, query_text, location_code, language_code, force_web_search,
@@ -598,6 +763,13 @@ coreRoutes.post(
          SET assigned_queries = assigned_queries + 1, updated_at = ?
          WHERE shard_id = ?`,
       ).bind(now, shard.shard_id),
+      ...assignPromptTagStatements(
+        c.env.CONTROL_DB,
+        projectId,
+        [queryId],
+        resolvedTags.tags,
+        now,
+      ),
     ]);
     await writeAudit(c.env.CONTROL_DB, {
       workspaceId: principal.workspaceId,
@@ -605,7 +777,11 @@ coreRoutes.post(
       action: "query.created",
       resourceType: "tracked_query",
       resourceId: queryId,
-      metadata: { projectId, cadence: input.schedule.cadence },
+      metadata: {
+        projectId,
+        cadence: input.schedule.cadence,
+        tagNames: input.tags,
+      },
     });
     return c.json({ data: { id: queryId, nextRunAt, shardId: shard.shard_id } }, 201);
   },
@@ -674,11 +850,11 @@ coreRoutes.delete(
     const principal = requireRole(c, "editor");
     const { id } = c.req.valid("param");
     const current = await c.env.CONTROL_DB.prepare(
-      `SELECT q.shard_id FROM tracked_queries q JOIN projects p ON p.id = q.project_id
+      `SELECT q.shard_id, q.project_id FROM tracked_queries q JOIN projects p ON p.id = q.project_id
        WHERE q.id = ? AND p.workspace_id = ? AND q.deleted_at IS NULL`,
     )
       .bind(id, principal.workspaceId)
-      .first<{ shard_id: number }>();
+      .first<{ shard_id: number; project_id: string }>();
     if (!current) throw new ApiError(404, "query_not_found", "Tracked query not found.");
     const now = nowIso();
     await c.env.CONTROL_DB.batch([
@@ -691,6 +867,16 @@ coreRoutes.delete(
          SET assigned_queries = MAX(assigned_queries - 1, 0), updated_at = ?
          WHERE shard_id = ?`,
       ).bind(now, current.shard_id),
+      c.env.CONTROL_DB.prepare(
+        "DELETE FROM tracked_query_tags WHERE tracked_query_id = ?",
+      ).bind(id),
+      c.env.CONTROL_DB.prepare(
+        `DELETE FROM prompt_tags
+         WHERE project_id = ?
+           AND NOT EXISTS (
+             SELECT 1 FROM tracked_query_tags qt WHERE qt.tag_id = prompt_tags.id
+           )`,
+      ).bind(current.project_id),
     ]);
     return c.json({ data: { deleted: true } });
   },

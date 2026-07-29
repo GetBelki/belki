@@ -26,6 +26,12 @@ import {
 import { NoProject, PageHeader } from "../components/layout";
 import { CountryFlag } from "../components/country-flag";
 import {
+  TagChip,
+  TagPicker,
+  tagForName,
+  type PromptTag,
+} from "../components/prompt-tags";
+import {
   Button,
   Card,
   CardHeader,
@@ -257,6 +263,7 @@ interface QueryRow {
   mentionRate: number | null;
   citationCount: number | null;
   mentionChange: number | null;
+  tags: PromptTag[];
 }
 
 interface CreatePromptsResult {
@@ -267,7 +274,8 @@ interface CreatePromptsResult {
 }
 
 export function PromptsPage() {
-  const { projectId } = useApp();
+  const { projectId, session } = useApp();
+  const canEdit = session.user.role !== "viewer";
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [dialogOpen, setDialogOpen] = useState(false);
@@ -278,6 +286,14 @@ export function PromptsPage() {
     skippedCount: number;
   } | null>(null);
   const [error, setError] = useState("");
+  const [tagError, setTagError] = useState("");
+  const [createTags, setCreateTags] = useState<string[]>([]);
+  const [promptSelection, setPromptSelection] = useState<{
+    scope: string;
+    ids: Set<string>;
+  }>(
+    () => ({ scope: "", ids: new Set() }),
+  );
   const [locationCode, setLocationCode] = useState("2840");
   const [languageCode, setLanguageCode] = useState("en");
   const languageOptions = languagesForLocation(locationCode);
@@ -287,12 +303,39 @@ export function PromptsPage() {
   const search = searchParams.get("search") ?? "";
   const country = searchParams.get("country") ?? "";
   const language = searchParams.get("language") ?? "";
+  const selectedTagIds = (searchParams.get("tags") ?? "")
+    .split(",")
+    .filter(Boolean);
+  const tagKey = selectedTagIds.join(",");
+  const selectionScope = [projectId, search, country, language, tagKey].join("\u0000");
+  const selectedPromptIds =
+    promptSelection.scope === selectionScope
+      ? promptSelection.ids
+      : new Set<string>();
+  const setSelectedPromptIds = (
+    value: Set<string> | ((current: Set<string>) => Set<string>),
+  ) => {
+    setPromptSelection((current) => {
+      const currentIds =
+        current.scope === selectionScope ? current.ids : new Set<string>();
+      return {
+        scope: selectionScope,
+        ids: typeof value === "function" ? value(currentIds) : value,
+      };
+    });
+  };
+  const tags = useQuery({
+    queryKey: ["prompt-tags", projectId],
+    queryFn: () => api<PromptTag[]>(`/projects/${projectId}/tags`),
+    enabled: Boolean(projectId),
+  });
   const reportParams = new URLSearchParams({ projectId: projectId ?? "" });
   if (search) reportParams.set("search", search);
   if (country) reportParams.set("locationCode", country);
   if (language) reportParams.set("languageCode", language);
+  if (selectedTagIds.length) reportParams.set("tagIds", tagKey);
   const queries = useQuery({
-    queryKey: ["prompts", projectId, search, country, language],
+    queryKey: ["prompts", projectId, search, country, language, tagKey],
     queryFn: () => api<QueryRow[]>(`/analytics/prompts?${reportParams}`),
     enabled: Boolean(projectId),
     refetchInterval: (current) =>
@@ -302,6 +345,15 @@ export function PromptsPage() {
         ? 3_000
         : false,
   });
+  const visibleSelectedIds = (queries.data ?? [])
+    .map((query) => query.id)
+    .filter((id) => selectedPromptIds.has(id));
+  const selectedRows = (queries.data ?? []).filter((query) =>
+    selectedPromptIds.has(query.id),
+  );
+  const selectedFilterTags = selectedTagIds
+    .map((id) => tags.data?.find((tag) => tag.id === id))
+    .filter((tag): tag is PromptTag => Boolean(tag));
   const createQuery = useMutation({
     mutationFn: ({
       body,
@@ -326,8 +378,12 @@ export function PromptsPage() {
       setDialogOpen(false);
       setBulkMode(false);
       setBulkText("");
+      setCreateTags([]);
       setError("");
-      await queryClient.invalidateQueries({ queryKey: ["prompts", projectId] });
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["prompts", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["prompt-tags", projectId] }),
+      ]);
     },
     onError: (value: Error) => setError(value.message),
   });
@@ -340,6 +396,32 @@ export function PromptsPage() {
       patch(`/queries/${id}/status`, { isActive }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts", projectId] }),
   });
+  const updateTags = useMutation({
+    mutationFn: ({
+      queryIds,
+      tagNames,
+      mode,
+    }: {
+      queryIds: string[];
+      tagNames: string[];
+      mode: "add" | "remove";
+      clearSelection?: boolean;
+    }) =>
+      patch(`/projects/${projectId}/queries/tags`, {
+        queryIds,
+        tagNames,
+        mode,
+      }),
+    onMutate: () => setTagError(""),
+    onSuccess: async (_, variables) => {
+      if (variables.clearSelection) setSelectedPromptIds(new Set());
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["prompts", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["prompt-tags", projectId] }),
+      ]);
+    },
+    onError: (value: Error) => setTagError(value.message),
+  });
   if (!projectId) return <NoProject />;
   const openPromptDialog = () => {
     setError("");
@@ -351,6 +433,7 @@ export function PromptsPage() {
     if (!open) {
       setBulkMode(false);
       setBulkText("");
+      setCreateTags([]);
       setError("");
     }
   };
@@ -366,6 +449,7 @@ export function PromptsPage() {
       schedule: cadence === "weekly"
         ? { cadence, weekday: Number(data.get("weekday")), time: data.get("time"), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
         : { cadence, time: data.get("time"), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+      tags: createTags,
     };
     if (bulkMode) {
       const queryTexts = bulkText
@@ -448,7 +532,56 @@ export function PromptsPage() {
             ),
           ]}
         />
+        <TagPicker
+          className="tag-filter-trigger"
+          disabled={tags.isPending || !tags.data?.length}
+          label={selectedTagIds.length ? "Filtered tags" : "All tags"}
+          onToggle={(name, selected) => {
+            const tag = tags.data?.find(
+              (item) => item.name.toLowerCase() === name.toLowerCase(),
+            );
+            if (!tag) return;
+            const nextIds = selected
+              ? [...new Set([...selectedTagIds, tag.id])]
+              : selectedTagIds.filter((id) => id !== tag.id);
+            const next = new URLSearchParams(searchParams);
+            if (nextIds.length) next.set("tags", nextIds.join(","));
+            else next.delete("tags");
+            setSearchParams(next, { replace: true });
+          }}
+          selectedNames={selectedFilterTags.map((tag) => tag.name)}
+          tags={tags.data ?? []}
+        />
       </div>
+      {selectedFilterTags.length ? (
+        <div className="active-tag-filters">
+          <span>Matching every tag:</span>
+          {selectedFilterTags.map((tag) => (
+            <TagChip
+              key={tag.id}
+              onRemove={() => {
+                const next = new URLSearchParams(searchParams);
+                const nextIds = selectedTagIds.filter((id) => id !== tag.id);
+                if (nextIds.length) next.set("tags", nextIds.join(","));
+                else next.delete("tags");
+                setSearchParams(next, { replace: true });
+              }}
+              tag={tag}
+            />
+          ))}
+          <button
+            className="clear-tag-filters"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete("tags");
+              setSearchParams(next, { replace: true });
+            }}
+            type="button"
+          >
+            Clear
+          </button>
+        </div>
+      ) : null}
       {bulkResult ? (
         <div className="bulk-upload-result" role="status">
           <strong>{pluralize(bulkResult.createdCount, "prompt")} added</strong>
@@ -461,11 +594,83 @@ export function PromptsPage() {
       ) : null}
       <Card className="prompts-table-card">
         <CardHeader title={queries.isPending ? "Prompts" : pluralize(queries.data?.length ?? 0, "prompt")} description="Latest capture metrics with a rolling 30-day owned-brand mention rate." />
+        {visibleSelectedIds.length ? (
+          <div className="prompt-bulk-toolbar">
+            <strong>{pluralize(visibleSelectedIds.length, "prompt")} selected</strong>
+            <TagPicker
+              allowCreate
+              disabled={updateTags.isPending}
+              label="Add tags"
+              onToggle={(name, selected) => {
+                if (!selected) return;
+                updateTags.mutate({
+                  queryIds: visibleSelectedIds,
+                  tagNames: [name],
+                  mode: "add",
+                  clearSelection: true,
+                });
+              }}
+              selectedNames={[]}
+              tags={tags.data ?? []}
+            />
+            <TagPicker
+              disabled={updateTags.isPending}
+              label="Remove tags"
+              onToggle={(name) =>
+                updateTags.mutate({
+                  queryIds: visibleSelectedIds,
+                  tagNames: [name],
+                  mode: "remove",
+                  clearSelection: true,
+                })
+              }
+              selectedNames={[]}
+              tags={[
+                ...new Map(
+                  selectedRows
+                    .flatMap((query) => query.tags)
+                    .map((tag) => [tag.id, tag]),
+                ).values(),
+              ]}
+            />
+            <button
+              className="plain-button prompt-selection-clear"
+              onClick={() => setSelectedPromptIds(new Set())}
+              type="button"
+            >
+              Clear selection
+            </button>
+          </div>
+        ) : null}
+        {tagError ? <p className="prompt-tag-error">{tagError}</p> : null}
         {queries.isPending ? (
           <TableSkeleton rows={6} columns={5} />
         ) : queries.data?.length ? (
           <DataTable
             columns={[
+              ...(canEdit
+                ? [{
+                    key: "select",
+                    label: (
+                      <input
+                        aria-label="Select all visible prompts"
+                        checked={
+                          Boolean(queries.data?.length) &&
+                          visibleSelectedIds.length === queries.data?.length
+                        }
+                        onChange={(event) =>
+                          setSelectedPromptIds(
+                            event.target.checked
+                              ? new Set(queries.data?.map((query) => query.id))
+                              : new Set(),
+                          )
+                        }
+                        type="checkbox"
+                      />
+                    ),
+                    className: "prompt-select-column",
+                  }]
+                : []),
               { key: "query", label: "Prompt", className: "prompt-column" }, { key: "country", label: "Country" },
               { key: "sources", label: "Sources" }, { key: "mentions", label: "Mentions" },
               { key: "rate", label: "Mention rate" }, { key: "citations", label: "Citations" },
@@ -483,7 +688,58 @@ export function PromptsPage() {
                 : `/prompts/${query.id}`;
               return {
                 id: query.id,
-                query: <Link className="primary-cell table-query-link" to={destination}><strong>{query.queryText}</strong><span>{dateTime(query.latestCapturedAt)} · {pluralize(query.snapshotCount, "capture")}</span></Link>,
+                ...(canEdit
+                  ? {
+                      select: (
+                        <input
+                          aria-label={`Select ${query.queryText}`}
+                          checked={selectedPromptIds.has(query.id)}
+                          onChange={(event) =>
+                            setSelectedPromptIds((current) => {
+                              const next = new Set(current);
+                              if (event.target.checked) next.add(query.id);
+                              else next.delete(query.id);
+                              return next;
+                            })
+                          }
+                          type="checkbox"
+                        />
+                      ),
+                    }
+                  : {}),
+                query: (
+                  <div className="prompt-cell">
+                    <Link className="primary-cell table-query-link" to={destination}>
+                      <strong>{query.queryText}</strong>
+                      <span>{dateTime(query.latestCapturedAt)} · {pluralize(query.snapshotCount, "capture")}</span>
+                    </Link>
+                    <div className="prompt-row-tags">
+                      {query.tags.slice(0, 4).map((tag) => (
+                        <TagChip compact key={tag.id} tag={tag} />
+                      ))}
+                      {query.tags.length > 4 ? (
+                        <span className="prompt-tag-overflow">+{query.tags.length - 4}</span>
+                      ) : null}
+                      {canEdit ? (
+                        <TagPicker
+                          allowCreate
+                          className="prompt-row-tag-trigger"
+                          disabled={updateTags.isPending}
+                          label={query.tags.length ? "Edit" : "Add tag"}
+                          onToggle={(name, selected) =>
+                            updateTags.mutate({
+                              queryIds: [query.id],
+                              tagNames: [name],
+                              mode: selected ? "add" : "remove",
+                            })
+                          }
+                          selectedNames={query.tags.map((tag) => tag.name)}
+                          tags={tags.data ?? []}
+                        />
+                      ) : null}
+                    </div>
+                  </div>
+                ),
                 country: <CountryFlag locationCode={query.locationCode} languageCode={query.languageCode} />,
                 sources: query.sourceCount ?? "—",
                 mentions: query.mentionCount ?? "—",
@@ -572,6 +828,46 @@ export function PromptsPage() {
               placeholder="What are the best project management tools for remote teams?"
             />
           )}
+          <div className="create-prompt-tags">
+            <Label>Tags</Label>
+            <div className="create-prompt-tag-row">
+              {createTags.map((name) => (
+                <TagChip
+                  key={name.toLowerCase()}
+                  onRemove={() =>
+                    setCreateTags((current) =>
+                      current.filter(
+                        (item) =>
+                          item.toLowerCase() !== name.toLowerCase(),
+                      ),
+                    )
+                  }
+                  tag={tagForName(name)}
+                />
+              ))}
+              <TagPicker
+                allowCreate
+                label={createTags.length ? "Add another" : "Add tags"}
+                onToggle={(name, selected) =>
+                  setCreateTags((current) =>
+                    selected
+                      ? [...new Set([...current, name])]
+                      : current.filter(
+                          (item) =>
+                            item.toLowerCase() !== name.toLowerCase(),
+                        ),
+                  )
+                }
+                selectedNames={createTags}
+                tags={tags.data ?? []}
+              />
+            </div>
+            <p className="prompt-tags-hint">
+              {bulkMode
+                ? "These tags apply to every pasted prompt, including matching prompts already in the project."
+                : "Use tags to group and filter this prompt."}
+            </p>
+          </div>
           <div className="form-grid">
             <div>
               <Label>Location</Label>

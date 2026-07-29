@@ -36,11 +36,22 @@ const EvidenceParamSchema = z.object({
   id: z.string().uuid(),
   kind: z.enum(["raw", "html"]),
 });
+const PromptTagIdsSchema = z
+  .string()
+  .max(400)
+  .transform((value) => [...new Set(value.split(",").filter(Boolean))])
+  .refine(
+    (values) =>
+      values.length <= 10 &&
+      values.every((value) => z.string().uuid().safeParse(value).success),
+    "Tag filters must contain up to 10 valid tag IDs.",
+  );
 const PromptAnalyticsSchema = z.object({
   projectId: z.string().uuid(),
   search: z.string().trim().max(200).optional(),
   locationCode: z.coerce.number().int().optional(),
   languageCode: z.string().trim().max(12).optional(),
+  tagIds: PromptTagIdsSchema.optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
@@ -346,6 +357,16 @@ analyticsRoutes.get(
       clauses.push("q.language_code = ?");
       bindings.push(input.languageCode);
     }
+    if (input.tagIds?.length) {
+      const placeholders = input.tagIds.map(() => "?").join(",");
+      clauses.push(
+        `(SELECT COUNT(DISTINCT qt.tag_id)
+          FROM tracked_query_tags qt
+          WHERE qt.tracked_query_id = q.id
+            AND qt.tag_id IN (${placeholders})) = ?`,
+      );
+      bindings.push(...input.tagIds, input.tagIds.length);
+    }
     if (input.cursor) {
       clauses.push("q.id > ?");
       bindings.push(input.cursor);
@@ -389,6 +410,38 @@ analyticsRoutes.get(
         latest_run_status: string | null;
       }>();
     const rows = queryRows.results.slice(0, input.limit);
+    const promptTags = new Map<
+      string,
+      Array<{ id: string; name: string; colorIndex: number }>
+    >();
+    if (rows.length) {
+      const promptIds = rows.map((row) => row.id);
+      const tagRows = await c.env.CONTROL_DB.prepare(
+        `SELECT
+          qt.tracked_query_id, t.id, t.name, t.color_index
+         FROM tracked_query_tags qt
+         JOIN prompt_tags t ON t.id = qt.tag_id
+         WHERE qt.tracked_query_id IN (${promptIds.map(() => "?").join(",")})
+         ORDER BY lower(t.name), t.id`,
+      )
+        .bind(...promptIds)
+        .all<{
+          tracked_query_id: string;
+          id: string;
+          name: string;
+          color_index: number;
+        }>();
+      for (const tag of tagRows.results) {
+        promptTags.set(tag.tracked_query_id, [
+          ...(promptTags.get(tag.tracked_query_id) ?? []),
+          {
+            id: tag.id,
+            name: tag.name,
+            colorIndex: tag.color_index,
+          },
+        ]);
+      }
+    }
     const snapshotCounts = new Map<
       string,
       { sourceCount: number; citationCount: number }
@@ -498,6 +551,7 @@ analyticsRoutes.get(
           latestCapturedAt: row.latest_captured_at,
           snapshotCount: row.snapshot_count,
           latestRunStatus: row.latest_run_status,
+          tags: promptTags.get(row.id) ?? [],
           sourceCount: row.latest_snapshot_id ? latestCounts?.sourceCount ?? 0 : null,
           mentionCount: latestMentions,
           mentionRate: row.latest_snapshot_id ? rates.get(row.id) ?? 0 : null,

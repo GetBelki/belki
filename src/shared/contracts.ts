@@ -1,4 +1,10 @@
 import { z } from "zod";
+import {
+  MAX_PROMPT_TAG_LENGTH,
+  MAX_PROMPT_TAGS,
+  normalizePromptTagName,
+  uniquePromptTagNames,
+} from "./prompt-tags";
 
 export const RoleSchema = z.enum(["owner", "admin", "editor", "viewer"]);
 export type Role = z.infer<typeof RoleSchema>;
@@ -84,12 +90,23 @@ export const BrandInputSchema = z.object({
   domains: z.array(z.string().trim().min(1).max(253)).max(50).default([]),
 });
 
+export const PromptTagNameSchema = z.string().transform(normalizePromptTagName).pipe(
+  z.string().min(1).max(MAX_PROMPT_TAG_LENGTH),
+);
+
+export const PromptTagsSchema = z
+  .array(PromptTagNameSchema)
+  .max(MAX_PROMPT_TAGS)
+  .default([])
+  .transform(uniquePromptTagNames);
+
 export const QueryInputSchema = z.object({
   queryText: z.string().trim().min(1).max(2_000),
   locationCode: z.number().int(),
   languageCode: z.string().trim().min(1).max(20),
   forceWebSearch: z.boolean().default(true),
   schedule: ScheduleSchema,
+  tags: PromptTagsSchema,
 });
 
 export const BulkQueryInputSchema = QueryInputSchema.omit({
@@ -101,10 +118,18 @@ export const BulkQueryInputSchema = QueryInputSchema.omit({
     .max(50),
 });
 
-export const QueryUpdateSchema = QueryInputSchema.partial().refine(
+export const QueryUpdateSchema = QueryInputSchema.omit({ tags: true }).partial().refine(
   (value) => Object.keys(value).length > 0,
   "At least one field is required",
 );
+
+export const PromptTagMutationSchema = z.object({
+  queryIds: z.array(z.string().uuid()).min(1).max(50),
+  tagNames: z.array(PromptTagNameSchema).min(1).max(MAX_PROMPT_TAGS).transform(
+    uniquePromptTagNames,
+  ),
+  mode: z.enum(["add", "remove"]),
+});
 
 export const MembershipUpdateSchema = z.object({
   role: RoleSchema.exclude(["owner"]).optional(),

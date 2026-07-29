@@ -14,6 +14,8 @@ shards, queue-backed ingestion, and R2 for raw evidence and exports.
 
 - React 19 dashboard with projects, tracked prompts, snapshots, evidence,
   domains, brands, products, alerts, exports, users, and settings
+- Shared prompt tags with bulk assignment, stable color labels, and match-all
+  filtering across single and bulk prompt workflows
 - Local password authentication, CSRF protection, role-based access, manual
   invitation links, and manual password-reset links
 - Daily and weekly schedules evaluated in each query's IANA timezone
