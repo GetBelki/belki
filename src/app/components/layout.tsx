@@ -1,13 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ChartNoAxesCombined,
-  Globe2,
   LayoutDashboard,
   LogOut,
   Menu,
-  ReceiptText,
   ShoppingBag,
-  Search,
   Settings,
   Users,
   X,
@@ -18,13 +15,14 @@ import { useApp } from "../context";
 import { post } from "../lib/api";
 import { projectChangeDestination } from "../lib/project-navigation";
 import { AppIcon } from "./app-icon";
+import { BillingIcon, PromptsIcon, SourcesIcon } from "./navigation-icons";
 import { Button, Select } from "./ui";
 import { cn } from "../lib/utils";
 
 const NAVIGATION = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
-  { to: "/prompts", label: "Prompts", icon: Search },
-  { to: "/citations", label: "Citation Sources", icon: Globe2 },
+  { to: "/prompts", label: "Prompts", icon: PromptsIcon },
+  { to: "/citations", label: "Citation Sources", icon: SourcesIcon },
   { to: "/shopping", label: "Shopping", icon: ShoppingBag },
 ] as const;
 
@@ -90,7 +88,7 @@ export function AppLayout() {
                 to="/billing"
                 className={({ isActive }) => cn("nav-item", isActive && "active")}
               >
-                <ReceiptText size={17} /> <span>Billing</span>
+                <BillingIcon size={17} /> <span>Billing</span>
               </NavLink>
             </>
           ) : null}
