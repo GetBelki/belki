@@ -103,21 +103,23 @@ button { border: 0; }
 .sidebar-user span { font-size: 10px; text-transform: capitalize; }
 .sidebar-user button { background: transparent; color: #797283; cursor: pointer; padding: 6px; }
 .main { margin-left: 230px; min-height: 100vh; }
-.topbar {
+.mobile-topbar {
   align-items: center;
-  backdrop-filter: blur(12px);
-  background: #f7f6fae8;
+  background: #ffffff;
   border-bottom: 1px solid var(--border);
-  display: flex;
-  height: 68px;
-  justify-content: space-between;
-  padding: 0 30px;
+  display: none;
+  height: 56px;
+  padding: 0 16px;
   position: sticky;
   top: 0;
   z-index: 20;
 }
-.topbar > div:first-of-type { display: flex; flex-direction: column; }
-.topbar strong { font-size: 13px; }
+.mobile-topbar strong {
+  color: #18181b;
+  font-size: 14px;
+  font-weight: 650;
+  margin-left: 10px;
+}
 .eyebrow { color: #8d839d; font-size: 9px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
 .status-dot { background: #55c989; border-radius: 50%; box-shadow: 0 0 0 3px #55c98920; display: inline-block; height: 6px; width: 6px; }
 .mobile-menu { background: transparent; color: var(--ink); display: none; }
@@ -396,8 +398,7 @@ tbody tr:hover { background: #fcfbfd; }
   .sidebar-scrim { background: #17122170; inset: 0; position: fixed; z-index: 35; }
   .mobile-close, .mobile-menu { display: flex; }
   .main { margin-left: 0; }
-  .topbar { height: 61px; padding: 0 16px; }
-  .topbar > div:first-of-type { margin-right: auto; margin-left: 10px; }
+  .mobile-topbar { display: flex; }
   .page { padding: 22px 16px; }
   .page-header { align-items: flex-start; flex-direction: column; }
   .page-header > .button, .page-header > .button-group { width: 100%; }
@@ -532,25 +533,11 @@ body {
   margin-left: 240px;
 }
 
-.topbar {
-  backdrop-filter: none;
-  background: #ffffff;
-  border-color: #e4e4e7;
-  height: 60px;
-  padding: 0 32px;
-}
-
 .eyebrow {
   color: #a1a1aa;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: .08em;
-}
-
-.topbar strong {
-  color: #18181b;
-  font-size: 13px;
-  font-weight: 550;
 }
 
 .status-dot {

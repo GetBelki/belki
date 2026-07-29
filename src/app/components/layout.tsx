@@ -27,7 +27,7 @@ const NAVIGATION = [
 ] as const;
 
 export function AppLayout() {
-  const { session, projects, projectId, setProjectId, currentProject } = useApp();
+  const { session, projects, projectId, setProjectId } = useApp();
   const queryClient = useQueryClient();
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -112,14 +112,11 @@ export function AppLayout() {
       </aside>
       {mobileOpen ? <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} /> : null}
       <main className="main">
-        <header className="topbar">
+        <header className="mobile-topbar">
           <button className="mobile-menu" onClick={() => setMobileOpen(true)}>
             <Menu size={19} />
           </button>
-          <div>
-            <span className="eyebrow">ChatGPT Web Search</span>
-            <strong>{currentProject?.name ?? "Create your first project"}</strong>
-          </div>
+          <strong>AI Visibility Tracker</strong>
         </header>
         <Outlet />
       </main>
