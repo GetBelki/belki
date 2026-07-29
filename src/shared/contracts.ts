@@ -92,6 +92,15 @@ export const QueryInputSchema = z.object({
   schedule: ScheduleSchema,
 });
 
+export const BulkQueryInputSchema = QueryInputSchema.omit({
+  queryText: true,
+}).extend({
+  queryTexts: z
+    .array(z.string().trim().min(1).max(2_000))
+    .min(1)
+    .max(50),
+});
+
 export const QueryUpdateSchema = QueryInputSchema.partial().refine(
   (value) => Object.keys(value).length > 0,
   "At least one field is required",

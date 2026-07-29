@@ -3,6 +3,7 @@ import { Hono } from "hono";
 import { z } from "zod";
 import {
   BrandInputSchema,
+  BulkQueryInputSchema,
   ManualRunSchema,
   ProjectInputSchema,
   ProjectUpdateSchema,
@@ -427,6 +428,125 @@ coreRoutes.get(
       .first();
     if (!query) throw new ApiError(404, "query_not_found", "Tracked query not found.");
     return c.json({ data: query });
+  },
+);
+
+coreRoutes.post(
+  "/projects/:projectId/queries/bulk",
+  zValidator("param", ProjectIdParamSchema),
+  zValidator("json", BulkQueryInputSchema),
+  async (c) => {
+    const principal = requireRole(c, "editor");
+    const { projectId } = c.req.valid("param");
+    const input = c.req.valid("json");
+    await requireProject(c.env.CONTROL_DB, principal.workspaceId, projectId);
+
+    const uniquePrompts = new Map<string, string>();
+    for (const queryText of input.queryTexts) {
+      const normalized = queryText.trim().toLowerCase();
+      if (!uniquePrompts.has(normalized)) {
+        uniquePrompts.set(normalized, queryText.trim());
+      }
+    }
+
+    const normalizedPrompts = [...uniquePrompts.keys()];
+    const placeholders = normalizedPrompts.map(() => "?").join(", ");
+    const existing = normalizedPrompts.length
+      ? await c.env.CONTROL_DB.prepare(
+          `SELECT query_text
+           FROM tracked_queries
+           WHERE project_id = ? AND deleted_at IS NULL
+             AND lower(trim(query_text)) IN (${placeholders})`,
+        )
+          .bind(projectId, ...normalizedPrompts)
+          .all<{ query_text: string }>()
+      : { results: [] };
+    const existingPrompts = new Set(
+      existing.results.map((row) => row.query_text.trim().toLowerCase()),
+    );
+    const promptsToCreate = [...uniquePrompts.entries()]
+      .filter(([normalized]) => !existingPrompts.has(normalized))
+      .map(([, queryText]) => queryText);
+
+    if (promptsToCreate.length === 0) {
+      return c.json({
+        data: {
+          ids: [],
+          createdCount: 0,
+          skippedCount: input.queryTexts.length,
+        },
+      });
+    }
+
+    const shard = await c.env.CONTROL_DB.prepare(
+      `SELECT shard_id FROM shard_registry
+       WHERE status = 'active'
+       ORDER BY assigned_queries ASC, estimated_bytes ASC, shard_id ASC
+       LIMIT 1`,
+    ).first<{ shard_id: number }>();
+    if (!shard) throw new ApiError(503, "no_shard_available", "No snapshot shard is available.");
+
+    const now = nowIso();
+    const nextRunAt = calculateNextRun(input.schedule);
+    const records = promptsToCreate.map((queryText) => ({
+      id: crypto.randomUUID(),
+      queryText,
+    }));
+    const statements = records.map((record) =>
+      c.env.CONTROL_DB.prepare(
+        `INSERT INTO tracked_queries (
+          id, project_id, query_text, location_code, language_code, force_web_search,
+          schedule_cadence, schedule_time, schedule_weekday, schedule_timezone,
+          next_run_at, shard_id, is_active, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`,
+      ).bind(
+        record.id,
+        projectId,
+        record.queryText,
+        input.locationCode,
+        input.languageCode,
+        input.forceWebSearch ? 1 : 0,
+        input.schedule.cadence,
+        input.schedule.time,
+        input.schedule.cadence === "weekly" ? input.schedule.weekday : null,
+        input.schedule.timezone,
+        nextRunAt,
+        shard.shard_id,
+        now,
+        now,
+      ),
+    );
+    statements.push(
+      c.env.CONTROL_DB.prepare(
+        `UPDATE shard_registry
+         SET assigned_queries = assigned_queries + ?, updated_at = ?
+         WHERE shard_id = ?`,
+      ).bind(records.length, now, shard.shard_id),
+    );
+    await c.env.CONTROL_DB.batch(statements);
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "query.bulk_created",
+      resourceType: "project",
+      resourceId: projectId,
+      metadata: {
+        projectId,
+        cadence: input.schedule.cadence,
+        createdCount: records.length,
+        skippedCount: input.queryTexts.length - records.length,
+      },
+    });
+    return c.json(
+      {
+        data: {
+          ids: records.map((record) => record.id),
+          createdCount: records.length,
+          skippedCount: input.queryTexts.length - records.length,
+        },
+      },
+      201,
+    );
   },
 );
 

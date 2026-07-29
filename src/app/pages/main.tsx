@@ -259,15 +259,31 @@ interface QueryRow {
   mentionChange: number | null;
 }
 
+interface CreatePromptsResult {
+  id?: string;
+  ids?: string[];
+  createdCount?: number;
+  skippedCount?: number;
+}
+
 export function PromptsPage() {
   const { projectId } = useApp();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const [dialogOpen, setDialogOpen] = useState(false);
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkText, setBulkText] = useState("");
+  const [bulkResult, setBulkResult] = useState<{
+    createdCount: number;
+    skippedCount: number;
+  } | null>(null);
   const [error, setError] = useState("");
   const [locationCode, setLocationCode] = useState("2840");
   const [languageCode, setLanguageCode] = useState("en");
   const languageOptions = languagesForLocation(locationCode);
+  const bulkPromptCount = bulkText
+    .split(/\r?\n/)
+    .filter((line) => line.trim()).length;
   const search = searchParams.get("search") ?? "";
   const country = searchParams.get("country") ?? "";
   const language = searchParams.get("language") ?? "";
@@ -287,9 +303,30 @@ export function PromptsPage() {
         : false,
   });
   const createQuery = useMutation({
-    mutationFn: (body: Record<string, unknown>) => post(`/projects/${projectId}/queries`, body),
-    onSuccess: async () => {
+    mutationFn: ({
+      body,
+      bulk,
+    }: {
+      body: Record<string, unknown>;
+      bulk: boolean;
+    }) =>
+      post<CreatePromptsResult>(
+        `/projects/${projectId}/queries${bulk ? "/bulk" : ""}`,
+        body,
+      ),
+    onSuccess: async (result, variables) => {
+      setBulkResult(
+        variables.bulk
+          ? {
+              createdCount: result.createdCount ?? 0,
+              skippedCount: result.skippedCount ?? 0,
+            }
+          : null,
+      );
       setDialogOpen(false);
+      setBulkMode(false);
+      setBulkText("");
+      setError("");
       await queryClient.invalidateQueries({ queryKey: ["prompts", projectId] });
     },
     onError: (value: Error) => setError(value.message),
@@ -304,24 +341,68 @@ export function PromptsPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts", projectId] }),
   });
   if (!projectId) return <NoProject />;
+  const openPromptDialog = () => {
+    setError("");
+    setBulkResult(null);
+    setDialogOpen(true);
+  };
+  const handleDialogOpenChange = (open: boolean) => {
+    setDialogOpen(open);
+    if (!open) {
+      setBulkMode(false);
+      setBulkText("");
+      setError("");
+    }
+  };
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
+    setError("");
     const data = new FormData(event.currentTarget);
     const cadence = formText(data, "cadence");
-    createQuery.mutate({
-      queryText: data.get("queryText"),
+    const sharedSettings = {
       locationCode: Number(locationCode),
       languageCode,
       forceWebSearch: true,
       schedule: cadence === "weekly"
         ? { cadence, weekday: Number(data.get("weekday")), time: data.get("time"), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone }
         : { cadence, time: data.get("time"), timezone: Intl.DateTimeFormat().resolvedOptions().timeZone },
+    };
+    if (bulkMode) {
+      const queryTexts = bulkText
+        .split(/\r?\n/)
+        .map((line) => line.trim())
+        .filter(Boolean);
+      if (queryTexts.length === 0) {
+        setError("Paste at least one prompt.");
+        return;
+      }
+      if (queryTexts.length > 50) {
+        setError("Bulk uploads are limited to 50 prompts at a time.");
+        return;
+      }
+      const longPrompt = queryTexts.find((queryText) => queryText.length > 2_000);
+      if (longPrompt) {
+        setError("Each prompt must be 2,000 characters or fewer.");
+        return;
+      }
+      createQuery.mutate({
+        bulk: true,
+        body: { ...sharedSettings, queryTexts },
+      });
+      return;
+    }
+    createQuery.mutate({
+      bulk: false,
+      body: {
+        ...sharedSettings,
+        queryText: formText(data, "queryText"),
+      },
     });
   };
   return (
     <div className="page">
       <PageHeader title="Prompts" description="Prompts monitored against ChatGPT web Search mode." action={
-        <Button onClick={() => setDialogOpen(true)}><Plus size={16} /> Add prompt</Button>
+        <Button onClick={openPromptDialog}><Plus size={16} /> Add prompt</Button>
       } />
       <div className="report-filters">
         <div className="search-filter">
@@ -368,6 +449,16 @@ export function PromptsPage() {
           ]}
         />
       </div>
+      {bulkResult ? (
+        <div className="bulk-upload-result" role="status">
+          <strong>{pluralize(bulkResult.createdCount, "prompt")} added</strong>
+          {bulkResult.skippedCount ? (
+            <span>
+              {pluralize(bulkResult.skippedCount, "duplicate")} skipped.
+            </span>
+          ) : null}
+        </div>
+      ) : null}
       <Card className="prompts-table-card">
         <CardHeader title={queries.isPending ? "Prompts" : pluralize(queries.data?.length ?? 0, "prompt")} description="Latest capture metrics with a rolling 30-day owned-brand mention rate." />
         {queries.isPending ? (
@@ -432,11 +523,55 @@ export function PromptsPage() {
               };
             })}
           />
-        ) : <EmptyState title="No prompts found" description="Add the prompts your audience asks ChatGPT or adjust the filters." action={<Button onClick={() => setDialogOpen(true)}><Plus size={15} /> Add prompt</Button>} />}
+        ) : <EmptyState title="No prompts found" description="Add the prompts your audience asks ChatGPT or adjust the filters." action={<Button onClick={openPromptDialog}><Plus size={15} /> Add prompt</Button>} />}
       </Card>
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen} title="Add tracked prompt" description="Schedule a web-grounded ChatGPT result capture.">
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={handleDialogOpenChange}
+        title={bulkMode ? "Add tracked prompts" : "Add tracked prompt"}
+        description={
+          bulkMode
+            ? "Paste prompts in bulk and apply one shared tracking schedule."
+            : "Schedule a web-grounded ChatGPT result capture."
+        }
+      >
         <form className="form-stack" onSubmit={submit}>
-          <Label>Prompt</Label><textarea className="textarea" name="queryText" required maxLength={2000} placeholder="What are the best project management tools for remote teams?" />
+          <div className="prompt-input-heading">
+            <Label>{bulkMode ? "Prompts" : "Prompt"}</Label>
+            <button
+              className="plain-button bulk-mode-toggle"
+              type="button"
+              onClick={() => {
+                setBulkMode((current) => !current);
+                setBulkText("");
+                setError("");
+              }}
+            >
+              {bulkMode ? "Add a single prompt" : "Bulk upload"}
+            </button>
+          </div>
+          {bulkMode ? (
+            <>
+              <textarea
+                className="textarea bulk-prompt-textarea"
+                value={bulkText}
+                onChange={(event) => setBulkText(event.target.value)}
+                placeholder={"What are the best project management tools?\nWhich tools are best for remote teams?\nWhat is the best free project management tool?"}
+                required
+              />
+              <p className="bulk-prompt-hint">
+                One prompt per line · {bulkPromptCount} of 50 prompts
+              </p>
+            </>
+          ) : (
+            <textarea
+              className="textarea"
+              name="queryText"
+              required
+              maxLength={2000}
+              placeholder="What are the best project management tools for remote teams?"
+            />
+          )}
           <div className="form-grid">
             <div>
               <Label>Location</Label>
@@ -469,7 +604,16 @@ export function PromptsPage() {
           </div>
           <input type="hidden" name="weekday" value="1" />
           {error ? <p className="form-error">{error}</p> : null}
-          <div className="dialog-actions"><Button type="button" variant="ghost" onClick={() => setDialogOpen(false)}>Cancel</Button><Button disabled={createQuery.isPending}>{createQuery.isPending ? "Adding…" : "Add prompt"}</Button></div>
+          <div className="dialog-actions">
+            <Button type="button" variant="ghost" onClick={() => handleDialogOpenChange(false)}>Cancel</Button>
+            <Button disabled={createQuery.isPending}>
+              {createQuery.isPending
+                ? "Adding…"
+                : bulkMode
+                  ? `Add ${pluralize(bulkPromptCount, "prompt")}`
+                  : "Add prompt"}
+            </Button>
+          </div>
         </form>
       </Dialog>
     </div>
