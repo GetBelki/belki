@@ -65,4 +65,24 @@ describe("domain normalization", () => {
   it("does not count a brand embedded inside another word", () => {
     expect(containsBrandMention("The carpet store is nearby.", "pet")).toBe(false);
   });
+
+  it("does not count brand names found only in citation domains or URLs", () => {
+    expect(
+      matchedBrandTerms(
+        "A regional provider may be suitable. [www.rebill.com](https://www.rebill.com/blog/rebill-vs-dlocal)",
+        "Rebill",
+        [],
+      ),
+    ).toEqual([]);
+  });
+
+  it("preserves genuine brand mentions that happen to be linked", () => {
+    expect(
+      matchedBrandTerms(
+        "I recommend [Rebill](https://www.rebill.com) for subscription payments.",
+        "Rebill",
+        [],
+      ),
+    ).toEqual(["Rebill"]);
+  });
 });

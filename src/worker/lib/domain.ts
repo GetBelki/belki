@@ -96,10 +96,31 @@ function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
+function isDomainLabel(value: string): boolean {
+  return /^(?:https?:\/\/)?(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?:\/\S*)?$/iu
+    .test(value.trim());
+}
+
+export function brandMentionText(value: string): string {
+  return value
+    .replace(/```[\s\S]*?```/gu, " ")
+    .replace(/`[^`\n]*`/gu, " ")
+    .replace(/(!?)\[([^\]]*)\]\((?:\\.|[^)])*\)/gu, (_match, image, label: string) => {
+      if (image || isDomainLabel(label)) return " ";
+      return ` ${label} `;
+    })
+    .replace(/<https?:\/\/[^>]+>/giu, " ")
+    .replace(/https?:\/\/[^\s<>{}]+/giu, " ")
+    .replace(
+      /\b(?:www\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}(?:\/[^\s<>{}]*)?/giu,
+      " ",
+    );
+}
+
 export function containsBrandMention(text: string, brandName: string): boolean {
   const candidate = normalizeBrand(brandName);
   if (!candidate) return false;
-  const normalizedText = normalizeBrand(text);
+  const normalizedText = normalizeBrand(brandMentionText(text));
   const pattern = escapeRegExp(candidate).replace(/\s+/gu, "\\s+");
   return new RegExp(
     `(^|[^\\p{L}\\p{N}])${pattern}(?=$|[^\\p{L}\\p{N}])`,

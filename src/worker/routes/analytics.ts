@@ -86,6 +86,155 @@ function chunks<T>(values: T[], size = 75): T[][] {
   return output;
 }
 
+interface VerifiedBrandMentions {
+  byBrand: Map<string, number>;
+  byDate: Map<string, number>;
+  byQuery: Map<string, number>;
+  bySnapshot: Map<string, Set<string>>;
+  total: number;
+}
+
+async function verifyStoredBrandMentions(
+  env: Env,
+  projectId: string,
+  from: string,
+  to: string,
+  extraSnapshotIds: string[] = [],
+  ownedOnly = true,
+): Promise<VerifiedBrandMentions> {
+  const uniqueExtraIds = [...new Set(extraSnapshotIds)];
+  const candidateCondition = ownedOnly
+    ? "brand_mentioned_runs > 0"
+    : "brands_json <> '[]'";
+  const contributionQueries = [
+    env.CONTROL_DB.prepare(
+      `SELECT snapshot_id, tracked_query_id, metric_date
+       FROM metric_contributions
+       WHERE project_id = ?
+         AND ${candidateCondition}
+         AND metric_date BETWEEN ? AND ?`,
+    )
+      .bind(projectId, from, to)
+      .all<{
+        snapshot_id: string;
+        tracked_query_id: string;
+        metric_date: string;
+      }>(),
+    ...chunks(uniqueExtraIds).map((ids) =>
+      env.CONTROL_DB.prepare(
+        `SELECT snapshot_id, tracked_query_id, metric_date
+         FROM metric_contributions
+         WHERE project_id = ?
+           AND ${candidateCondition}
+           AND snapshot_id IN (${ids.map(() => "?").join(",")})`,
+      )
+        .bind(projectId, ...ids)
+        .all<{
+          snapshot_id: string;
+          tracked_query_id: string;
+          metric_date: string;
+        }>(),
+    ),
+  ];
+  const [brands, contributionResults] = await Promise.all([
+    env.CONTROL_DB.prepare(
+      `SELECT id, name, aliases_json
+       FROM tracked_brands
+       WHERE project_id = ?${ownedOnly ? " AND kind = 'owned'" : ""}`,
+    )
+      .bind(projectId)
+      .all<{ id: string; name: string; aliases_json: string }>(),
+    Promise.all(contributionQueries),
+  ]);
+  const contributionRows = contributionResults.flatMap(
+    (result) => result.results,
+  );
+  const empty: VerifiedBrandMentions = {
+    byBrand: new Map(),
+    byDate: new Map(),
+    byQuery: new Map(),
+    bySnapshot: new Map(),
+    total: 0,
+  };
+  if (!brands.results.length || !contributionRows.length) return empty;
+
+  const contributionBySnapshot = new Map(
+    contributionRows.map((contribution) => [
+      contribution.snapshot_id,
+      contribution,
+    ]),
+  );
+  const snapshotIds = [...contributionBySnapshot.keys()];
+  const indexes = await Promise.all(
+    chunks(snapshotIds).map((ids) =>
+      env.CONTROL_DB.prepare(
+        `SELECT id, shard_id
+         FROM snapshot_index
+         WHERE id IN (${ids.map(() => "?").join(",")})`,
+      )
+        .bind(...ids)
+        .all<{ id: string; shard_id: number }>(),
+    ),
+  );
+  const grouped = new Map<number, string[]>();
+  for (const index of indexes.flatMap((result) => result.results)) {
+    grouped.set(index.shard_id, [
+      ...(grouped.get(index.shard_id) ?? []),
+      index.id,
+    ]);
+  }
+  const snapshots = await Promise.all(
+    [...grouped.entries()].flatMap(([shardId, ids]) =>
+      chunks(ids).map((snapshotChunk) =>
+        getShard(env, shardId)
+          .prepare(
+            `SELECT id, answer_markdown
+             FROM snapshots
+             WHERE id IN (${snapshotChunk.map(() => "?").join(",")})`,
+          )
+          .bind(...snapshotChunk)
+          .all<{ id: string; answer_markdown: string | null }>(),
+      ),
+    ),
+  );
+
+  const byDate = new Map<string, number>();
+  const byQuery = new Map<string, number>();
+  const bySnapshot = new Map<string, Set<string>>();
+  const byBrand = new Map<string, number>();
+  let total = 0;
+  for (const snapshot of snapshots.flatMap((result) => result.results)) {
+    const matchedIds = new Set(
+      brands.results
+        .filter((brand) =>
+          matchedBrandTerms(
+            snapshot.answer_markdown ?? "",
+            brand.name,
+            jsonParse<string[]>(brand.aliases_json, []),
+          ).length > 0,
+        )
+        .map((brand) => brand.id),
+    );
+    bySnapshot.set(snapshot.id, matchedIds);
+    if (!matchedIds.size) continue;
+    const contribution = contributionBySnapshot.get(snapshot.id);
+    if (!contribution) continue;
+    total += 1;
+    byDate.set(
+      contribution.metric_date,
+      (byDate.get(contribution.metric_date) ?? 0) + 1,
+    );
+    byQuery.set(
+      contribution.tracked_query_id,
+      (byQuery.get(contribution.tracked_query_id) ?? 0) + 1,
+    );
+    for (const brandId of matchedIds) {
+      byBrand.set(brandId, (byBrand.get(brandId) ?? 0) + 1);
+    }
+  }
+  return { byBrand, byDate, byQuery, bySnapshot, total };
+}
+
 type ProductSnapshotIndex = {
   id: string;
   shard_id: number;
@@ -254,7 +403,13 @@ analyticsRoutes.get(
     const input = c.req.valid("query");
     await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
     const dates = range(input);
-    const [summary, productCoverage, series, recentProductIndexes] = await Promise.all([
+    const [
+      summary,
+      productCoverage,
+      series,
+      recentProductIndexes,
+      verifiedBrandMentions,
+    ] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT
           COALESCE(SUM(completed_runs), 0) AS completed_runs,
@@ -307,7 +462,16 @@ analyticsRoutes.get(
          ORDER BY metric_date`,
       )
         .bind(input.projectId, dates.from, dates.to)
-        .all(),
+        .all<{
+          project_id: string;
+          metric_date: string;
+          completed_runs: number;
+          cited_runs: number;
+          brand_mentioned_runs: number;
+          product_runs: number;
+          total_citations: number;
+          updated_at: string;
+        }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT id, shard_id FROM snapshot_index
          WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
@@ -320,6 +484,12 @@ analyticsRoutes.get(
           exclusiveDateEnd(dates.to),
         )
         .all<ProductSnapshotIndex>(),
+      verifyStoredBrandMentions(
+        c.env,
+        input.projectId,
+        dates.from,
+        dates.to,
+      ),
     ]);
     const recentOccurrences = (
       await loadShoppingProductOccurrences(c.env, recentProductIndexes.results)
@@ -335,6 +505,7 @@ analyticsRoutes.get(
       data: {
         summary: {
           ...summary,
+          brand_mentioned_runs: verifiedBrandMentions.total,
           trackedPromptCount: trackedPrompts,
           productPromptCount: productCoverage?.product_prompt_count ?? 0,
           productPromptCoverage: trackedPrompts
@@ -342,13 +513,17 @@ analyticsRoutes.get(
             : 0,
           citationRate: completed ? ((summary?.cited_runs ?? 0) / completed) * 100 : 0,
           brandMentionRate: completed
-            ? ((summary?.brand_mentioned_runs ?? 0) / completed) * 100
+            ? (verifiedBrandMentions.total / completed) * 100
             : 0,
           productBlockRate: completed
             ? ((summary?.product_runs ?? 0) / completed) * 100
             : 0,
         },
-        series: series.results,
+        series: series.results.map((point) => ({
+          ...point,
+          brand_mentioned_runs:
+            verifiedBrandMentions.byDate.get(point.metric_date) ?? 0,
+        })),
         recentProducts: [...recentProducts.values()]
           .slice(0, 5)
           .map(serializedShoppingProduct),
@@ -534,50 +709,41 @@ analyticsRoutes.get(
     const contributionIds = rows
       .flatMap((row) => [row.latest_snapshot_id, row.previous_snapshot_id])
       .filter((value): value is string => Boolean(value));
-    const [ownedBrands, contributions, mentionRates] = await Promise.all([
-      c.env.CONTROL_DB.prepare(
-        "SELECT id FROM tracked_brands WHERE project_id = ? AND kind = 'owned'",
-      )
-        .bind(input.projectId)
-        .all<{ id: string }>(),
-      contributionIds.length
-        ? c.env.CONTROL_DB.prepare(
-            `SELECT snapshot_id, brands_json FROM metric_contributions
-             WHERE snapshot_id IN (${contributionIds.map(() => "?").join(",")})`,
-          )
-            .bind(...contributionIds)
-            .all<{ snapshot_id: string; brands_json: string }>()
-        : Promise.resolve({ results: [] }),
+    const mentionDates = range({});
+    const [verifiedBrandMentions, mentionRates] = await Promise.all([
+      verifyStoredBrandMentions(
+        c.env,
+        input.projectId,
+        mentionDates.from,
+        mentionDates.to,
+        contributionIds,
+      ),
       c.env.CONTROL_DB.prepare(
         `SELECT tracked_query_id,
-          SUM(completed_runs) AS completed_runs,
-          SUM(brand_mentioned_runs) AS mentioned_runs
+          SUM(completed_runs) AS completed_runs
          FROM metric_contributions
          WHERE project_id = ? AND metric_date BETWEEN ? AND ?
          GROUP BY tracked_query_id`,
       )
-        .bind(input.projectId, range({}).from, range({}).to)
+        .bind(input.projectId, mentionDates.from, mentionDates.to)
         .all<{
           tracked_query_id: string;
           completed_runs: number;
-          mentioned_runs: number;
         }>(),
     ]);
-    const ownedIds = new Set(ownedBrands.results.map((brand) => brand.id));
     const mentionCount = new Map(
-      contributions.results.map((contribution) => [
-        contribution.snapshot_id,
-        new Set(
-          jsonParse<string[]>(contribution.brands_json, []).filter((id) =>
-            ownedIds.has(id),
-          ),
-        ).size,
-      ]),
+      [...verifiedBrandMentions.bySnapshot.entries()].map(
+        ([snapshotId, brandIds]) => [snapshotId, brandIds.size],
+      ),
     );
     const rates = new Map(
       mentionRates.results.map((value) => [
         value.tracked_query_id,
-        value.completed_runs ? (value.mentioned_runs / value.completed_runs) * 100 : 0,
+        value.completed_runs
+          ? ((verifiedBrandMentions.byQuery.get(value.tracked_query_id) ?? 0) /
+              value.completed_runs) *
+            100
+          : 0,
       ]),
     );
     return c.json({
@@ -1470,20 +1636,38 @@ analyticsRoutes.get(
     const input = c.req.valid("query");
     await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
     const dates = range(input);
-    const rows = await c.env.CONTROL_DB.prepare(
-      `SELECT
-        b.id, b.name, b.kind,
-        COALESCE(SUM(m.mentioned_snapshot_count), 0) AS mentioned_snapshot_count
-      FROM tracked_brands b
-      LEFT JOIN daily_brand_metrics m
-        ON m.tracked_brand_id = b.id AND m.metric_date BETWEEN ? AND ?
-      WHERE b.project_id = ?
-      GROUP BY b.id
-      ORDER BY b.kind DESC, mentioned_snapshot_count DESC, b.name`,
-    )
-      .bind(dates.from, dates.to, input.projectId)
-      .all();
-    return c.json({ data: rows.results });
+    const [rows, verifiedBrandMentions] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `SELECT id, name, kind
+         FROM tracked_brands
+         WHERE project_id = ?
+         ORDER BY kind DESC, name`,
+      )
+        .bind(input.projectId)
+        .all<{ id: string; name: string; kind: "owned" | "competitor" }>(),
+      verifyStoredBrandMentions(
+        c.env,
+        input.projectId,
+        dates.from,
+        dates.to,
+        [],
+        false,
+      ),
+    ]);
+    return c.json({
+      data: rows.results
+        .map((brand) => ({
+          ...brand,
+          mentioned_snapshot_count:
+            verifiedBrandMentions.byBrand.get(brand.id) ?? 0,
+        }))
+        .sort(
+          (left, right) =>
+            right.kind.localeCompare(left.kind) ||
+            right.mentioned_snapshot_count - left.mentioned_snapshot_count ||
+            left.name.localeCompare(right.name),
+        ),
+    });
   },
 );
 
