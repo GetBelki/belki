@@ -8,7 +8,7 @@ import {
   sanitizeCapturedHtmlResponse,
 } from "../lib/dataforseo-html";
 import { requireRole } from "../lib/auth";
-import { matchedBrandTerms } from "../lib/domain";
+import { matchedBrandTerms, normalizeHostname } from "../lib/domain";
 import { evidenceResponseHeaders } from "../lib/evidence";
 import { getShard } from "../lib/shards";
 import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
@@ -407,7 +407,9 @@ analyticsRoutes.get(
       summary,
       productCoverage,
       series,
-      recentProductIndexes,
+      productIndexes,
+      topCitationSources,
+      project,
       verifiedBrandMentions,
     ] = await Promise.all([
       c.env.CONTROL_DB.prepare(
@@ -476,7 +478,7 @@ analyticsRoutes.get(
         `SELECT id, shard_id FROM snapshot_index
          WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
            AND products_count > 0
-         ORDER BY captured_at DESC LIMIT 24`,
+         ORDER BY captured_at DESC`,
       )
         .bind(
           input.projectId,
@@ -484,6 +486,22 @@ analyticsRoutes.get(
           exclusiveDateEnd(dates.to),
         )
         .all<ProductSnapshotIndex>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT domain, SUM(citation_count) AS total_citations
+         FROM daily_domain_metrics
+         WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+           AND citation_count > 0
+         GROUP BY domain
+         ORDER BY total_citations DESC, domain
+         LIMIT 5`,
+      )
+        .bind(input.projectId, dates.from, dates.to)
+        .all<{ domain: string; total_citations: number }>(),
+      c.env.CONTROL_DB.prepare(
+        "SELECT primary_domain FROM projects WHERE id = ?",
+      )
+        .bind(input.projectId)
+        .first<{ primary_domain: string | null }>(),
       verifyStoredBrandMentions(
         c.env,
         input.projectId,
@@ -491,13 +509,75 @@ analyticsRoutes.get(
         dates.to,
       ),
     ]);
+    const projectDomain = normalizeHostname(project?.primary_domain)
+      .registrableDomain;
+    const sourceDomains = topCitationSources.results.map((source) => source.domain);
+    if (projectDomain && !sourceDomains.includes(projectDomain)) {
+      sourceDomains.push(projectDomain);
+    }
+    const sourceMetrics = sourceDomains.length
+      ? await c.env.CONTROL_DB.prepare(
+          `SELECT domain, metric_date, cited_snapshot_count, citation_count
+           FROM daily_domain_metrics
+           WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+             AND domain IN (${sourceDomains.map(() => "?").join(",")})
+           ORDER BY metric_date, domain`,
+        )
+          .bind(input.projectId, dates.from, dates.to, ...sourceDomains)
+          .all<{
+            domain: string;
+            metric_date: string;
+            cited_snapshot_count: number;
+            citation_count: number;
+          }>()
+      : { results: [] };
+    const sourceMetricsByDate = new Map<
+      string,
+      Map<string, { citedRuns: number; citations: number }>
+    >();
+    const sourceCitationTotals = new Map(
+      topCitationSources.results.map((source) => [
+        source.domain,
+        source.total_citations,
+      ]),
+    );
+    const rankedSourceDomains = new Set(
+      topCitationSources.results.map((source) => source.domain),
+    );
+    for (const metric of sourceMetrics.results) {
+      const dateMetrics =
+        sourceMetricsByDate.get(metric.metric_date) ??
+        new Map<string, { citedRuns: number; citations: number }>();
+      dateMetrics.set(metric.domain, {
+        citedRuns: metric.cited_snapshot_count,
+        citations: metric.citation_count,
+      });
+      sourceMetricsByDate.set(metric.metric_date, dateMetrics);
+      if (!rankedSourceDomains.has(metric.domain)) {
+        sourceCitationTotals.set(
+          metric.domain,
+          (sourceCitationTotals.get(metric.domain) ?? 0) +
+            metric.citation_count,
+        );
+      }
+    }
     const recentOccurrences = (
-      await loadShoppingProductOccurrences(c.env, recentProductIndexes.results)
+      await loadShoppingProductOccurrences(c.env, productIndexes.results)
     ).sort((left, right) => right.captured_at.localeCompare(left.captured_at));
     const recentProducts = new Map<string, ShoppingProductOccurrence>();
+    const topProducts = new Map<
+      string,
+      ShoppingProductOccurrence & { appearances: number }
+    >();
     for (const product of recentOccurrences) {
       const key = productIdentity(product);
       if (!recentProducts.has(key)) recentProducts.set(key, product);
+      const existing = topProducts.get(key);
+      if (existing) {
+        existing.appearances += 1;
+      } else {
+        topProducts.set(key, { ...product, appearances: 1 });
+      }
     }
     const completed = summary?.completed_runs ?? 0;
     const trackedPrompts = productCoverage?.tracked_prompt_count ?? 0;
@@ -524,6 +604,38 @@ analyticsRoutes.get(
           brand_mentioned_runs:
             verifiedBrandMentions.byDate.get(point.metric_date) ?? 0,
         })),
+        citationSourceTrends: {
+          sources: sourceDomains.map((domain) => ({
+            domain,
+            isProjectDomain: domain === projectDomain,
+            totalCitations: sourceCitationTotals.get(domain) ?? 0,
+          })),
+          series: series.results.map((point) => {
+            const dateMetrics = sourceMetricsByDate.get(point.metric_date);
+            return {
+              metric_date: point.metric_date,
+              rates: Object.fromEntries(
+                sourceDomains.map((domain) => {
+                  const citedRuns = dateMetrics?.get(domain)?.citedRuns ?? 0;
+                  return [
+                    domain,
+                    point.completed_runs
+                      ? (citedRuns / point.completed_runs) * 100
+                      : 0,
+                  ];
+                }),
+              ),
+            };
+          }),
+        },
+        topProducts: [...topProducts.values()]
+          .sort(
+            (left, right) =>
+              right.appearances - left.appearances ||
+              right.captured_at.localeCompare(left.captured_at),
+          )
+          .slice(0, 5)
+          .map(serializedShoppingProduct),
         recentProducts: [...recentProducts.values()]
           .slice(0, 5)
           .map(serializedShoppingProduct),

@@ -17,6 +17,8 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -62,6 +64,22 @@ import {
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 import type { RunStatus } from "../../shared/contracts";
 
+interface OverviewProduct {
+  id: string;
+  provider_product_id: string | null;
+  title: string | null;
+  merchants: string | null;
+  registrable_domain: string | null;
+  price: number | null;
+  currency: string | null;
+  canonical_url: string | null;
+  raw_url: string | null;
+  images: string[];
+  product_ids: unknown[];
+  latestSeen: string;
+  appearances?: number;
+}
+
 interface Overview {
   summary: {
     completed_runs: number;
@@ -83,20 +101,19 @@ interface Overview {
     brand_mentioned_runs: number;
     product_runs: number;
   }>;
-  recentProducts: Array<{
-    id: string;
-    provider_product_id: string | null;
-    title: string | null;
-    merchants: string | null;
-    registrable_domain: string | null;
-    price: number | null;
-    currency: string | null;
-    canonical_url: string | null;
-    raw_url: string | null;
-    images: string[];
-    product_ids: unknown[];
-    latestSeen: string;
-  }>;
+  citationSourceTrends: {
+    sources: Array<{
+      domain: string;
+      isProjectDomain: boolean;
+      totalCitations: number;
+    }>;
+    series: Array<{
+      metric_date: string;
+      rates: Record<string, number>;
+    }>;
+  };
+  topProducts: OverviewProduct[];
+  recentProducts: OverviewProduct[];
 }
 
 function KpiCard({
@@ -120,6 +137,73 @@ function KpiCard({
   );
 }
 
+function OverviewProductList({
+  products,
+  mode,
+}: {
+  products: OverviewProduct[];
+  mode: "top" | "recent";
+}) {
+  return (
+    <div className="recent-products-list">
+      {products.map((product) => (
+        <div className="recent-product-row" key={product.id}>
+          <Link
+            aria-label={`View performance for ${product.title ?? "product"}`}
+            className="recent-product-details"
+            to={`/shopping/${productAnalyticsKey(product)}`}
+          >
+            <span className="recent-product-image">
+              {product.images[0] ? (
+                <img src={product.images[0]} alt="" loading="lazy" />
+              ) : (
+                <ShoppingBag size={17} />
+              )}
+            </span>
+            <span className="recent-product-copy">
+              <strong>{product.title ?? "Untitled product"}</strong>
+              <span>
+                {product.merchants ??
+                  product.registrable_domain ??
+                  "Merchant unavailable"}
+              </span>
+              <small>
+                {mode === "top"
+                  ? pluralize(product.appearances ?? 0, "appearance")
+                  : dateTime(product.latestSeen)}
+              </small>
+            </span>
+          </Link>
+          <span className="recent-product-meta">
+            <strong>
+              {formatPrice(product.price, product.currency) ??
+                "Price unavailable"}
+            </strong>
+            <a
+              aria-label={`Open ${product.title ?? "product"} externally`}
+              className="recent-product-external"
+              href={productDestination(product)}
+              rel="noreferrer"
+              target="_blank"
+            >
+              <ExternalLink size={13} />
+            </a>
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+const SOURCE_TREND_COLORS = [
+  "#2563eb",
+  "#16a34a",
+  "#d97706",
+  "#9333ea",
+  "#dc2626",
+  "#18181b",
+];
+
 export function OverviewPage() {
   const { projectId, currentProject } = useApp();
   const overview = useQuery({
@@ -136,6 +220,18 @@ export function OverviewPage() {
     brandMentionRate: point.completed_runs
       ? (point.brand_mentioned_runs / point.completed_runs) * 100
       : 0,
+  }));
+  const citationSources = overview.data?.citationSourceTrends.sources ?? [];
+  const citationSourceSeries = (
+    overview.data?.citationSourceTrends.series ?? []
+  ).map((point) => ({
+    metric_date: point.metric_date,
+    ...Object.fromEntries(
+      citationSources.map((source, index) => [
+        `source_${index}`,
+        point.rates[source.domain] ?? 0,
+      ]),
+    ),
   }));
   return (
     <div className="page">
@@ -161,106 +257,167 @@ export function OverviewPage() {
           <KpiCard label="Completed runs" value={compact(overview.data?.summary.completed_runs ?? 0)} detail={`${pluralize(overview.data?.summary.total_citations ?? 0, "citation")} captured`} icon={<CompletedRunsIcon size={19} />} tone="amber" />
         </div>
       )}
-      <div className="dashboard-grid">
-        <Card className="chart-card">
-          <CardHeader title="Visibility trend" description="Daily citation and brand-mention rates" />
-          <div className="chart">
-            {overview.isPending ? (
-              <Skeleton className="chart-skeleton" />
-            ) : visibilitySeries.length > 0 ? (
-              <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                <AreaChart
-                  data={visibilitySeries}
-                  margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
-                >
-                  <defs>
-                    <linearGradient id="citation" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#18181b" stopOpacity={0.12}/><stop offset="95%" stopColor="#18181b" stopOpacity={0}/></linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
-                  <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
-                  <YAxis
-                    width={42}
-                    domain={[0, 100]}
-                    ticks={[0, 25, 50, 75, 100]}
-                    tickFormatter={(value) => `${value}%`}
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fill: "#71717a", fontSize: 11 }}
-                  />
-                  <Tooltip
-                    formatter={(value) => percent(Number(value))}
-                    contentStyle={{ borderRadius: 6, border: "1px solid #d4d4d8", boxShadow: "none" }}
-                  />
-                  <Area type="monotone" dataKey="citationRate" name="Citation rate" stroke="#18181b" strokeWidth={2} fill="url(#citation)" />
-                  <Area type="monotone" dataKey="brandMentionRate" name="Brand mention rate" stroke="#71717a" strokeWidth={2} fill="transparent" />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : <EmptyState title="No trend data yet" description="Your first completed tracking run will appear here." />}
-          </div>
-        </Card>
-        <Card className="recent-products-card">
-          <CardHeader
-            title="Recently detected products"
-            description="Latest products surfaced in tracked AI answers"
-          />
-          {overview.isPending ? (
-            <TableSkeleton rows={5} columns={2} />
-          ) : overview.data?.recentProducts.length ? (
-            <div className="recent-products-list">
-              {overview.data.recentProducts.map((product) => (
-                <div
-                  className="recent-product-row"
-                  key={product.id}
-                >
-                  <Link
-                    aria-label={`View performance for ${
-                      product.title ?? "product"
-                    }`}
-                    className="recent-product-details"
-                    to={`/shopping/${productAnalyticsKey(product)}`}
+      <div className="overview-dashboard-grid">
+        <div className="overview-charts-column">
+          <Card className="chart-card">
+            <CardHeader title="Visibility trend" description="Daily citation and brand-mention rates" />
+            <div className="chart">
+              {overview.isPending ? (
+                <Skeleton className="chart-skeleton" />
+              ) : visibilitySeries.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                  <AreaChart
+                    data={visibilitySeries}
+                    margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
                   >
-                    <span className="recent-product-image">
-                      {product.images[0] ? (
-                        <img src={product.images[0]} alt="" loading="lazy" />
-                      ) : (
-                        <ShoppingBag size={17} />
-                      )}
-                    </span>
-                    <span className="recent-product-copy">
-                      <strong>{product.title ?? "Untitled product"}</strong>
-                      <span>
-                        {product.merchants ??
-                          product.registrable_domain ??
-                          "Merchant unavailable"}
-                      </span>
-                      <small>{dateTime(product.latestSeen)}</small>
-                    </span>
-                  </Link>
-                  <span className="recent-product-meta">
-                    <strong>
-                      {formatPrice(product.price, product.currency) ??
-                        "Price unavailable"}
-                    </strong>
-                    <a
-                      aria-label={`Open ${product.title ?? "product"} externally`}
-                      className="recent-product-external"
-                      href={productDestination(product)}
-                      rel="noreferrer"
-                      target="_blank"
-                    >
-                      <ExternalLink size={13} />
-                    </a>
-                  </span>
-                </div>
-              ))}
+                    <defs>
+                      <linearGradient id="citation" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#18181b" stopOpacity={0.12}/><stop offset="95%" stopColor="#18181b" stopOpacity={0}/></linearGradient>
+                    </defs>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
+                    <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
+                    <YAxis
+                      width={42}
+                      domain={[0, 100]}
+                      ticks={[0, 25, 50, 75, 100]}
+                      tickFormatter={(value) => `${value}%`}
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fill: "#71717a", fontSize: 11 }}
+                    />
+                    <Tooltip
+                      formatter={(value) => percent(Number(value))}
+                      contentStyle={{ borderRadius: 6, border: "1px solid #d4d4d8", boxShadow: "none" }}
+                    />
+                    <Area type="monotone" dataKey="citationRate" name="Citation rate" stroke="#18181b" strokeWidth={2} fill="url(#citation)" />
+                    <Area type="monotone" dataKey="brandMentionRate" name="Brand mention rate" stroke="#71717a" strokeWidth={2} fill="transparent" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              ) : <EmptyState title="No trend data yet" description="Your first completed tracking run will appear here." />}
             </div>
-          ) : (
-            <EmptyState
-              title="No products detected yet"
-              description="Products will appear when a tracked answer contains a shopping block."
+          </Card>
+
+          <Card className="chart-card source-comparison-card">
+            <CardHeader
+              title="Citation source trend"
+              description="Daily share of completed runs citing each leading source"
             />
-          )}
-        </Card>
+            {citationSources.length > 0 && (
+              <div className="source-comparison-legend">
+                {citationSources.map((source, index) => (
+                  <Link
+                    key={source.domain}
+                    to={`/citations/${encodeURIComponent(source.domain)}`}
+                  >
+                    <span
+                      className="source-comparison-swatch"
+                      style={{
+                        background:
+                          SOURCE_TREND_COLORS[
+                            source.isProjectDomain
+                              ? SOURCE_TREND_COLORS.length - 1
+                              : index % (SOURCE_TREND_COLORS.length - 1)
+                          ],
+                      }}
+                    />
+                    {source.domain}
+                    {source.isProjectDomain && <small>Project</small>}
+                  </Link>
+                ))}
+              </div>
+            )}
+            <div className="chart source-comparison-chart">
+              {overview.isPending ? (
+                <Skeleton className="chart-skeleton" />
+              ) : citationSources.length > 0 &&
+                citationSourceSeries.length > 0 ? (
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                  <LineChart
+                    data={citationSourceSeries}
+                    margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+                  >
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
+                    <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
+                    <YAxis
+                      width={42}
+                      domain={[0, 100]}
+                      ticks={[0, 25, 50, 75, 100]}
+                      tickFormatter={(value) => `${value}%`}
+                      tickLine={false}
+                      axisLine={false}
+                      tick={{ fill: "#71717a", fontSize: 11 }}
+                    />
+                    <Tooltip
+                      formatter={(value) => percent(Number(value))}
+                      contentStyle={{ borderRadius: 6, border: "1px solid #d4d4d8", boxShadow: "none" }}
+                    />
+                    {citationSources.map((source, index) => (
+                      <Line
+                        connectNulls
+                        dataKey={`source_${index}`}
+                        dot={{ r: 2 }}
+                        key={source.domain}
+                        name={source.domain}
+                        stroke={
+                          SOURCE_TREND_COLORS[
+                            source.isProjectDomain
+                              ? SOURCE_TREND_COLORS.length - 1
+                              : index % (SOURCE_TREND_COLORS.length - 1)
+                          ]
+                        }
+                        strokeWidth={source.isProjectDomain ? 2.5 : 2}
+                        type="monotone"
+                      />
+                    ))}
+                  </LineChart>
+                </ResponsiveContainer>
+              ) : (
+                <EmptyState
+                  title="No citation source data yet"
+                  description="Leading sources will appear after completed runs contain citations."
+                />
+              )}
+            </div>
+          </Card>
+        </div>
+
+        <div className="overview-products-column">
+          <Card className="recent-products-card">
+            <CardHeader
+              title="Top products"
+              description="Most frequently surfaced products in the last 30 days"
+            />
+            {overview.isPending ? (
+              <TableSkeleton rows={5} columns={2} />
+            ) : overview.data?.topProducts.length ? (
+              <OverviewProductList products={overview.data.topProducts} mode="top" />
+            ) : (
+              <EmptyState
+                title="No products detected yet"
+                description="Top products will appear when tracked answers contain shopping blocks."
+              />
+            )}
+          </Card>
+
+          <Card className="recent-products-card">
+            <CardHeader
+              title="Recently detected products"
+              description="Latest products surfaced in tracked AI answers"
+            />
+            {overview.isPending ? (
+              <TableSkeleton rows={5} columns={2} />
+            ) : overview.data?.recentProducts.length ? (
+              <OverviewProductList
+                products={overview.data.recentProducts}
+                mode="recent"
+              />
+            ) : (
+              <EmptyState
+                title="No products detected yet"
+                description="Products will appear when a tracked answer contains a shopping block."
+              />
+            )}
+          </Card>
+        </div>
       </div>
     </div>
   );
