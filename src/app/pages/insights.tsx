@@ -12,6 +12,7 @@ import {
   Pencil,
   Plus,
   RefreshCw,
+  Search,
   Send,
   ServerCog,
   ShoppingBag,
@@ -19,7 +20,12 @@ import {
   Webhook,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import {
+  Link,
+  useNavigate,
+  useParams,
+  useSearchParams,
+} from "react-router-dom";
 import {
   Area,
   AreaChart,
@@ -35,6 +41,11 @@ import { NoProject, PageHeader } from "../components/layout";
 import { CountryFlag } from "../components/country-flag";
 import { DomainFavicon } from "../components/domain-favicon";
 import {
+  TagChip,
+  TagPicker,
+  type PromptTag,
+} from "../components/prompt-tags";
+import {
   Badge,
   Button,
   Card,
@@ -45,11 +56,13 @@ import {
   EmptyState,
   Input,
   Label,
+  Select,
   Skeleton,
   TableSkeleton,
 } from "../components/ui";
 import { useApp } from "../context";
 import { api, apiPage, patch, post, type Project } from "../lib/api";
+import { LOCATION_OPTIONS } from "../lib/locale-catalog";
 import { formatPrice, productDestination } from "../lib/snapshot-evidence";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 
@@ -583,17 +596,42 @@ interface ShoppingRow {
 export function ShoppingPage() {
   const { projectId } = useApp();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const search = searchParams.get("search") ?? "";
+  const country = searchParams.get("country") ?? "";
+  const selectedTagIds = (searchParams.get("tags") ?? "")
+    .split(",")
+    .filter(Boolean);
+  const tagKey = selectedTagIds.join(",");
   const pageSize = 10;
-  const [pagination, setPagination] = useState({ projectId, offset: 0 });
+  const pageScope = [projectId, search, country, tagKey].join("\u0000");
+  const [pagination, setPagination] = useState({ scope: "", offset: 0 });
   const offset =
-    pagination.projectId === projectId ? pagination.offset : 0;
+    pagination.scope === pageScope ? pagination.offset : 0;
+  const tags = useQuery({
+    queryKey: ["prompt-tags", projectId],
+    queryFn: () => api<PromptTag[]>(`/projects/${projectId}/tags`),
+    enabled: Boolean(projectId),
+  });
+  const selectedFilterTags = selectedTagIds
+    .map((id) => tags.data?.find((tag) => tag.id === id))
+    .filter((tag): tag is PromptTag => Boolean(tag));
+  const reportParams = new URLSearchParams({
+    projectId: projectId ?? "",
+    offset: String(offset),
+    limit: String(pageSize),
+  });
+  if (search) reportParams.set("search", search);
+  if (country) reportParams.set("locationCode", country);
+  if (selectedTagIds.length) reportParams.set("tagIds", tagKey);
   const query = useQuery({
-    queryKey: ["shopping", projectId, offset],
+    queryKey: ["shopping", projectId, search, country, tagKey, offset],
     queryFn: () =>
       apiPage<ShoppingRow[]>(
-        `/analytics/shopping?projectId=${projectId}&offset=${offset}&limit=${pageSize}`,
+        `/analytics/shopping?${reportParams}`,
       ),
     enabled: Boolean(projectId),
+    placeholderData: (previous) => previous,
   });
   if (!projectId) return <NoProject />;
   const products = query.data?.data ?? [];
@@ -607,6 +645,84 @@ export function ShoppingPage() {
         title="Shopping"
         description="Deduplicated products surfaced in captured shopping blocks."
       />
+      <div className="report-filters shopping-report-filters">
+        <div className="search-filter">
+          <Search size={15} />
+          <Input
+            aria-label="Search products"
+            placeholder="Search products or merchants"
+            value={search}
+            onChange={(event) => {
+              const next = new URLSearchParams(searchParams);
+              if (event.target.value) next.set("search", event.target.value);
+              else next.delete("search");
+              setSearchParams(next, { replace: true });
+            }}
+          />
+        </div>
+        <Select
+          value={country || "all"}
+          onValueChange={(value) => {
+            const next = new URLSearchParams(searchParams);
+            if (value === "all") next.delete("country");
+            else next.set("country", value);
+            setSearchParams(next, { replace: true });
+          }}
+          options={[
+            { value: "all", label: "All countries" },
+            ...LOCATION_OPTIONS,
+          ]}
+        />
+        <TagPicker
+          className="tag-filter-trigger"
+          disabled={tags.isPending || !tags.data?.length}
+          label={selectedTagIds.length ? "Filtered tags" : "All tags"}
+          onToggle={(name, selected) => {
+            const tag = tags.data?.find(
+              (item) => item.name.toLowerCase() === name.toLowerCase(),
+            );
+            if (!tag) return;
+            const nextIds = selected
+              ? [...new Set([...selectedTagIds, tag.id])]
+              : selectedTagIds.filter((id) => id !== tag.id);
+            const next = new URLSearchParams(searchParams);
+            if (nextIds.length) next.set("tags", nextIds.join(","));
+            else next.delete("tags");
+            setSearchParams(next, { replace: true });
+          }}
+          selectedNames={selectedFilterTags.map((tag) => tag.name)}
+          tags={tags.data ?? []}
+        />
+      </div>
+      {selectedFilterTags.length ? (
+        <div className="active-tag-filters">
+          <span>Products from prompts matching every tag:</span>
+          {selectedFilterTags.map((tag) => (
+            <TagChip
+              key={tag.id}
+              onRemove={() => {
+                const next = new URLSearchParams(searchParams);
+                const nextIds = selectedTagIds.filter((id) => id !== tag.id);
+                if (nextIds.length) next.set("tags", nextIds.join(","));
+                else next.delete("tags");
+                setSearchParams(next, { replace: true });
+              }}
+              tag={tag}
+            />
+          ))}
+          <button
+            className="clear-tag-filters"
+            onClick={() => {
+              const next = new URLSearchParams(searchParams);
+              next.delete("tags");
+              setSearchParams(next, { replace: true });
+            }}
+            type="button"
+          >
+            Clear
+          </button>
+        </div>
+      ) : null}
       <Card>
         <CardHeader
           title={query.isPending ? "Products" : pluralize(total, "product")}
@@ -674,7 +790,7 @@ export function ShoppingPage() {
                   disabled={offset === 0 || query.isFetching}
                   onClick={() =>
                     setPagination({
-                      projectId,
+                      scope: pageScope,
                       offset: Math.max(0, offset - pageSize),
                     })
                   }
@@ -686,7 +802,7 @@ export function ShoppingPage() {
                   disabled={!query.data?.page.nextCursor || query.isFetching}
                   onClick={() =>
                     setPagination({
-                      projectId,
+                      scope: pageScope,
                       offset: offset + pageSize,
                     })
                   }
@@ -698,8 +814,16 @@ export function ShoppingPage() {
           </>
         ) : (
           <EmptyState
-            title="No shopping products"
-            description="Products will appear when a captured answer contains a shopping block."
+            title={
+              search || country || selectedTagIds.length
+                ? "No matching products"
+                : "No shopping products"
+            }
+            description={
+              search || country || selectedTagIds.length
+                ? "Try changing or clearing the product filters."
+                : "Products will appear when a captured answer contains a shopping block."
+            }
           />
         )}
       </Card>

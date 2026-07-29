@@ -59,6 +59,11 @@ const PromptAnalyticsSchema = z.object({
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
+const ShoppingAnalyticsSchema = PaginatedDateRangeSchema.extend({
+  search: z.string().trim().max(200).optional(),
+  locationCode: z.coerce.number().int().optional(),
+  tagIds: PromptTagIdsSchema.optional(),
+});
 const BillingQuerySchema = z.object({
   projectId: z.string().uuid(),
   period: z.enum(["30d", "month"]).default("30d"),
@@ -884,7 +889,7 @@ analyticsRoutes.get(
 
 analyticsRoutes.get(
   "/analytics/shopping",
-  zValidator("query", PaginatedDateRangeSchema),
+  zValidator("query", ShoppingAnalyticsSchema),
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
@@ -897,7 +902,60 @@ analyticsRoutes.get(
     )
       .bind(input.projectId, `${dates.from}T00:00:00.000Z`, exclusiveDateEnd(dates.to))
       .all<{ id: string; shard_id: number }>();
-    const occurrences = await loadShoppingProductOccurrences(c.env, indexes.results);
+    let matchingPromptIds: Set<string> | null = null;
+    if (input.tagIds?.length) {
+      const tagPlaceholders = input.tagIds.map(() => "?").join(",");
+      const promptRows = await c.env.CONTROL_DB.prepare(
+        `SELECT q.id
+         FROM tracked_queries q
+         JOIN tracked_query_tags qt ON qt.tracked_query_id = q.id
+         JOIN prompt_tags t ON t.id = qt.tag_id
+         WHERE q.project_id = ? AND q.deleted_at IS NULL
+           AND t.project_id = ?
+           AND t.id IN (${tagPlaceholders})
+         GROUP BY q.id
+         HAVING COUNT(DISTINCT t.id) = ?`,
+      )
+        .bind(
+          input.projectId,
+          input.projectId,
+          ...input.tagIds,
+          input.tagIds.length,
+        )
+        .all<{ id: string }>();
+      matchingPromptIds = new Set(promptRows.results.map((row) => row.id));
+      if (!matchingPromptIds.size) {
+        return c.json({
+          data: [],
+          page: { nextCursor: null, total: 0 },
+        });
+      }
+    }
+    const normalizedSearch = input.search?.toLocaleLowerCase();
+    const occurrences = (
+      await loadShoppingProductOccurrences(c.env, indexes.results)
+    ).filter((occurrence) => {
+      if (
+        input.locationCode !== undefined &&
+        occurrence.location_code !== input.locationCode
+      ) {
+        return false;
+      }
+      if (
+        matchingPromptIds &&
+        !matchingPromptIds.has(occurrence.tracked_query_id)
+      ) {
+        return false;
+      }
+      if (!normalizedSearch) return true;
+      return [
+        occurrence.title,
+        occurrence.merchants,
+        occurrence.registrable_domain,
+      ].some((value) =>
+        value?.toLocaleLowerCase().includes(normalizedSearch),
+      );
+    });
     const products = new Map<
       string,
       ShoppingProductOccurrence & { appearances: number }
