@@ -8,7 +8,6 @@ import {
   Download,
   ExternalLink,
   FileDown,
-  Globe2,
   KeyRound,
   Pencil,
   Plus,
@@ -1424,7 +1423,9 @@ export function SettingsPage() {
             <div className="settings-list">
               {projects.map((project) => (
                 <div key={project.id}>
-                  <span className="settings-icon"><Globe2 /></span>
+                  <span className="settings-icon settings-project-favicon">
+                    <DomainFavicon domain={project.primary_domain} size={18} />
+                  </span>
                   <div>
                     <strong>{project.name}</strong>
                     <span>
