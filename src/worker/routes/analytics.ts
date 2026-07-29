@@ -52,7 +52,7 @@ const PromptAnalyticsSchema = z.object({
   locationCode: z.coerce.number().int().optional(),
   languageCode: z.string().trim().max(12).optional(),
   tagIds: PromptTagIdsSchema.optional(),
-  cursor: z.string().optional(),
+  offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 const BillingQuerySchema = z.object({
@@ -367,11 +367,15 @@ analyticsRoutes.get(
       );
       bindings.push(...input.tagIds, input.tagIds.length);
     }
-    if (input.cursor) {
-      clauses.push("q.id > ?");
-      bindings.push(input.cursor);
-    }
-    bindings.push(input.limit + 1);
+    const totalRow = await c.env.CONTROL_DB.prepare(
+      `SELECT COUNT(*) AS total
+       FROM tracked_queries q
+       WHERE ${clauses.join(" AND ")}`,
+    )
+      .bind(...bindings)
+      .first<{ total: number }>();
+    const total = totalRow?.total ?? 0;
+    bindings.push(input.limit, input.offset);
     const queryRows = await c.env.CONTROL_DB.prepare(
       `SELECT
         q.id, q.query_text, q.location_code, q.language_code,
@@ -390,7 +394,7 @@ analyticsRoutes.get(
       FROM tracked_queries q
       WHERE ${clauses.join(" AND ")}
       ORDER BY q.id
-      LIMIT ?`,
+      LIMIT ? OFFSET ?`,
     )
       .bind(...bindings)
       .all<{
@@ -409,7 +413,7 @@ analyticsRoutes.get(
         snapshot_count: number;
         latest_run_status: string | null;
       }>();
-    const rows = queryRows.results.slice(0, input.limit);
+    const rows = queryRows.results;
     const promptTags = new Map<
       string,
       Array<{ id: string; name: string; colorIndex: number }>
@@ -566,7 +570,10 @@ analyticsRoutes.get(
       }),
       page: {
         nextCursor:
-          queryRows.results.length > input.limit ? rows.at(-1)?.id ?? null : null,
+          input.offset + rows.length < total
+            ? String(input.offset + rows.length)
+            : null,
+        total,
       },
     });
   },

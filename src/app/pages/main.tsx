@@ -45,7 +45,7 @@ import {
   TableSkeleton,
 } from "../components/ui";
 import { useApp } from "../context";
-import { api, patch, post } from "../lib/api";
+import { api, apiPage, patch, post } from "../lib/api";
 import {
   LOCATION_OPTIONS,
   languagesForLocation,
@@ -307,6 +307,14 @@ export function PromptsPage() {
     .split(",")
     .filter(Boolean);
   const tagKey = selectedTagIds.join(",");
+  const pageSize = 50;
+  const pageScope = [projectId, search, country, language, tagKey].join("\u0000");
+  const [promptPagination, setPromptPagination] = useState<{
+    scope: string;
+    offset: number;
+  }>(() => ({ scope: "", offset: 0 }));
+  const offset =
+    promptPagination.scope === pageScope ? promptPagination.offset : 0;
   const selectionScope = [projectId, search, country, language, tagKey].join("\u0000");
   const selectedPromptIds =
     promptSelection.scope === selectionScope
@@ -334,21 +342,25 @@ export function PromptsPage() {
   if (country) reportParams.set("locationCode", country);
   if (language) reportParams.set("languageCode", language);
   if (selectedTagIds.length) reportParams.set("tagIds", tagKey);
+  reportParams.set("offset", String(offset));
+  reportParams.set("limit", String(pageSize));
   const queries = useQuery({
-    queryKey: ["prompts", projectId, search, country, language, tagKey],
-    queryFn: () => api<QueryRow[]>(`/analytics/prompts?${reportParams}`),
+    queryKey: ["prompts", projectId, search, country, language, tagKey, offset],
+    queryFn: () => apiPage<QueryRow[]>(`/analytics/prompts?${reportParams}`),
     enabled: Boolean(projectId),
     refetchInterval: (current) =>
-      current.state.data?.some((query) =>
+      current.state.data?.data.some((query) =>
         isRunInProgress(query.latestRunStatus),
       )
         ? 3_000
         : false,
   });
-  const visibleSelectedIds = (queries.data ?? [])
+  const promptRows = queries.data?.data ?? [];
+  const totalPrompts = queries.data?.page.total ?? 0;
+  const visibleSelectedIds = promptRows
     .map((query) => query.id)
     .filter((id) => selectedPromptIds.has(id));
-  const selectedRows = (queries.data ?? []).filter((query) =>
+  const selectedRows = promptRows.filter((query) =>
     selectedPromptIds.has(query.id),
   );
   const selectedFilterTags = selectedTagIds
@@ -593,7 +605,7 @@ export function PromptsPage() {
         </div>
       ) : null}
       <Card className="prompts-table-card">
-        <CardHeader title={queries.isPending ? "Prompts" : pluralize(queries.data?.length ?? 0, "prompt")} description="Latest capture metrics with a rolling 30-day owned-brand mention rate." />
+        <CardHeader title={queries.isPending ? "Prompts" : pluralize(totalPrompts, "prompt")} description="Latest capture metrics with a rolling 30-day owned-brand mention rate." />
         {visibleSelectedIds.length ? (
           <div className="prompt-bulk-toolbar">
             <strong>{pluralize(visibleSelectedIds.length, "prompt")} selected</strong>
@@ -645,9 +657,10 @@ export function PromptsPage() {
         {tagError ? <p className="prompt-tag-error">{tagError}</p> : null}
         {queries.isPending ? (
           <TableSkeleton rows={6} columns={5} />
-        ) : queries.data?.length ? (
-          <DataTable
-            columns={[
+        ) : promptRows.length ? (
+          <>
+            <DataTable
+              columns={[
               ...(canEdit
                 ? [{
                     key: "select",
@@ -655,13 +668,13 @@ export function PromptsPage() {
                       <input
                         aria-label="Select all visible prompts"
                         checked={
-                          Boolean(queries.data?.length) &&
-                          visibleSelectedIds.length === queries.data?.length
+                          Boolean(promptRows.length) &&
+                          visibleSelectedIds.length === promptRows.length
                         }
                         onChange={(event) =>
                           setSelectedPromptIds(
                             event.target.checked
-                              ? new Set(queries.data?.map((query) => query.id))
+                              ? new Set(promptRows.map((query) => query.id))
                               : new Set(),
                           )
                         }
@@ -676,8 +689,8 @@ export function PromptsPage() {
               { key: "rate", label: "Mention rate" }, { key: "citations", label: "Citations" },
               { key: "change", label: "Mention change" },
               { key: "actions", label: "Actions", className: "actions-column" },
-            ]}
-            rows={queries.data.map((query) => {
+              ]}
+              rows={promptRows.map((query) => {
               const runInProgress = isRunInProgress(query.latestRunStatus);
               const isStarting =
                 manualRun.isPending && manualRun.variables === query.id;
@@ -777,8 +790,43 @@ export function PromptsPage() {
                   </Button>
                 </div>,
               };
-            })}
-          />
+              })}
+            />
+            {totalPrompts > pageSize ? (
+              <div className="table-pagination">
+                <span>
+                  {offset + 1}–{Math.min(offset + promptRows.length, totalPrompts)} of{" "}
+                  {totalPrompts} prompts
+                </span>
+                <div>
+                  <Button
+                    disabled={offset === 0 || queries.isFetching}
+                    onClick={() =>
+                      setPromptPagination({
+                        scope: pageScope,
+                        offset: Math.max(0, offset - pageSize),
+                      })
+                    }
+                    variant="secondary"
+                  >
+                    Previous
+                  </Button>
+                  <Button
+                    disabled={!queries.data?.page.nextCursor || queries.isFetching}
+                    onClick={() =>
+                      setPromptPagination({
+                        scope: pageScope,
+                        offset: offset + pageSize,
+                      })
+                    }
+                    variant="secondary"
+                  >
+                    Next
+                  </Button>
+                </div>
+              </div>
+            ) : null}
+          </>
         ) : <EmptyState title="No prompts found" description="Add the prompts your audience asks ChatGPT or adjust the filters." action={<Button onClick={openPromptDialog}><Plus size={15} /> Add prompt</Button>} />}
       </Card>
       <Dialog
