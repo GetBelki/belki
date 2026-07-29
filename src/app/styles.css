@@ -2179,7 +2179,9 @@ a.evidence-source:hover strong {
   border: 1px solid #e4e4e7;
   border-radius: 7px;
   display: inline-grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, 60px);
+  height: 35px;
+  overflow: hidden;
   padding: 2px;
   position: relative;
 }
@@ -2215,6 +2217,8 @@ a.evidence-source:hover strong {
   cursor: pointer;
   font-size: 12px;
   font-weight: 600;
+  height: 29px;
+  line-height: 1;
   min-height: 29px;
   padding: 5px 9px;
   position: relative;
@@ -2899,12 +2903,12 @@ a.evidence-source:hover strong {
   }
 
   .product-period-toggle {
-    display: flex;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
     width: 100%;
   }
 
   .product-period-toggle button {
-    width: 100%;
+    min-width: 0;
   }
 
   .product-analytics-header-actions > .button {
