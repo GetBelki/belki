@@ -115,6 +115,24 @@ function tableRowId(row: Record<string, React.ReactNode>): string {
     : "";
 }
 
+function CitationRateCell({ value }: { value: number }) {
+  const rate = Math.max(0, Math.min(100, value));
+  return (
+    <div className="citation-rate-cell" aria-label={`${percent(rate)} citation rate`}>
+      <span
+        aria-hidden="true"
+        className="citation-rate-ring"
+        style={
+          {
+            "--citation-progress": `${rate * 3.6}deg`,
+          } as React.CSSProperties
+        }
+      />
+      <strong>{percent(rate)}</strong>
+    </div>
+  );
+}
+
 export function CitationSourcesPage() {
   const { projectId } = useApp();
   const navigate = useNavigate();
@@ -160,7 +178,7 @@ export function CitationSourcesPage() {
               columns={[
                 { key: "domain", label: "Domain" },
                 { key: "rate", label: "Citation rate" },
-                { key: "urls", label: "Total URLs" },
+                { key: "urls", label: "URLs" },
                 { key: "citations", label: "Total citations" },
                 { key: "action", label: "", className: "source-row-action" },
               ]}
@@ -172,7 +190,7 @@ export function CitationSourcesPage() {
                     <strong>{source.domain}</strong>
                   </div>
                 ),
-                rate: <strong>{percent(source.citationRate)}</strong>,
+                rate: <CitationRateCell value={source.citationRate} />,
                 urls: compact(source.totalUrls),
                 citations: compact(source.totalCitations),
                 action: <ChevronRight className="source-row-chevron" size={16} />,

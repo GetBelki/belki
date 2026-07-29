@@ -2072,6 +2072,39 @@ a.evidence-source:hover strong {
   outline-offset: -2px;
 }
 
+.citation-rate-cell {
+  align-items: center;
+  display: inline-flex;
+  gap: 8px;
+}
+
+.citation-rate-cell strong {
+  color: #3f3f46;
+  font-variant-numeric: tabular-nums;
+}
+
+.citation-rate-ring {
+  background: conic-gradient(
+    #6366f1 0 var(--citation-progress),
+    #e4e4e7 var(--citation-progress) 360deg
+  );
+  border-radius: 50%;
+  display: inline-block;
+  flex: 0 0 auto;
+  height: 18px;
+  position: relative;
+  transform: rotate(-90deg);
+  width: 18px;
+}
+
+.citation-rate-ring::after {
+  background: #ffffff;
+  border-radius: 50%;
+  content: "";
+  inset: 3px;
+  position: absolute;
+}
+
 .source-row-action {
   text-align: right;
   width: 42px;
