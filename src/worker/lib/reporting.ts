@@ -17,6 +17,88 @@ export function productIdentity(product: {
   )}`;
 }
 
+export function productKey(product: Parameters<typeof productIdentity>[0]): string {
+  const bytes = new TextEncoder().encode(productIdentity(product));
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+}
+
+export function productIdentityFromKey(key: string): string | null {
+  if (!/^[A-Za-z0-9_-]+$/u.test(key)) return null;
+  try {
+    const padded = `${key.replaceAll("-", "+").replaceAll("_", "/")}${"=".repeat(
+      (4 - (key.length % 4)) % 4,
+    )}`;
+    const binary = atob(padded);
+    const bytes = Uint8Array.from(binary, (character) => character.charCodeAt(0));
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+      bytes,
+    );
+  } catch {
+    return null;
+  }
+}
+
+export type ProductAnalyticsPeriod = "30d" | "90d" | "365d";
+
+export function productAnalyticsDateRange(
+  period: ProductAnalyticsPeriod,
+  now = new Date(),
+): BillingDateRange {
+  const days = period === "365d" ? 365 : period === "90d" ? 90 : 30;
+  const today = utcDate(now);
+  const start = new Date(today.getTime() - (days - 1) * 86_400_000);
+  const endExclusive = new Date(today.getTime() + 86_400_000);
+  return {
+    from: dateKey(start),
+    to: dateKey(today),
+    startTimestamp: start.toISOString(),
+    endExclusiveTimestamp: endExclusive.toISOString(),
+  };
+}
+
+export function summarizeProductPrices(
+  occurrences: Array<{
+    captured_at: string;
+    price: number | null;
+    currency: string | null;
+  }>,
+) {
+  const priced = occurrences
+    .filter(
+      (
+        occurrence,
+      ): occurrence is {
+        captured_at: string;
+        price: number;
+        currency: string | null;
+      } => occurrence.price !== null,
+    )
+    .sort((left, right) => right.captured_at.localeCompare(left.captured_at));
+  const latest = priced[0];
+  if (!latest) return null;
+  const comparable = priced.filter(
+    (occurrence) => occurrence.currency === latest.currency,
+  );
+  const earliest = comparable.at(-1)!;
+  const values = comparable.map((occurrence) => occurrence.price);
+  const hasComparison = comparable.length > 1;
+  const change = hasComparison ? latest.price - earliest.price : null;
+  return {
+    currency: latest.currency,
+    latest: latest.price,
+    minimum: Math.min(...values),
+    maximum: Math.max(...values),
+    change,
+    changePercent:
+      change !== null && earliest.price ? (change / earliest.price) * 100 : null,
+  };
+}
+
 export type BillingPeriod = "30d" | "month";
 
 export interface BillingDateRange {

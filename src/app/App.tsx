@@ -43,6 +43,11 @@ const ProductsPage = lazy(() =>
 const ShoppingPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.ShoppingPage })),
 );
+const ProductAnalyticsPage = lazy(() =>
+  import("./pages/insights").then((module) => ({
+    default: module.ProductAnalyticsPage,
+  })),
+);
 const AlertsPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.AlertsPage })),
 );
@@ -109,6 +114,10 @@ export function App() {
             <Route path="/brands" element={<BrandsPage />} />
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/shopping" element={<ShoppingPage />} />
+            <Route
+              path="/shopping/:productKey"
+              element={<ProductAnalyticsPage />}
+            />
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/exports" element={<ExportsPage />} />
             <Route path="/users" element={<UsersPage />} />

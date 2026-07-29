@@ -25,12 +25,15 @@ import {
   Area,
   AreaChart,
   CartesianGrid,
+  Line,
+  LineChart,
   ResponsiveContainer,
   Tooltip,
   XAxis,
   YAxis,
 } from "recharts";
 import { NoProject, PageHeader } from "../components/layout";
+import { CountryFlag } from "../components/country-flag";
 import { DomainFavicon } from "../components/domain-favicon";
 import {
   Badge,
@@ -48,7 +51,7 @@ import {
 } from "../components/ui";
 import { useApp } from "../context";
 import { api, apiPage, patch, post, type Project } from "../lib/api";
-import { productDestination } from "../lib/snapshot-evidence";
+import { formatPrice, productDestination } from "../lib/snapshot-evidence";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 
 function useProjectAnalytics<T>(name: string) {
@@ -562,6 +565,7 @@ export function ProductsPage() {
 
 interface ShoppingRow {
   id: string;
+  productKey: string;
   title: string | null;
   merchants: string | null;
   registrable_domain: string | null;
@@ -579,6 +583,7 @@ interface ShoppingRow {
 
 export function ShoppingPage() {
   const { projectId } = useApp();
+  const navigate = useNavigate();
   const pageSize = 10;
   const [pagination, setPagination] = useState({ projectId, offset: 0 });
   const offset =
@@ -623,9 +628,9 @@ export function ShoppingPage() {
                 { key: "action", label: "" },
               ]}
               rows={products.map((product) => {
-                const href = productDestination(product);
                 return {
-                  id: product.id,
+                  id: product.productKey,
+                  name: product.title ?? "Untitled product",
                   product: (
                     <div className="shopping-table-product">
                       <span className="shopping-table-image">
@@ -649,15 +654,18 @@ export function ShoppingPage() {
                       : `${product.rating_value}${product.rating_votes_count ? ` · ${compact(product.rating_votes_count)} reviews` : ""}`,
                   appearances: <strong>{compact(product.appearances)}</strong>,
                   seen: dateTime(product.latestSeen),
-                  action: (
-                    <Button asChild variant="secondary">
-                      <a href={href} target="_blank" rel="noreferrer">
-                        Open <ExternalLink size={13} />
-                      </a>
-                    </Button>
-                  ),
+                  action: <ChevronRight className="source-row-chevron" size={16} />,
                 };
               })}
+              onRowClick={(row) => {
+                const key = tableRowId(row);
+                if (key) void navigate(`/shopping/${key}`);
+              }}
+              rowAriaLabel={(row) =>
+                `Open product analytics for ${
+                  typeof row.name === "string" ? row.name : "product"
+                }`
+              }
             />
             <div className="table-pagination">
               <span>{firstItem}–{lastItem} of {total}</span>
@@ -696,6 +704,566 @@ export function ShoppingPage() {
           />
         )}
       </Card>
+    </div>
+  );
+}
+
+interface ProductAnalyticsDetail {
+  product: ShoppingRow & {
+    ordinal: number;
+    rating_max: number | null;
+  };
+  range: {
+    from: string;
+    to: string;
+    period: "30d" | "90d" | "365d";
+  };
+  summary: {
+    completedRuns: number;
+    appearingCaptures: number;
+    appearanceRate: number;
+    appearances: number;
+    prompts: number;
+    merchants: number;
+    firstSeen: string;
+    latestSeen: string;
+    latestPosition: number;
+    averagePosition: number | null;
+    price: {
+      currency: string | null;
+      latest: number | null;
+      minimum: number;
+      maximum: number;
+      change: number | null;
+      changePercent: number | null;
+    } | null;
+    rating: {
+      value: number | null;
+      maximum: number | null;
+      reviews: number | null;
+      reviewChange: number | null;
+      ratingChange: number | null;
+    } | null;
+  };
+  visibilityTrend: Array<{
+    date: string;
+    completedRuns: number;
+    appearingCaptures: number;
+    appearances: number;
+    appearanceRate: number;
+    averagePosition: number | null;
+  }>;
+  priceTrend: Array<{
+    date: string;
+    currency: string | null;
+    latest: number;
+    minimum: number;
+    maximum: number;
+  }>;
+  reviewTrend: Array<{
+    date: string;
+    rating: number | null;
+    ratingMaximum: number | null;
+    reviews: number | null;
+  }>;
+  prompts: Array<{
+    queryId: string;
+    prompt: string;
+    locationCode: number;
+    languageCode: string;
+    appearances: number;
+    captures: number;
+    latestSeen: string;
+    latestSnapshotId: string;
+    latestPosition: number;
+    latestPrice: number | null;
+    latestCurrency: string | null;
+  }>;
+  merchants: Array<{
+    merchant: string;
+    appearances: number;
+    latestSeen: string;
+    latestRating: number | null;
+    latestReviews: number | null;
+    prices: Array<{
+      currency: string | null;
+      latest: number;
+      minimum: number;
+      maximum: number;
+    }>;
+  }>;
+  occurrences: Array<{
+    id: string;
+    snapshotId: string;
+    queryId: string;
+    prompt: string;
+    locationCode: number;
+    languageCode: string;
+    capturedAt: string;
+    merchant: string | null;
+    position: number;
+    rankAbsolute: number | null;
+    price: number | null;
+    currency: string | null;
+    rating: number | null;
+    ratingMaximum: number | null;
+    reviews: number | null;
+  }>;
+}
+
+function signedCompact(value: number | null): string {
+  if (value === null) return "No earlier value";
+  if (value === 0) return "No change";
+  return `${value > 0 ? "+" : ""}${compact(value)}`;
+}
+
+function observedPrice(
+  value: number | null,
+  currency: string | null,
+): string | null {
+  if (value === null) return null;
+  if (currency) return formatPrice(value, currency);
+  return new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
+function priceRangeLabel(
+  prices: ProductAnalyticsDetail["merchants"][number]["prices"],
+): string {
+  if (!prices.length) return "—";
+  return prices
+    .map((price) => {
+      const minimum = observedPrice(price.minimum, price.currency) ?? "—";
+      const maximum = observedPrice(price.maximum, price.currency) ?? "—";
+      return price.minimum === price.maximum ? minimum : `${minimum}–${maximum}`;
+    })
+    .join(" · ");
+}
+
+export function ProductAnalyticsPage() {
+  const { projectId } = useApp();
+  const { productKey: routeProductKey = "" } = useParams();
+  const productKey = routeProductKey.trim();
+  const [period, setPeriod] = useState<"30d" | "90d" | "365d">("30d");
+  const pageSize = 10;
+  const pageScope = `${projectId ?? ""}:${productKey}:${period}`;
+  const [pagination, setPagination] = useState({
+    scope: pageScope,
+    occurrenceOffset: 0,
+    promptOffset: 0,
+    merchantOffset: 0,
+  });
+  const occurrenceOffset =
+    pagination.scope === pageScope ? pagination.occurrenceOffset : 0;
+  const promptOffset =
+    pagination.scope === pageScope ? pagination.promptOffset : 0;
+  const merchantOffset =
+    pagination.scope === pageScope ? pagination.merchantOffset : 0;
+  const query = useQuery({
+    queryKey: [
+      "shopping-product",
+      projectId,
+      productKey,
+      period,
+      occurrenceOffset,
+    ],
+    queryFn: () =>
+      apiPage<ProductAnalyticsDetail>(
+        `/analytics/shopping/${encodeURIComponent(productKey)}?projectId=${projectId}&period=${period}&offset=${occurrenceOffset}&limit=${pageSize}`,
+      ),
+    enabled: Boolean(projectId && productKey),
+  });
+  if (!projectId) return <NoProject />;
+  const detail = query.data?.data;
+  const occurrenceTotal = query.data?.page.total ?? 0;
+  const promptRows =
+    detail?.prompts.slice(promptOffset, promptOffset + pageSize) ?? [];
+  const merchantRows =
+    detail?.merchants.slice(merchantOffset, merchantOffset + pageSize) ?? [];
+  const priceCurrencies = [
+    ...new Set(
+      detail?.priceTrend.map((point) => point.currency ?? "Price") ?? [],
+    ),
+  ];
+  const priceChartData = [
+    ...new Set(detail?.priceTrend.map((point) => point.date) ?? []),
+  ].map((date) => {
+    const row: Record<string, string | number> = { date };
+    for (const point of detail?.priceTrend.filter(
+      (candidate) => candidate.date === date,
+    ) ?? []) {
+      row[point.currency ?? "Price"] = point.latest;
+    }
+    return row;
+  });
+  const productHref = detail
+    ? productDestination(detail.product)
+    : undefined;
+  const productImage = detail?.product.images[0];
+  const updateSectionOffset = (
+    key: "occurrenceOffset" | "promptOffset" | "merchantOffset",
+    value: number,
+  ) =>
+    setPagination((current) => ({
+      scope: pageScope,
+      occurrenceOffset:
+        current.scope === pageScope ? current.occurrenceOffset : 0,
+      promptOffset: current.scope === pageScope ? current.promptOffset : 0,
+      merchantOffset: current.scope === pageScope ? current.merchantOffset : 0,
+      [key]: value,
+    }));
+
+  return (
+    <div className="page product-analytics-page">
+      <Link className="back-link" to="/shopping">
+        <ArrowLeft size={14} /> Shopping
+      </Link>
+      <PageHeader
+        eyebrow={`Last ${period === "365d" ? "365" : period === "90d" ? "90" : "30"} days`}
+        title={
+          <span className="product-analytics-title">
+            <span className="product-analytics-title-image">
+              {productImage ? (
+                <img src={productImage} alt="" />
+              ) : (
+                <ShoppingBag size={22} />
+              )}
+            </span>
+            <span>{detail?.product.title ?? "Product analytics"}</span>
+          </span>
+        }
+        description={
+          detail
+            ? `${detail.product.merchants ?? detail.product.registrable_domain ?? "Merchant unavailable"} · First seen ${dateTime(detail.summary.firstSeen)} · Latest ${dateTime(detail.summary.latestSeen)}`
+            : "Product visibility, pricing, reviews, prompts, and merchant observations."
+        }
+        action={
+          <div className="product-analytics-header-actions">
+            <div className="product-period-toggle" aria-label="Report period">
+              {(["30d", "90d", "365d"] as const).map((value) => (
+                <Button
+                  key={value}
+                  variant={period === value ? "default" : "secondary"}
+                  onClick={() => setPeriod(value)}
+                >
+                  {value.replace("d", " days")}
+                </Button>
+              ))}
+            </div>
+            {productHref ? (
+              <Button asChild variant="secondary">
+                <a href={productHref} target="_blank" rel="noreferrer">
+                  Open product <ExternalLink size={13} />
+                </a>
+              </Button>
+            ) : null}
+          </div>
+        }
+      />
+      {query.isPending ? (
+        <>
+          <div className="source-summary-grid">
+            {Array.from({ length: 4 }, (_, index) => (
+              <Skeleton className="source-summary-skeleton" key={index} />
+            ))}
+          </div>
+          <div className="product-analytics-charts">
+            {Array.from({ length: 3 }, (_, index) => (
+              <Skeleton className="product-chart-skeleton" key={index} />
+            ))}
+          </div>
+          <Card><TableSkeleton rows={pageSize} /></Card>
+        </>
+      ) : detail ? (
+        <>
+          <div className="source-summary-grid">
+            <Card className="source-summary-card">
+              <span>Appearance rate</span>
+              <strong>{percent(detail.summary.appearanceRate)}</strong>
+              <small>
+                {compact(detail.summary.appearingCaptures)} of{" "}
+                {compact(detail.summary.completedRuns)} captures
+              </small>
+            </Card>
+            <Card className="source-summary-card">
+              <span>Appearances</span>
+              <strong>{compact(detail.summary.appearances)}</strong>
+              <small>
+                {pluralize(detail.summary.prompts, "prompt")} ·{" "}
+                {pluralize(detail.summary.merchants, "merchant label")}
+              </small>
+              <small>
+                Position #{detail.summary.latestPosition} latest ·{" "}
+                {detail.summary.averagePosition === null
+                  ? "average unavailable"
+                  : `#${detail.summary.averagePosition.toFixed(1)} average`}
+              </small>
+            </Card>
+            <Card className="source-summary-card">
+              <span>Latest price</span>
+              <strong>
+                {detail.summary.price
+                  ? observedPrice(
+                      detail.summary.price.latest,
+                      detail.summary.price.currency,
+                    )
+                  : "—"}
+              </strong>
+              <small>
+                {detail.summary.price?.change === null ||
+                detail.summary.price?.change === undefined
+                  ? "No earlier comparable price"
+                  : `${detail.summary.price.change > 0 ? "+" : ""}${observedPrice(
+                      detail.summary.price.change,
+                      detail.summary.price.currency,
+                    )}${
+                      detail.summary.price.changePercent === null
+                        ? ""
+                        : ` (${detail.summary.price.changePercent > 0 ? "+" : ""}${percent(
+                            detail.summary.price.changePercent,
+                          )})`
+                    } in this period`}
+              </small>
+              {detail.summary.price ? (
+                <small>
+                  Range{" "}
+                  {observedPrice(
+                    detail.summary.price.minimum,
+                    detail.summary.price.currency,
+                  )}
+                  –
+                  {observedPrice(
+                    detail.summary.price.maximum,
+                    detail.summary.price.currency,
+                  )}
+                </small>
+              ) : null}
+            </Card>
+            <Card className="source-summary-card">
+              <span>Rating and reviews</span>
+              <strong>
+                {detail.summary.rating?.value ?? "—"}
+                {detail.summary.rating?.maximum
+                  ? `/${detail.summary.rating.maximum}`
+                  : ""}
+              </strong>
+              <small>
+                {detail.summary.rating?.reviews === null ||
+                detail.summary.rating?.reviews === undefined
+                  ? "Review count unavailable"
+                  : `${compact(detail.summary.rating.reviews)} reviews · ${signedCompact(
+                      detail.summary.rating.reviewChange,
+                    )}`}
+              </small>
+            </Card>
+          </div>
+
+          <div className="product-analytics-charts">
+            <Card className="product-chart-card">
+              <CardHeader
+                title="Visibility trend"
+                description="Share of completed captures containing this product."
+              />
+              <div className="product-chart">
+                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                  <AreaChart
+                    data={detail.visibilityTrend}
+                    margin={{ top: 8, right: 12, bottom: 0, left: 0 }}
+                  >
+                    <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+                    <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
+                    <YAxis axisLine={false} domain={[0, 100]} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => `${value}%`} tickLine={false} width={40} />
+                    <Tooltip formatter={(value) => [percent(Number(value)), "Appearance rate"]} />
+                    <Area dataKey="appearanceRate" dot={false} fill="#e4e4e7" stroke="#18181b" strokeWidth={2} type="monotone" />
+                  </AreaChart>
+                </ResponsiveContainer>
+              </div>
+            </Card>
+            <Card className="product-chart-card">
+              <CardHeader
+                title="Price history"
+                description="Latest displayed price each day, separated by currency."
+              />
+              <div className="product-chart">
+                {priceChartData.length ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                    <LineChart data={priceChartData} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                      <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+                      <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
+                      <YAxis axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} width={40} />
+                      <Tooltip formatter={(value, name) => [observedPrice(Number(value), String(name) === "Price" ? null : String(name)), String(name)]} />
+                      {priceCurrencies.map((currency, index) => (
+                        <Line
+                          connectNulls
+                          dataKey={currency}
+                          dot={{ r: 2 }}
+                          key={currency}
+                          stroke={["#18181b", "#71717a", "#a1a1aa"][index % 3]}
+                          strokeWidth={2}
+                          type="monotone"
+                        />
+                      ))}
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyState title="No price history" description="No displayed prices were captured in this period." />
+                )}
+              </div>
+            </Card>
+            <Card className="product-chart-card">
+              <CardHeader
+                title="Review trend"
+                description="Latest provider-observed review count each day."
+              />
+              <div className="product-chart">
+                {detail.reviewTrend.some((point) => point.reviews !== null) ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                    <LineChart data={detail.reviewTrend} margin={{ top: 8, right: 12, bottom: 0, left: 0 }}>
+                      <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+                      <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
+                      <YAxis axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => compact(Number(value))} tickLine={false} width={40} />
+                      <Tooltip formatter={(value) => [compact(Number(value)), "Reviews"]} />
+                      <Line connectNulls dataKey="reviews" dot={{ r: 2 }} stroke="#18181b" strokeWidth={2} type="monotone" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : (
+                  <EmptyState title="No review history" description="No review counts were captured in this period." />
+                )}
+              </div>
+            </Card>
+          </div>
+
+          <Card className="product-detail-table">
+            <CardHeader
+              title="Prompts"
+              description="Tracked prompts whose captured answers contained this product."
+              action={<span className="table-total">{pluralize(detail.prompts.length, "prompt")}</span>}
+            />
+            <DataTable
+              columns={[
+                { key: "prompt", label: "Prompt" },
+                { key: "country", label: "Country" },
+                { key: "appearances", label: "Appearances" },
+                { key: "position", label: "Latest position" },
+                { key: "price", label: "Latest price" },
+                { key: "seen", label: "Last seen" },
+                { key: "open", label: "" },
+              ]}
+              rows={promptRows.map((prompt) => ({
+                id: prompt.queryId,
+                prompt: <strong>{prompt.prompt}</strong>,
+                country: <CountryFlag locationCode={prompt.locationCode} languageCode={prompt.languageCode} />,
+                appearances: compact(prompt.appearances),
+                position: `#${prompt.latestPosition}`,
+                price: observedPrice(prompt.latestPrice, prompt.latestCurrency) ?? "—",
+                seen: dateTime(prompt.latestSeen),
+                open: (
+                  <Button asChild variant="secondary">
+                    <Link to={`/prompts/${prompt.queryId}/snapshots/${prompt.latestSnapshotId}`}>
+                      View response
+                    </Link>
+                  </Button>
+                ),
+              }))}
+            />
+            {detail.prompts.length > pageSize ? (
+              <div className="table-pagination">
+                <span>{promptOffset + 1}–{Math.min(promptOffset + promptRows.length, detail.prompts.length)} of {detail.prompts.length}</span>
+                <div>
+                  <Button variant="secondary" disabled={promptOffset === 0} onClick={() => updateSectionOffset("promptOffset", Math.max(0, promptOffset - pageSize))}><ChevronLeft size={14} /> Previous</Button>
+                  <Button variant="secondary" disabled={promptOffset + pageSize >= detail.prompts.length} onClick={() => updateSectionOffset("promptOffset", promptOffset + pageSize)}>Next <ChevronRight size={14} /></Button>
+                </div>
+              </div>
+            ) : null}
+          </Card>
+
+          <Card className="product-detail-table">
+            <CardHeader
+              title="Merchant observations"
+              description="Provider-reported merchant labels, which may include “+ weitere” groupings."
+              action={<span className="table-total">{pluralize(detail.merchants.length, "merchant label")}</span>}
+            />
+            <DataTable
+              columns={[
+                { key: "merchant", label: "Merchant label" },
+                { key: "appearances", label: "Appearances" },
+                { key: "prices", label: "Observed price range" },
+                { key: "rating", label: "Latest rating" },
+                { key: "seen", label: "Last seen" },
+              ]}
+              rows={merchantRows.map((merchant) => ({
+                id: merchant.merchant,
+                merchant: <strong>{merchant.merchant}</strong>,
+                appearances: compact(merchant.appearances),
+                prices: priceRangeLabel(merchant.prices),
+                rating: merchant.latestRating === null ? "—" : `${merchant.latestRating}${merchant.latestReviews ? ` · ${compact(merchant.latestReviews)} reviews` : ""}`,
+                seen: dateTime(merchant.latestSeen),
+              }))}
+            />
+            {detail.merchants.length > pageSize ? (
+              <div className="table-pagination">
+                <span>{merchantOffset + 1}–{Math.min(merchantOffset + merchantRows.length, detail.merchants.length)} of {detail.merchants.length}</span>
+                <div>
+                  <Button variant="secondary" disabled={merchantOffset === 0} onClick={() => updateSectionOffset("merchantOffset", Math.max(0, merchantOffset - pageSize))}><ChevronLeft size={14} /> Previous</Button>
+                  <Button variant="secondary" disabled={merchantOffset + pageSize >= detail.merchants.length} onClick={() => updateSectionOffset("merchantOffset", merchantOffset + pageSize)}>Next <ChevronRight size={14} /></Button>
+                </div>
+              </div>
+            ) : null}
+          </Card>
+
+          <Card className="product-detail-table">
+            <CardHeader
+              title="Observation history"
+              description="Every captured occurrence in the selected period."
+              action={<span className="table-total">{pluralize(occurrenceTotal, "observation")}</span>}
+            />
+            <DataTable
+              columns={[
+                { key: "captured", label: "Captured" },
+                { key: "prompt", label: "Prompt" },
+                { key: "merchant", label: "Merchant" },
+                { key: "position", label: "Position" },
+                { key: "price", label: "Price" },
+                { key: "rating", label: "Rating" },
+                { key: "open", label: "" },
+              ]}
+              rows={detail.occurrences.map((occurrence) => ({
+                id: occurrence.id,
+                captured: dateTime(occurrence.capturedAt),
+                prompt: <span className="product-history-prompt">{occurrence.prompt}</span>,
+                merchant: occurrence.merchant ?? "—",
+                position: `#${occurrence.position}`,
+                price: observedPrice(occurrence.price, occurrence.currency) ?? "—",
+                rating: occurrence.rating === null ? "—" : `${occurrence.rating}${occurrence.ratingMaximum ? `/${occurrence.ratingMaximum}` : ""}${occurrence.reviews ? ` · ${compact(occurrence.reviews)}` : ""}`,
+                open: (
+                  <Button asChild variant="secondary">
+                    <Link to={`/prompts/${occurrence.queryId}/snapshots/${occurrence.snapshotId}`}>
+                      View response
+                    </Link>
+                  </Button>
+                ),
+              }))}
+            />
+            {occurrenceTotal > pageSize ? (
+              <div className="table-pagination">
+                <span>{occurrenceOffset + 1}–{Math.min(occurrenceOffset + detail.occurrences.length, occurrenceTotal)} of {occurrenceTotal}</span>
+                <div>
+                  <Button variant="secondary" disabled={occurrenceOffset === 0 || query.isFetching} onClick={() => updateSectionOffset("occurrenceOffset", Math.max(0, occurrenceOffset - pageSize))}><ChevronLeft size={14} /> Previous</Button>
+                  <Button variant="secondary" disabled={!query.data?.page.nextCursor || query.isFetching} onClick={() => updateSectionOffset("occurrenceOffset", occurrenceOffset + pageSize)}>Next <ChevronRight size={14} /></Button>
+                </div>
+              </div>
+            ) : null}
+          </Card>
+        </>
+      ) : (
+        <Card>
+          <EmptyState
+            title="Product unavailable"
+            description="This product has no observations in the selected period."
+          />
+        </Card>
+      )}
     </div>
   );
 }

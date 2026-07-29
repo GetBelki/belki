@@ -2,7 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   billingDateRange,
   buildBillingReport,
+  productAnalyticsDateRange,
   productIdentity,
+  productIdentityFromKey,
+  productKey,
+  summarizeProductPrices,
 } from "../src/worker/lib/reporting";
 
 const base = {
@@ -39,6 +43,86 @@ describe("shopping report product identity", () => {
     expect(productIdentity(base)).toBe(
       "fallback:camera pro|example shop",
     );
+  });
+
+  it("round-trips URL-safe product keys with Unicode fallback values", () => {
+    const product = {
+      ...base,
+      title: "Katzen-Menü für Wählerische",
+      merchants: "Händler & Söhne",
+    };
+    const key = productKey(product);
+    expect(key).toMatch(/^[A-Za-z0-9_-]+$/u);
+    expect(productIdentityFromKey(key)).toBe(productIdentity(product));
+  });
+
+  it("rejects malformed product keys", () => {
+    expect(productIdentityFromKey("not/a/key")).toBeNull();
+  });
+});
+
+describe("product analytics reporting", () => {
+  it.each([
+    ["30d", "2026-06-30"],
+    ["90d", "2026-05-01"],
+    ["365d", "2025-07-30"],
+  ] as const)("builds an inclusive %s range", (period, expectedFrom) => {
+    expect(
+      productAnalyticsDateRange(
+        period,
+        new Date("2026-07-29T18:00:00.000Z"),
+      ),
+    ).toEqual({
+      from: expectedFrom,
+      to: "2026-07-29",
+      startTimestamp: `${expectedFrom}T00:00:00.000Z`,
+      endExclusiveTimestamp: "2026-07-30T00:00:00.000Z",
+    });
+  });
+
+  it("keeps price changes within the latest observed currency", () => {
+    expect(
+      summarizeProductPrices([
+        {
+          captured_at: "2026-07-29T10:00:00.000Z",
+          price: 12,
+          currency: "EUR",
+        },
+        {
+          captured_at: "2026-07-28T10:00:00.000Z",
+          price: 100,
+          currency: "USD",
+        },
+        {
+          captured_at: "2026-07-27T10:00:00.000Z",
+          price: 10,
+          currency: "EUR",
+        },
+      ]),
+    ).toEqual({
+      currency: "EUR",
+      latest: 12,
+      minimum: 10,
+      maximum: 12,
+      change: 2,
+      changePercent: 20,
+    });
+  });
+
+  it("does not invent a price change without an earlier comparable price", () => {
+    expect(
+      summarizeProductPrices([
+        {
+          captured_at: "2026-07-29T10:00:00.000Z",
+          price: 12,
+          currency: "EUR",
+        },
+      ]),
+    ).toMatchObject({
+      latest: 12,
+      change: null,
+      changePercent: null,
+    });
   });
 });
 

@@ -16,6 +16,10 @@ describe("project navigation", () => {
     expect(projectChangeDestination("/citations/reddit.com")).toBe("/citations");
   });
 
+  it("returns to shopping when changing project from a product detail", () => {
+    expect(projectChangeDestination("/shopping/product-key")).toBe("/shopping");
+  });
+
   it.each([
     "/",
     "/prompts",

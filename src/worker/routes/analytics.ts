@@ -15,7 +15,11 @@ import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
 import {
   billingDateRange,
   buildBillingReport,
+  productAnalyticsDateRange,
   productIdentity,
+  productIdentityFromKey,
+  productKey,
+  summarizeProductPrices,
   type BillingDailyRow,
 } from "../lib/reporting";
 
@@ -59,6 +63,15 @@ const BillingQuerySchema = z.object({
   projectId: z.string().uuid(),
   period: z.enum(["30d", "month"]).default("30d"),
 });
+const ShoppingProductParamSchema = z.object({
+  productKey: z.string().trim().min(1).max(4096).regex(/^[A-Za-z0-9_-]+$/u),
+});
+const ShoppingProductDetailSchema = z.object({
+  projectId: z.string().uuid(),
+  period: z.enum(["30d", "90d", "365d"]).default("30d"),
+  offset: z.coerce.number().int().min(0).default(0),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+});
 
 function chunks<T>(values: T[], size = 75): T[][] {
   const output: T[][] = [];
@@ -76,6 +89,12 @@ type ProductSnapshotIndex = {
 type ShoppingProductOccurrence = {
   id: string;
   snapshot_id: string;
+  tracked_query_id: string;
+  keyword: string;
+  location_code: number;
+  language_code: string;
+  ordinal: number;
+  rank_absolute: number | null;
   provider_product_id: string | null;
   merchants: string | null;
   title: string | null;
@@ -87,19 +106,41 @@ type ShoppingProductOccurrence = {
   registrable_domain: string | null;
   rating_value: number | null;
   rating_votes_count: number | null;
+  rating_max: number | null;
   images_json: string;
   product_ids_json: string;
   captured_at: string;
 };
 
+function productIdentitySql(identity?: string): {
+  clause: string;
+  bindings: string[];
+} {
+  if (identity?.startsWith("id:")) {
+    return {
+      clause: " AND p.provider_product_id = ?",
+      bindings: [identity.slice(3)],
+    };
+  }
+  if (identity?.startsWith("url:")) {
+    return {
+      clause: " AND COALESCE(p.canonical_url, p.raw_url) = ?",
+      bindings: [identity.slice(4)],
+    };
+  }
+  return { clause: "", bindings: [] };
+}
+
 async function loadShoppingProductOccurrences(
   env: Env,
   indexes: ProductSnapshotIndex[],
+  identity?: string,
 ): Promise<ShoppingProductOccurrence[]> {
   const grouped = new Map<number, string[]>();
   for (const index of indexes) {
     grouped.set(index.shard_id, [...(grouped.get(index.shard_id) ?? []), index.id]);
   }
+  const identitySql = productIdentitySql(identity);
   return (
     await Promise.all(
       [...grouped.entries()].flatMap(([shardId, ids]) =>
@@ -108,14 +149,16 @@ async function loadShoppingProductOccurrences(
           return (
             await getShard(env, shardId)
               .prepare(
-                `SELECT p.id, p.snapshot_id, p.provider_product_id, p.merchants,
+                `SELECT p.id, p.snapshot_id, s.tracked_query_id, s.keyword,
+                  s.location_code, s.language_code, p.ordinal, p.rank_absolute,
+                  p.provider_product_id, p.merchants,
                   p.title, p.price, p.currency, p.tag, p.raw_url, p.canonical_url,
                   p.registrable_domain, p.rating_value, p.rating_votes_count,
-                  p.images_json, p.product_ids_json, s.captured_at
+                  p.rating_max, p.images_json, p.product_ids_json, s.captured_at
                  FROM snapshot_products p JOIN snapshots s ON s.id = p.snapshot_id
-                 WHERE p.snapshot_id IN (${placeholders})`,
+                 WHERE p.snapshot_id IN (${placeholders})${identitySql.clause}`,
               )
-              .bind(...snapshotIds)
+              .bind(...snapshotIds, ...identitySql.bindings)
               .all<ShoppingProductOccurrence>()
           ).results;
         }),
@@ -129,6 +172,7 @@ function serializedShoppingProduct(
 ) {
   return {
     ...product,
+    productKey: productKey(product),
     images: jsonParse<string[]>(product.images_json, []),
     product_ids: jsonParse<unknown[]>(product.product_ids_json, []),
     latestSeen: product.captured_at,
@@ -883,6 +927,417 @@ analyticsRoutes.get(
             ? String(input.offset + page.length)
             : null,
         total: sortedProducts.length,
+      },
+    });
+  },
+);
+
+analyticsRoutes.get(
+  "/analytics/shopping/:productKey",
+  zValidator("param", ShoppingProductParamSchema),
+  zValidator("query", ShoppingProductDetailSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const { productKey: routeProductKey } = c.req.valid("param");
+    const input = c.req.valid("query");
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    const identity = productIdentityFromKey(routeProductKey);
+    if (!identity) {
+      throw new ApiError(404, "product_not_found", "Product not found.");
+    }
+    const dates = productAnalyticsDateRange(input.period);
+    const [indexes, projectMetrics] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `SELECT id, shard_id FROM snapshot_index
+         WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
+           AND products_count > 0
+         ORDER BY captured_at DESC`,
+      )
+        .bind(input.projectId, dates.startTimestamp, dates.endExclusiveTimestamp)
+        .all<ProductSnapshotIndex>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT metric_date, completed_runs
+         FROM daily_project_metrics
+         WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+         ORDER BY metric_date`,
+      )
+        .bind(input.projectId, dates.from, dates.to)
+        .all<{ metric_date: string; completed_runs: number }>(),
+    ]);
+    const occurrences = (
+      await loadShoppingProductOccurrences(c.env, indexes.results, identity)
+    )
+      .filter((occurrence) => productIdentity(occurrence) === identity)
+      .sort(
+        (left, right) =>
+          right.captured_at.localeCompare(left.captured_at) ||
+          right.id.localeCompare(left.id),
+      );
+    if (!occurrences.length) {
+      throw new ApiError(
+        404,
+        "product_not_found",
+        "This product has no observations in the selected period.",
+      );
+    }
+
+    const completedByDate = new Map(
+      projectMetrics.results.map((metric) => [
+        metric.metric_date,
+        Number(metric.completed_runs) || 0,
+      ]),
+    );
+    const completedRuns = [...completedByDate.values()].reduce(
+      (total, value) => total + value,
+      0,
+    );
+    const appearingSnapshots = new Set(
+      occurrences.map((occurrence) => occurrence.snapshot_id),
+    );
+    const promptIds = new Set(
+      occurrences.map((occurrence) => occurrence.tracked_query_id),
+    );
+    const merchantLabels = new Set(
+      occurrences
+        .map(
+          (occurrence) =>
+            occurrence.merchants ?? occurrence.registrable_domain,
+        )
+        .filter((value): value is string => Boolean(value)),
+    );
+    const positions = occurrences
+      .map((occurrence) => occurrence.ordinal + 1)
+      .filter((position) => Number.isFinite(position));
+    const latest = occurrences[0]!;
+    const priceSummary = summarizeProductPrices(occurrences);
+    const latestRatingOccurrence = occurrences.find(
+      (occurrence) =>
+        occurrence.rating_value !== null ||
+        occurrence.rating_votes_count !== null,
+    );
+    const earliestRatingOccurrence = latestRatingOccurrence
+      ? [...occurrences]
+          .reverse()
+          .find(
+            (occurrence) =>
+              occurrence.rating_value !== null ||
+              occurrence.rating_votes_count !== null,
+          )
+      : undefined;
+    const hasEarlierRating =
+      latestRatingOccurrence !== undefined &&
+      earliestRatingOccurrence !== undefined &&
+      latestRatingOccurrence.id !== earliestRatingOccurrence.id;
+    const ratingSummary = latestRatingOccurrence
+      ? {
+          value: latestRatingOccurrence.rating_value,
+          maximum: latestRatingOccurrence.rating_max,
+          reviews: latestRatingOccurrence.rating_votes_count,
+          reviewChange:
+            hasEarlierRating &&
+            latestRatingOccurrence.rating_votes_count !== null &&
+            earliestRatingOccurrence?.rating_votes_count !== null &&
+            earliestRatingOccurrence?.rating_votes_count !== undefined
+              ? latestRatingOccurrence.rating_votes_count -
+                earliestRatingOccurrence.rating_votes_count
+              : null,
+          ratingChange:
+            hasEarlierRating &&
+            latestRatingOccurrence.rating_value !== null &&
+            earliestRatingOccurrence?.rating_value !== null &&
+            earliestRatingOccurrence?.rating_value !== undefined &&
+            latestRatingOccurrence.rating_max ===
+              earliestRatingOccurrence.rating_max
+              ? latestRatingOccurrence.rating_value -
+                earliestRatingOccurrence.rating_value
+              : null,
+        }
+      : null;
+
+    const dailyOccurrences = new Map<string, ShoppingProductOccurrence[]>();
+    for (const occurrence of occurrences) {
+      const date = occurrence.captured_at.slice(0, 10);
+      dailyOccurrences.set(date, [
+        ...(dailyOccurrences.get(date) ?? []),
+        occurrence,
+      ]);
+    }
+    const visibilityTrend: Array<{
+      date: string;
+      completedRuns: number;
+      appearingCaptures: number;
+      appearances: number;
+      appearanceRate: number;
+      averagePosition: number | null;
+    }> = [];
+    const priceTrend: Array<{
+      date: string;
+      currency: string | null;
+      latest: number;
+      minimum: number;
+      maximum: number;
+    }> = [];
+    const reviewTrend: Array<{
+      date: string;
+      rating: number | null;
+      ratingMaximum: number | null;
+      reviews: number | null;
+    }> = [];
+    const dateCursor = new Date(`${dates.from}T00:00:00.000Z`);
+    const dateEnd = new Date(`${dates.to}T00:00:00.000Z`);
+    while (dateCursor <= dateEnd) {
+      const date = dateCursor.toISOString().slice(0, 10);
+      const day = (dailyOccurrences.get(date) ?? []).sort((left, right) =>
+        right.captured_at.localeCompare(left.captured_at),
+      );
+      const dayCaptures = new Set(
+        day.map((occurrence) => occurrence.snapshot_id),
+      ).size;
+      const dayPositions = day.map((occurrence) => occurrence.ordinal + 1);
+      const dayCompletedRuns = completedByDate.get(date) ?? 0;
+      visibilityTrend.push({
+        date,
+        completedRuns: dayCompletedRuns,
+        appearingCaptures: dayCaptures,
+        appearances: day.length,
+        appearanceRate: dayCompletedRuns
+          ? (dayCaptures / dayCompletedRuns) * 100
+          : 0,
+        averagePosition: dayPositions.length
+          ? dayPositions.reduce((sum, value) => sum + value, 0) /
+            dayPositions.length
+          : null,
+      });
+      const pricesByCurrency = new Map<
+        string,
+        ShoppingProductOccurrence[]
+      >();
+      for (const occurrence of day) {
+        if (occurrence.price === null) continue;
+        const currency = occurrence.currency ?? "";
+        pricesByCurrency.set(currency, [
+          ...(pricesByCurrency.get(currency) ?? []),
+          occurrence,
+        ]);
+      }
+      for (const [currency, priceOccurrences] of pricesByCurrency) {
+        const values = priceOccurrences.map(
+          (occurrence) => occurrence.price ?? 0,
+        );
+        priceTrend.push({
+          date,
+          currency: currency || null,
+          latest: priceOccurrences[0]!.price ?? 0,
+          minimum: Math.min(...values),
+          maximum: Math.max(...values),
+        });
+      }
+      const dailyRating = day.find(
+        (occurrence) =>
+          occurrence.rating_value !== null ||
+          occurrence.rating_votes_count !== null,
+      );
+      if (dailyRating) {
+        reviewTrend.push({
+          date,
+          rating: dailyRating.rating_value,
+          ratingMaximum: dailyRating.rating_max,
+          reviews: dailyRating.rating_votes_count,
+        });
+      }
+      dateCursor.setUTCDate(dateCursor.getUTCDate() + 1);
+    }
+
+    const promptMap = new Map<
+      string,
+      {
+        queryId: string;
+        prompt: string;
+        locationCode: number;
+        languageCode: string;
+        appearances: number;
+        snapshotIds: Set<string>;
+        latestSeen: string;
+        latestSnapshotId: string;
+        latestPosition: number;
+        latestPrice: number | null;
+        latestCurrency: string | null;
+      }
+    >();
+    for (const occurrence of occurrences) {
+      const existing = promptMap.get(occurrence.tracked_query_id);
+      if (existing) {
+        existing.appearances += 1;
+        existing.snapshotIds.add(occurrence.snapshot_id);
+        continue;
+      }
+      promptMap.set(occurrence.tracked_query_id, {
+        queryId: occurrence.tracked_query_id,
+        prompt: occurrence.keyword,
+        locationCode: occurrence.location_code,
+        languageCode: occurrence.language_code,
+        appearances: 1,
+        snapshotIds: new Set([occurrence.snapshot_id]),
+        latestSeen: occurrence.captured_at,
+        latestSnapshotId: occurrence.snapshot_id,
+        latestPosition: occurrence.ordinal + 1,
+        latestPrice: occurrence.price,
+        latestCurrency: occurrence.currency,
+      });
+    }
+    const prompts = [...promptMap.values()]
+      .map(({ snapshotIds, ...prompt }) => ({
+        ...prompt,
+        captures: snapshotIds.size,
+      }))
+      .sort(
+        (left, right) =>
+          right.appearances - left.appearances ||
+          right.latestSeen.localeCompare(left.latestSeen),
+      );
+
+    const merchantMap = new Map<
+      string,
+      {
+        merchant: string;
+        appearances: number;
+        latestSeen: string;
+        latestRating: number | null;
+        latestReviews: number | null;
+        prices: Map<
+          string,
+          { currency: string | null; latest: number; minimum: number; maximum: number }
+        >;
+      }
+    >();
+    for (const occurrence of occurrences) {
+      const merchant =
+        occurrence.merchants ??
+        occurrence.registrable_domain ??
+        "Merchant unavailable";
+      const existing = merchantMap.get(merchant);
+      const priceKey = occurrence.currency ?? "";
+      if (!existing) {
+        const prices = new Map<
+          string,
+          { currency: string | null; latest: number; minimum: number; maximum: number }
+        >();
+        if (occurrence.price !== null) {
+          prices.set(priceKey, {
+            currency: occurrence.currency,
+            latest: occurrence.price,
+            minimum: occurrence.price,
+            maximum: occurrence.price,
+          });
+        }
+        merchantMap.set(merchant, {
+          merchant,
+          appearances: 1,
+          latestSeen: occurrence.captured_at,
+          latestRating: occurrence.rating_value,
+          latestReviews: occurrence.rating_votes_count,
+          prices,
+        });
+        continue;
+      }
+      existing.appearances += 1;
+      if (
+        existing.latestRating === null &&
+        occurrence.rating_value !== null
+      ) {
+        existing.latestRating = occurrence.rating_value;
+      }
+      if (
+        existing.latestReviews === null &&
+        occurrence.rating_votes_count !== null
+      ) {
+        existing.latestReviews = occurrence.rating_votes_count;
+      }
+      if (occurrence.price !== null) {
+        const price = existing.prices.get(priceKey);
+        if (price) {
+          price.minimum = Math.min(price.minimum, occurrence.price);
+          price.maximum = Math.max(price.maximum, occurrence.price);
+        } else {
+          existing.prices.set(priceKey, {
+            currency: occurrence.currency,
+            latest: occurrence.price,
+            minimum: occurrence.price,
+            maximum: occurrence.price,
+          });
+        }
+      }
+    }
+    const merchants = [...merchantMap.values()]
+      .map(({ prices, ...merchant }) => ({
+        ...merchant,
+        prices: [...prices.values()],
+      }))
+      .sort(
+        (left, right) =>
+          right.appearances - left.appearances ||
+          right.latestSeen.localeCompare(left.latestSeen),
+      );
+
+    const occurrencePage = occurrences.slice(
+      input.offset,
+      input.offset + input.limit,
+    );
+    return c.json({
+      data: {
+        product: serializedShoppingProduct(latest),
+        range: { from: dates.from, to: dates.to, period: input.period },
+        summary: {
+          completedRuns,
+          appearingCaptures: appearingSnapshots.size,
+          appearanceRate: completedRuns
+            ? (appearingSnapshots.size / completedRuns) * 100
+            : 0,
+          appearances: occurrences.length,
+          prompts: promptIds.size,
+          merchants: merchantLabels.size,
+          firstSeen: occurrences.at(-1)?.captured_at ?? latest.captured_at,
+          latestSeen: latest.captured_at,
+          latestPosition: latest.ordinal + 1,
+          averagePosition: positions.length
+            ? positions.reduce((sum, value) => sum + value, 0) /
+              positions.length
+            : null,
+          price: priceSummary,
+          rating: ratingSummary,
+        },
+        visibilityTrend,
+        priceTrend,
+        reviewTrend,
+        prompts,
+        merchants,
+        occurrences: occurrencePage.map((occurrence) => ({
+          id: occurrence.id,
+          snapshotId: occurrence.snapshot_id,
+          queryId: occurrence.tracked_query_id,
+          prompt: occurrence.keyword,
+          locationCode: occurrence.location_code,
+          languageCode: occurrence.language_code,
+          capturedAt: occurrence.captured_at,
+          merchant:
+            occurrence.merchants ??
+            occurrence.registrable_domain ??
+            null,
+          position: occurrence.ordinal + 1,
+          rankAbsolute: occurrence.rank_absolute,
+          price: occurrence.price,
+          currency: occurrence.currency,
+          rating: occurrence.rating_value,
+          ratingMaximum: occurrence.rating_max,
+          reviews: occurrence.rating_votes_count,
+        })),
+      },
+      page: {
+        nextCursor:
+          input.offset + occurrencePage.length < occurrences.length
+            ? String(input.offset + occurrencePage.length)
+            : null,
+        total: occurrences.length,
       },
     });
   },

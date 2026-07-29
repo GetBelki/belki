@@ -2133,6 +2133,115 @@ a.evidence-source:hover strong {
   font-size: 11px;
 }
 
+.product-analytics-title {
+  align-items: center;
+  display: inline-flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+.product-analytics-title > span:last-child {
+  overflow-wrap: anywhere;
+}
+
+.product-analytics-title-image {
+  align-items: center;
+  background: #fff;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  color: #71717a;
+  display: flex;
+  flex: 0 0 auto;
+  height: 48px;
+  justify-content: center;
+  overflow: hidden;
+  width: 48px;
+}
+
+.product-analytics-title-image img {
+  height: 100%;
+  object-fit: contain;
+  padding: 4px;
+  width: 100%;
+}
+
+.product-analytics-header-actions {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
+.product-period-toggle {
+  align-items: center;
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+}
+
+.product-period-toggle .button {
+  border: 0;
+  min-height: 29px;
+  padding: 5px 9px;
+}
+
+.product-analytics-charts {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.product-chart-card {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.product-chart,
+.product-chart-skeleton {
+  height: 250px;
+  min-width: 0;
+}
+
+.product-chart {
+  padding: 2px 12px 14px 2px;
+}
+
+.product-chart .empty-state {
+  min-height: 100%;
+}
+
+.product-detail-table {
+  margin-bottom: 16px;
+  overflow: hidden;
+}
+
+.product-detail-table:last-child {
+  margin-bottom: 0;
+}
+
+.product-history-prompt {
+  display: block;
+  max-width: 420px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1120px) {
+  .product-analytics-charts {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .product-analytics-charts > :last-child {
+    grid-column: 1 / -1;
+  }
+}
+
 .source-url-cell span {
   color: #71717a;
   font-size: 9px;
@@ -2723,6 +2832,34 @@ a.evidence-source:hover strong {
   .source-row-chevron {
     opacity: .55;
     transform: none;
+  }
+
+  .product-analytics-header-actions {
+    align-items: stretch;
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .product-period-toggle {
+    display: flex;
+    width: 100%;
+  }
+
+  .product-period-toggle .button {
+    flex: 1;
+  }
+
+  .product-analytics-header-actions > .button {
+    width: 100%;
+  }
+
+  .product-analytics-charts {
+    grid-template-columns: 1fr;
+  }
+
+  .product-chart,
+  .product-chart-skeleton {
+    height: 240px;
   }
 
   .chart {
