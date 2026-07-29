@@ -5,6 +5,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  ReceiptText,
   ShoppingBag,
   Search,
   Settings,
@@ -78,12 +79,20 @@ export function AppLayout() {
           ))}
           <p>Manage</p>
           {session.user.role === "owner" || session.user.role === "admin" ? (
-            <NavLink
-              to="/users"
-              className={({ isActive }) => cn("nav-item", isActive && "active")}
-            >
-              <Users size={17} /> <span>Users</span>
-            </NavLink>
+            <>
+              <NavLink
+                to="/users"
+                className={({ isActive }) => cn("nav-item", isActive && "active")}
+              >
+                <Users size={17} /> <span>Users</span>
+              </NavLink>
+              <NavLink
+                to="/billing"
+                className={({ isActive }) => cn("nav-item", isActive && "active")}
+              >
+                <ReceiptText size={17} /> <span>Billing</span>
+              </NavLink>
+            </>
           ) : null}
           <NavLink
             to="/settings"

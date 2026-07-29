@@ -7,11 +7,17 @@ import {
   extractTaskHtml,
   sanitizeCapturedHtmlResponse,
 } from "../lib/dataforseo-html";
+import { requireRole } from "../lib/auth";
 import { matchedBrandTerms } from "../lib/domain";
 import { evidenceResponseHeaders } from "../lib/evidence";
 import { getShard } from "../lib/shards";
 import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
-import { productIdentity } from "../lib/reporting";
+import {
+  billingDateRange,
+  buildBillingReport,
+  productIdentity,
+  type BillingDailyRow,
+} from "../lib/reporting";
 
 const DateRangeSchema = z.object({
   projectId: z.string().uuid(),
@@ -37,6 +43,10 @@ const PromptAnalyticsSchema = z.object({
   languageCode: z.string().trim().max(12).optional(),
   cursor: z.string().optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
+});
+const BillingQuerySchema = z.object({
+  projectId: z.string().uuid(),
+  period: z.enum(["30d", "month"]).default("30d"),
 });
 
 function chunks<T>(values: T[], size = 75): T[][] {
@@ -135,6 +145,46 @@ async function assertProjectAccess(
 }
 
 export const analyticsRoutes = new Hono<AppEnv>();
+
+analyticsRoutes.get(
+  "/analytics/billing",
+  zValidator("query", BillingQuerySchema),
+  async (c) => {
+    const principal = requireRole(c, "admin");
+    const input = c.req.valid("query");
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    const dates = billingDateRange(input.period);
+    const rows = await c.env.CONTROL_DB.prepare(
+      `SELECT
+        substr(COALESCE(submitted_at, created_at), 1, 10) AS metric_date,
+        COUNT(*) AS charged_runs,
+        COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
+       FROM crawl_jobs
+       WHERE project_id = ?
+         AND workspace_id = ?
+         AND request_cost_usd IS NOT NULL
+         AND request_cost_usd > 0
+         AND COALESCE(submitted_at, created_at) >= ?
+         AND COALESCE(submitted_at, created_at) < ?
+       GROUP BY metric_date
+       ORDER BY metric_date`,
+    )
+      .bind(
+        input.projectId,
+        principal.workspaceId,
+        dates.startTimestamp,
+        dates.endExclusiveTimestamp,
+      )
+      .all<BillingDailyRow>();
+    return c.json({
+      data: {
+        period: input.period,
+        currency: "USD",
+        ...buildBillingReport(rows.results, dates),
+      },
+    });
+  },
+);
 
 analyticsRoutes.get(
   "/analytics/overview",

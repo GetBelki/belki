@@ -2573,7 +2573,140 @@ a.evidence-source:hover strong {
   white-space: nowrap;
 }
 
+.billing-period-toggle {
+  align-items: center;
+  background: #f4f4f5;
+  border: 1px solid #e4e4e7;
+  border-radius: 6px;
+  display: inline-flex;
+  padding: 2px;
+}
+
+.billing-period-toggle button {
+  background: transparent;
+  border: 0;
+  border-radius: 4px;
+  color: #52525b;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 550;
+  min-height: 29px;
+  padding: 5px 10px;
+}
+
+.billing-period-toggle button:hover {
+  color: #18181b;
+}
+
+.billing-period-toggle button.active {
+  background: #ffffff;
+  box-shadow: 0 0 0 1px #d4d4d8;
+  color: #18181b;
+}
+
+.billing-summary-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 16px;
+}
+
+.billing-metric {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  padding: 16px;
+}
+
+.billing-metric-icon {
+  align-items: center;
+  background: #f4f4f5;
+  border-radius: 6px;
+  color: #52525b;
+  display: flex;
+  flex: 0 0 auto;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+.billing-metric-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.billing-metric-copy small,
+.billing-metric-copy > span {
+  color: #71717a;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.billing-metric-copy small {
+  font-size: 10px;
+}
+
+.billing-metric-copy strong {
+  color: #18181b;
+  font-size: 19px;
+  letter-spacing: -.025em;
+  line-height: 25px;
+}
+
+.billing-metric-copy > span {
+  font-size: 9px;
+}
+
+.billing-metric-skeleton {
+  height: 86px;
+}
+
+.billing-chart-card {
+  overflow: hidden;
+}
+
+.billing-chart,
+.billing-chart-skeleton {
+  height: 340px;
+  min-width: 0;
+}
+
+.billing-chart {
+  padding: 2px 18px 18px 8px;
+}
+
+.billing-chart-skeleton {
+  width: 100%;
+}
+
 @media (max-width: 760px) {
+  .billing-summary-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .billing-period-toggle {
+    display: flex;
+    width: 100%;
+  }
+
+  .billing-period-toggle button {
+    flex: 1;
+  }
+
+  .billing-chart,
+  .billing-chart-skeleton {
+    height: 260px;
+  }
+
+  .billing-chart {
+    padding-left: 0;
+    padding-right: 8px;
+  }
+
   .source-summary-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -2610,6 +2743,10 @@ a.evidence-source:hover strong {
 }
 
 @media (max-width: 420px) {
+  .billing-summary-grid {
+    grid-template-columns: 1fr;
+  }
+
   .recent-products-list {
     padding-left: 16px;
     padding-right: 16px;

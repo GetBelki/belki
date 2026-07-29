@@ -52,6 +52,7 @@ const ExportsPage = lazy(() =>
 const UsersPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.UsersPage })),
 );
+const BillingPage = lazy(() => import("./pages/billing"));
 const SettingsPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.SettingsPage })),
 );
@@ -111,6 +112,7 @@ export function App() {
             <Route path="/alerts" element={<AlertsPage />} />
             <Route path="/exports" element={<ExportsPage />} />
             <Route path="/users" element={<UsersPage />} />
+            <Route path="/billing" element={<BillingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
