@@ -237,6 +237,7 @@ interface CitationSourceDetail {
     citedSnapshots: number;
     totalCitations: number;
     totalUrls: number;
+    totalPrompts: number;
     citationRate: number;
   };
   trend: Array<{
@@ -245,6 +246,17 @@ interface CitationSourceDetail {
     citedSnapshots: number;
     citationCount: number;
     citationRate: number;
+  }>;
+  prompts: Array<{
+    queryId: string;
+    prompt: string;
+    locationCode: number;
+    languageCode: string;
+    citationCount: number;
+    citedSnapshots: number;
+    citedUrls: number;
+    latestSnapshotId: string;
+    lastCitedAt: string;
   }>;
   urls: Array<{
     url: string;
@@ -273,7 +285,13 @@ export function CitationSourceDetailPage() {
   const pageSize = 10;
   const pageKey = `${projectId ?? ""}:${domain}`;
   const [pagination, setPagination] = useState({ pageKey, offset: 0 });
+  const [promptPagination, setPromptPagination] = useState({
+    pageKey,
+    offset: 0,
+  });
   const offset = pagination.pageKey === pageKey ? pagination.offset : 0;
+  const promptOffset =
+    promptPagination.pageKey === pageKey ? promptPagination.offset : 0;
   const query = useQuery({
     queryKey: ["citation-source", projectId, domain, offset],
     queryFn: () =>
@@ -287,6 +305,8 @@ export function CitationSourceDetailPage() {
   const total = query.data?.page.total ?? 0;
   const firstItem = total ? offset + 1 : 0;
   const lastItem = Math.min(offset + (detail?.urls.length ?? 0), total);
+  const promptRows =
+    detail?.prompts.slice(promptOffset, promptOffset + pageSize) ?? [];
 
   return (
     <div className="page citation-source-detail-page">
@@ -301,7 +321,7 @@ export function CitationSourceDetailPage() {
             <span>{domain || "Citation source"}</span>
           </span>
         }
-        description="Citation performance, trend, and cited pages for this source."
+        description="Citation performance, trend, citing prompts, and cited pages for this source."
       />
       {query.isPending ? (
         <>
@@ -411,6 +431,110 @@ export function CitationSourceDetailPage() {
                 />
               )}
             </div>
+          </Card>
+
+          <Card className="product-detail-table">
+            <CardHeader
+              title="Prompts citing this source"
+              description="Tracked prompts whose captured answers explicitly cited this domain."
+              action={
+                detail.summary.totalPrompts ? (
+                  <span className="table-total">
+                    {pluralize(detail.summary.totalPrompts, "prompt")}
+                  </span>
+                ) : undefined
+              }
+            />
+            {promptRows.length ? (
+              <>
+                <DataTable
+                  columns={[
+                    { key: "prompt", label: "Prompt" },
+                    { key: "country", label: "Country" },
+                    { key: "citations", label: "Citations" },
+                    { key: "captures", label: "Cited captures" },
+                    { key: "urls", label: "Cited URLs" },
+                    { key: "lastCited", label: "Last cited" },
+                    { key: "open", label: "" },
+                  ]}
+                  rows={promptRows.map((prompt) => {
+                    const responsePath = `/prompts/${prompt.queryId}/snapshots/${prompt.latestSnapshotId}`;
+                    return {
+                      id: prompt.queryId,
+                      prompt: (
+                        <Link className="product-prompt-link" to={responsePath}>
+                          {prompt.prompt}
+                        </Link>
+                      ),
+                      country: (
+                        <CountryFlag
+                          languageCode={prompt.languageCode}
+                          locationCode={prompt.locationCode}
+                        />
+                      ),
+                      citations: <strong>{compact(prompt.citationCount)}</strong>,
+                      captures: compact(prompt.citedSnapshots),
+                      urls: compact(prompt.citedUrls),
+                      lastCited: dateTime(prompt.lastCitedAt),
+                      open: (
+                        <Button
+                          asChild
+                          className="product-response-button"
+                          variant="secondary"
+                        >
+                          <Link to={responsePath}>View response</Link>
+                        </Button>
+                      ),
+                    };
+                  })}
+                />
+                {detail.prompts.length > pageSize ? (
+                  <div className="table-pagination">
+                    <span>
+                      {promptOffset + 1}–
+                      {Math.min(
+                        promptOffset + promptRows.length,
+                        detail.prompts.length,
+                      )}{" "}
+                      of {detail.prompts.length}
+                    </span>
+                    <div>
+                      <Button
+                        variant="secondary"
+                        disabled={promptOffset === 0}
+                        onClick={() =>
+                          setPromptPagination({
+                            pageKey,
+                            offset: Math.max(0, promptOffset - pageSize),
+                          })
+                        }
+                      >
+                        <ChevronLeft size={14} /> Previous
+                      </Button>
+                      <Button
+                        variant="secondary"
+                        disabled={
+                          promptOffset + pageSize >= detail.prompts.length
+                        }
+                        onClick={() =>
+                          setPromptPagination({
+                            pageKey,
+                            offset: promptOffset + pageSize,
+                          })
+                        }
+                      >
+                        Next <ChevronRight size={14} />
+                      </Button>
+                    </div>
+                  </div>
+                ) : null}
+              </>
+            ) : (
+              <EmptyState
+                title="No citing prompts"
+                description="Prompts will appear here after a captured answer cites this source."
+              />
+            )}
           </Card>
 
           <Card>

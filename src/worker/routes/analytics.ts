@@ -772,27 +772,31 @@ analyticsRoutes.get(
               await getShard(c.env, shardId)
                 .prepare(
                   `SELECT
+                    c.snapshot_id,
+                    s.tracked_query_id,
+                    s.keyword,
+                    s.location_code,
+                    s.language_code,
                     COALESCE(c.canonical_url, c.raw_url) AS url,
-                    MAX(c.title) AS title,
-                    MAX(c.source_name) AS source_name,
-                    COUNT(*) AS citation_count,
-                    COUNT(DISTINCT c.snapshot_id) AS cited_snapshots,
-                    MAX(s.captured_at) AS last_cited_at
+                    c.title,
+                    c.source_name,
+                    s.captured_at
                    FROM snapshot_sources c
                    JOIN snapshots s ON s.id = c.snapshot_id
                    WHERE c.snapshot_id IN (${placeholders})
-                     AND c.registrable_domain = ?
-                     AND (c.canonical_url IS NOT NULL OR c.raw_url IS NOT NULL)
-                   GROUP BY COALESCE(c.canonical_url, c.raw_url)`,
+                     AND c.registrable_domain = ?`,
                 )
                 .bind(...snapshotIds, domain)
                 .all<{
-                  url: string;
+                  snapshot_id: string;
+                  tracked_query_id: string;
+                  keyword: string;
+                  location_code: number;
+                  language_code: string;
+                  url: string | null;
                   title: string | null;
                   source_name: string | null;
-                  citation_count: number;
-                  cited_snapshots: number;
-                  last_cited_at: string;
+                  captured_at: string;
                 }>()
             ).results;
           }),
@@ -806,17 +810,18 @@ analyticsRoutes.get(
         title: string | null;
         sourceName: string | null;
         citationCount: number;
-        citedSnapshots: number;
+        snapshotIds: Set<string>;
         lastCitedAt: string;
       }
     >();
     for (const source of sourceOccurrences) {
+      if (!source.url) continue;
       const existing = urls.get(source.url);
       if (existing) {
-        existing.citationCount += source.citation_count;
-        existing.citedSnapshots += source.cited_snapshots;
-        if (source.last_cited_at > existing.lastCitedAt) {
-          existing.lastCitedAt = source.last_cited_at;
+        existing.citationCount += 1;
+        existing.snapshotIds.add(source.snapshot_id);
+        if (source.captured_at > existing.lastCitedAt) {
+          existing.lastCitedAt = source.captured_at;
           existing.title = source.title ?? existing.title;
           existing.sourceName = source.source_name ?? existing.sourceName;
         }
@@ -825,19 +830,73 @@ analyticsRoutes.get(
           url: source.url,
           title: source.title,
           sourceName: source.source_name,
-          citationCount: source.citation_count,
-          citedSnapshots: source.cited_snapshots,
-          lastCitedAt: source.last_cited_at,
+          citationCount: 1,
+          snapshotIds: new Set([source.snapshot_id]),
+          lastCitedAt: source.captured_at,
         });
       }
     }
+    const promptMap = new Map<
+      string,
+      {
+        queryId: string;
+        prompt: string;
+        locationCode: number;
+        languageCode: string;
+        citationCount: number;
+        snapshotIds: Set<string>;
+        urls: Set<string>;
+        latestSnapshotId: string;
+        lastCitedAt: string;
+      }
+    >();
+    for (const source of sourceOccurrences) {
+      const existing = promptMap.get(source.tracked_query_id);
+      if (existing) {
+        existing.citationCount += 1;
+        existing.snapshotIds.add(source.snapshot_id);
+        if (source.url) existing.urls.add(source.url);
+        if (source.captured_at > existing.lastCitedAt) {
+          existing.latestSnapshotId = source.snapshot_id;
+          existing.lastCitedAt = source.captured_at;
+          existing.prompt = source.keyword;
+          existing.locationCode = source.location_code;
+          existing.languageCode = source.language_code;
+        }
+        continue;
+      }
+      promptMap.set(source.tracked_query_id, {
+        queryId: source.tracked_query_id,
+        prompt: source.keyword,
+        locationCode: source.location_code,
+        languageCode: source.language_code,
+        citationCount: 1,
+        snapshotIds: new Set([source.snapshot_id]),
+        urls: new Set(source.url ? [source.url] : []),
+        latestSnapshotId: source.snapshot_id,
+        lastCitedAt: source.captured_at,
+      });
+    }
+    const prompts = [...promptMap.values()]
+      .map(({ snapshotIds, urls: citedUrls, ...prompt }) => ({
+        ...prompt,
+        citedSnapshots: snapshotIds.size,
+        citedUrls: citedUrls.size,
+      }))
+      .sort(
+        (left, right) =>
+          right.citationCount - left.citationCount ||
+          right.citedSnapshots - left.citedSnapshots ||
+          right.lastCitedAt.localeCompare(left.lastCitedAt) ||
+          left.prompt.localeCompare(right.prompt),
+      );
     const rankedUrls = [...urls.values()]
-      .map((source) => ({
+      .map(({ snapshotIds, ...source }) => ({
         url: source.url,
         title: source.title,
         sourceName: source.sourceName,
         citationCount: source.citationCount,
-        citedSnapshots: source.citedSnapshots,
+        citedSnapshots: snapshotIds.size,
         lastCitedAt: source.lastCitedAt,
       }))
       .sort(
@@ -861,6 +920,7 @@ analyticsRoutes.get(
         summary: {
           ...totals,
           totalUrls: rankedUrls.length,
+          totalPrompts: prompts.length,
           citationRate: totals.completedRuns
             ? (totals.citedSnapshots / totals.completedRuns) * 100
             : 0,
@@ -874,6 +934,7 @@ analyticsRoutes.get(
             ? (point.cited_snapshot_count / point.completed_runs) * 100
             : 0,
         })),
+        prompts,
         urls: page,
       },
       page: {
