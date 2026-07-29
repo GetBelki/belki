@@ -68,7 +68,7 @@ const ShoppingProductParamSchema = z.object({
 });
 const ShoppingProductDetailSchema = z.object({
   projectId: z.string().uuid(),
-  period: z.enum(["30d", "90d", "365d"]).default("30d"),
+  period: z.enum(["7d", "30d", "90d", "365d"]).default("30d"),
   offset: z.coerce.number().int().min(0).default(0),
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });

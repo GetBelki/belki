@@ -43,13 +43,14 @@ export function productIdentityFromKey(key: string): string | null {
   }
 }
 
-export type ProductAnalyticsPeriod = "30d" | "90d" | "365d";
+export type ProductAnalyticsPeriod = "7d" | "30d" | "90d" | "365d";
 
 export function productAnalyticsDateRange(
   period: ProductAnalyticsPeriod,
   now = new Date(),
 ): BillingDateRange {
-  const days = period === "365d" ? 365 : period === "90d" ? 90 : 30;
+  const days =
+    period === "365d" ? 365 : period === "90d" ? 90 : period === "7d" ? 7 : 30;
   const today = utcDate(now);
   const start = new Date(today.getTime() - (days - 1) * 86_400_000);
   const endExclusive = new Date(today.getTime() + 86_400_000);

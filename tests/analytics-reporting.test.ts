@@ -63,6 +63,7 @@ describe("shopping report product identity", () => {
 
 describe("product analytics reporting", () => {
   it.each([
+    ["7d", "2026-07-23"],
     ["30d", "2026-06-30"],
     ["90d", "2026-05-01"],
     ["365d", "2025-07-30"],

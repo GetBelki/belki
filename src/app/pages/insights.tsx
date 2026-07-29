@@ -716,7 +716,7 @@ interface ProductAnalyticsDetail {
   range: {
     from: string;
     to: string;
-    period: "30d" | "90d" | "365d";
+    period: "7d" | "30d" | "90d" | "365d";
   };
   summary: {
     completedRuns: number;
@@ -845,7 +845,8 @@ export function ProductAnalyticsPage() {
   const { projectId } = useApp();
   const { productKey: routeProductKey = "" } = useParams();
   const productKey = routeProductKey.trim();
-  const [period, setPeriod] = useState<"30d" | "90d" | "365d">("30d");
+  const [period, setPeriod] =
+    useState<"7d" | "30d" | "90d" | "365d">("30d");
   const pageSize = 10;
   const pageScope = `${projectId ?? ""}:${productKey}:${period}`;
   const [pagination, setPagination] = useState({
@@ -920,7 +921,7 @@ export function ProductAnalyticsPage() {
         <ArrowLeft size={14} /> Shopping
       </Link>
       <PageHeader
-        eyebrow={`Last ${period === "365d" ? "365" : period === "90d" ? "90" : "30"} days`}
+        eyebrow={`Last ${period.replace("d", "")} days`}
         title={
           <span className="product-analytics-title">
             <span className="product-analytics-title-image">
@@ -947,7 +948,7 @@ export function ProductAnalyticsPage() {
               aria-label="Report period"
             >
               <span className="product-period-indicator" aria-hidden="true" />
-              {(["30d", "90d", "365d"] as const).map((value) => (
+              {(["7d", "30d", "90d", "365d"] as const).map((value) => (
                 <button
                   aria-pressed={period === value}
                   className={period === value ? "active" : undefined}

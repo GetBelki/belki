@@ -1182,7 +1182,7 @@ tbody tr:hover {
 }
 
 .query-summary-strip {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
 }
 
 .evidence-stats {
@@ -2193,15 +2193,19 @@ a.evidence-source:hover strong {
   top: 2px;
   transform: translateX(0);
   transition: transform 220ms cubic-bezier(.22, 1, .36, 1);
-  width: calc((100% - 4px) / 3);
+  width: calc((100% - 4px) / 4);
 }
 
-.product-period-toggle[data-period="90d"] .product-period-indicator {
+.product-period-toggle[data-period="30d"] .product-period-indicator {
   transform: translateX(100%);
 }
 
-.product-period-toggle[data-period="365d"] .product-period-indicator {
+.product-period-toggle[data-period="90d"] .product-period-indicator {
   transform: translateX(200%);
+}
+
+.product-period-toggle[data-period="365d"] .product-period-indicator {
+  transform: translateX(300%);
 }
 
 .product-period-toggle button {
