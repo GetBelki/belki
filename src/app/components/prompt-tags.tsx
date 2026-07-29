@@ -123,6 +123,7 @@ export function TagPicker({
       <DropdownMenu.Portal>
         <DropdownMenu.Content
           align="start"
+          collisionPadding={12}
           className="tag-picker-content"
           sideOffset={5}
         >

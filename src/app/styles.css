@@ -3033,6 +3033,11 @@ a.evidence-source:hover strong {
   grid-template-columns: minmax(260px, 1fr) 220px 220px;
 }
 
+.shopping-report-filters > * {
+  min-width: 0;
+  width: 100%;
+}
+
 .tag-picker-trigger {
   align-items: center;
   background: #ffffff;
@@ -3091,6 +3096,7 @@ a.evidence-source:hover strong {
   border-radius: 6px;
   box-shadow: none;
   min-width: 230px;
+  max-width: calc(100vw - 24px);
   padding: 5px;
   width: var(--radix-dropdown-menu-trigger-width);
   z-index: 100;
@@ -3361,6 +3367,10 @@ a.evidence-source:hover strong {
 @media (max-width: 900px) {
   .report-filters {
     grid-template-columns: 1fr;
+  }
+
+  .report-filters.shopping-report-filters {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
