@@ -51,6 +51,37 @@ describe("API contracts", () => {
     expect(result.success).toBe(false);
   });
 
+  it("accepts bulk prompts with individual tags", () => {
+    const result = BulkQueryInputSchema.parse({
+      items: [
+        { queryText: "Is Acme trusted?", tags: ["Trust"] },
+        { queryText: "Is Acme safe?", tags: ["Safety"] },
+      ],
+      tags: ["Reputation"],
+      locationCode: 2840,
+      languageCode: "en",
+      schedule: { cadence: "daily", time: "09:00", timezone: "UTC" },
+    });
+    expect(result.items?.[0]?.tags).toEqual(["Trust"]);
+    expect(result.queryTexts).toBeUndefined();
+  });
+
+  it("requires exactly one bulk prompt input shape", () => {
+    const base = {
+      locationCode: 2840,
+      languageCode: "en",
+      schedule: { cadence: "daily", time: "09:00", timezone: "UTC" },
+    };
+    expect(BulkQueryInputSchema.safeParse(base).success).toBe(false);
+    expect(
+      BulkQueryInputSchema.safeParse({
+        ...base,
+        queryTexts: ["Prompt one"],
+        items: [{ queryText: "Prompt two", tags: [] }],
+      }).success,
+    ).toBe(false);
+  });
+
   it("applies safe project defaults", () => {
     const result = ProjectInputSchema.parse({
       name: "Acme",

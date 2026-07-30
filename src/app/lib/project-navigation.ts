@@ -17,6 +17,7 @@ const PROJECT_DETAIL_ROUTES = [
 ] as const;
 
 export function projectChangeDestination(pathname: string): string | null {
+  if (pathname === "/prompts/library") return null;
   return (
     PROJECT_DETAIL_ROUTES.find(({ path }) =>
       matchPath({ path, end: true }, pathname)

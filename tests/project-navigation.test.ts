@@ -23,6 +23,7 @@ describe("project navigation", () => {
   it.each([
     "/",
     "/prompts",
+    "/prompts/library",
     "/snapshots",
     "/citations",
     "/shopping",

@@ -28,6 +28,10 @@ import {
   resolvePromptTags,
 } from "../lib/prompt-tags";
 import { calculateNextRun } from "../lib/schedule";
+import {
+  promptTagKey,
+  uniquePromptTagNames,
+} from "../../shared/prompt-tags";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 const ProjectIdParamSchema = z.object({ projectId: z.string().uuid() });
@@ -556,11 +560,23 @@ coreRoutes.post(
     const input = c.req.valid("json");
     await requireProject(c.env.CONTROL_DB, principal.workspaceId, projectId);
 
-    const uniquePrompts = new Map<string, string>();
-    for (const queryText of input.queryTexts) {
-      const normalized = queryText.trim().toLowerCase();
-      if (!uniquePrompts.has(normalized)) {
-        uniquePrompts.set(normalized, queryText.trim());
+    const requestedItems = input.items ?? input.queryTexts!.map((queryText) => ({
+      queryText,
+      tags: [],
+    }));
+    const uniquePrompts = new Map<
+      string,
+      { queryText: string; tags: string[] }
+    >();
+    for (const item of requestedItems) {
+      const queryText = item.queryText.trim();
+      const normalized = queryText.toLowerCase();
+      const tags = uniquePromptTagNames([...input.tags, ...item.tags]);
+      const current = uniquePrompts.get(normalized);
+      if (current) {
+        current.tags = uniquePromptTagNames([...current.tags, ...tags]);
+      } else {
+        uniquePrompts.set(normalized, { queryText, tags });
       }
     }
 
@@ -584,13 +600,13 @@ coreRoutes.post(
     );
     const promptsToCreate = [...uniquePrompts.entries()]
       .filter(([normalized]) => !existingPrompts.has(normalized))
-      .map(([, queryText]) => queryText);
+      .map(([normalized, prompt]) => ({ normalized, ...prompt }));
 
     const now = nowIso();
     const nextRunAt = calculateNextRun(input.schedule);
-    const records = promptsToCreate.map((queryText) => ({
+    const records = promptsToCreate.map((prompt) => ({
       id: crypto.randomUUID(),
-      queryText,
+      ...prompt,
     }));
     const shard = records.length
       ? await c.env.CONTROL_DB.prepare(
@@ -603,20 +619,45 @@ coreRoutes.post(
     if (records.length && !shard) {
       throw new ApiError(503, "no_shard_available", "No snapshot shard is available.");
     }
-    const duplicateIds = [...uniquePrompts.keys()]
-      .map((normalized) => existingPrompts.get(normalized))
-      .filter((id): id is string => Boolean(id));
-    const targetIds = [...records.map((record) => record.id), ...duplicateIds];
+    const duplicateTargets = [...uniquePrompts.entries()]
+      .map(([normalized, prompt]) => ({
+        id: existingPrompts.get(normalized),
+        ...prompt,
+      }))
+      .filter(
+        (target): target is { id: string; queryText: string; tags: string[] } =>
+          Boolean(target.id),
+      );
+    const targetPrompts = [
+      ...records.map((record) => ({ id: record.id, tags: record.tags })),
+      ...duplicateTargets.map((target) => ({
+        id: target.id,
+        tags: target.tags,
+      })),
+    ];
+    const allTagNames = uniquePromptTagNames(
+      targetPrompts.flatMap((target) => target.tags),
+    );
     const resolvedTags = await resolvePromptTags(
       c.env.CONTROL_DB,
       projectId,
-      input.tags,
+      allTagNames,
     );
-    if (duplicateIds.length && resolvedTags.tags.length) {
-      assertPromptTagCapacity(
-        await promptTagAssignments(c.env.CONTROL_DB, projectId, duplicateIds),
-        resolvedTags.tags,
+    const tagsByName = new Map(
+      resolvedTags.tags.map((tag) => [tag.normalized_name, tag]),
+    );
+    if (duplicateTargets.length && resolvedTags.tags.length) {
+      const assignments = await promptTagAssignments(
+        c.env.CONTROL_DB,
+        projectId,
+        duplicateTargets.map((target) => target.id),
       );
+      for (const target of duplicateTargets) {
+        assertPromptTagCapacity(
+          new Map([[target.id, assignments.get(target.id) ?? new Set()]]),
+          target.tags.map((name) => tagsByName.get(promptTagKey(name))!),
+        );
+      }
     }
     const statements = records.map((record) =>
       c.env.CONTROL_DB.prepare(
@@ -657,21 +698,40 @@ coreRoutes.post(
          WHERE shard_id = ?`,
       ).bind(records.length, now, shard!.shard_id),
     );
-    statements.push(
-      ...assignPromptTagStatements(
-        c.env.CONTROL_DB,
-        projectId,
-        targetIds,
-        resolvedTags.tags,
-        now,
-      ),
-    );
+    const tagGroups = new Map<
+      string,
+      { ids: string[]; tags: typeof resolvedTags.tags }
+    >();
+    for (const target of targetPrompts) {
+      const tags = target.tags
+        .map((name) => tagsByName.get(promptTagKey(name)))
+        .filter((tag): tag is (typeof resolvedTags.tags)[number] => Boolean(tag));
+      if (!tags.length) continue;
+      const signature = tags
+        .map((tag) => tag.normalized_name)
+        .sort()
+        .join("\u0000");
+      const group = tagGroups.get(signature) ?? { ids: [], tags };
+      group.ids.push(target.id);
+      tagGroups.set(signature, group);
+    }
+    for (const group of tagGroups.values()) {
+      statements.push(
+        ...assignPromptTagStatements(
+          c.env.CONTROL_DB,
+          projectId,
+          group.ids,
+          group.tags,
+          now,
+        ),
+      );
+    }
     if (!statements.length) {
       return c.json({
         data: {
           ids: [],
           createdCount: 0,
-          skippedCount: input.queryTexts.length,
+          skippedCount: requestedItems.length,
         },
       });
     }
@@ -686,9 +746,10 @@ coreRoutes.post(
         projectId,
         cadence: input.schedule.cadence,
         createdCount: records.length,
-        skippedCount: input.queryTexts.length - records.length,
-        tagNames: input.tags,
-        taggedPromptCount: targetIds.length,
+        skippedCount: requestedItems.length - records.length,
+        tagNames: allTagNames,
+        taggedPromptCount: targetPrompts.filter((target) => target.tags.length)
+          .length,
       },
     });
     return c.json(
@@ -696,7 +757,7 @@ coreRoutes.post(
         data: {
           ids: records.map((record) => record.id),
           createdCount: records.length,
-          skippedCount: input.queryTexts.length - records.length,
+          skippedCount: requestedItems.length - records.length,
         },
       },
       201,

@@ -14,6 +14,7 @@ const OverviewPage = lazy(() =>
 const PromptsPage = lazy(() =>
   import("./pages/main").then((module) => ({ default: module.PromptsPage })),
 );
+const PromptLibraryPage = lazy(() => import("./pages/prompt-library"));
 const SnapshotExplorerPage = lazy(() =>
   import("./pages/snapshots").then((module) => ({ default: module.SnapshotExplorerPage })),
 );
@@ -95,6 +96,7 @@ export function App() {
           <Route element={<AppLayout />}>
             <Route index element={<OverviewPage />} />
             <Route path="/prompts" element={<PromptsPage />} />
+            <Route path="/prompts/library" element={<PromptLibraryPage />} />
             <Route path="/prompts/:queryId" element={<QuerySnapshotsPage />} />
             <Route
               path="/prompts/:queryId/snapshots/:snapshotId"

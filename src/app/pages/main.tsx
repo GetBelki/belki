@@ -673,7 +673,12 @@ export function PromptsPage() {
   return (
     <div className="page">
       <PageHeader title="Prompts" description="Prompts monitored against ChatGPT web Search mode." action={
-        <Button onClick={openPromptDialog}><Plus size={16} /> Add prompt</Button>
+        <div className="button-group">
+          <Button asChild variant="secondary">
+            <Link to="/prompts/library"><Sparkles size={16} /> Browse library</Link>
+          </Button>
+          <Button onClick={openPromptDialog}><Plus size={16} /> Add prompt</Button>
+        </div>
       } />
       <div className="report-filters">
         <div className="search-filter">

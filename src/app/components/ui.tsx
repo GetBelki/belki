@@ -148,19 +148,21 @@ export function Dialog({
   children,
   open,
   onOpenChange,
+  contentClassName,
 }: PropsWithChildren<{
   trigger?: ReactNode;
   title: string;
   description?: string;
   open?: boolean;
   onOpenChange?: (open: boolean) => void;
+  contentClassName?: string;
 }>) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       {trigger ? <DialogPrimitive.Trigger asChild>{trigger}</DialogPrimitive.Trigger> : null}
       <DialogPrimitive.Portal>
         <DialogPrimitive.Overlay className="dialog-overlay" />
-        <DialogPrimitive.Content className="dialog-content">
+        <DialogPrimitive.Content className={cn("dialog-content", contentClassName)}>
           <div className="dialog-heading">
             <div>
               <DialogPrimitive.Title>{title}</DialogPrimitive.Title>

@@ -115,7 +115,34 @@ export const BulkQueryInputSchema = QueryInputSchema.omit({
   queryTexts: z
     .array(z.string().trim().min(1).max(2_000))
     .min(1)
-    .max(50),
+    .max(50)
+    .optional(),
+  items: z
+    .array(
+      z.object({
+        queryText: z.string().trim().min(1).max(2_000),
+        tags: PromptTagsSchema,
+      }),
+    )
+    .min(1)
+    .max(50)
+    .optional(),
+}).superRefine((value, context) => {
+  if (Boolean(value.queryTexts) === Boolean(value.items)) {
+    context.addIssue({
+      code: "custom",
+      message: "Provide either queryTexts or items.",
+    });
+  }
+  for (const [index, item] of (value.items ?? []).entries()) {
+    if (uniquePromptTagNames([...value.tags, ...item.tags]).length > MAX_PROMPT_TAGS) {
+      context.addIssue({
+        code: "custom",
+        message: `Prompt ${index + 1} has more than ${MAX_PROMPT_TAGS} tags.`,
+        path: ["items", index, "tags"],
+      });
+    }
+  }
 });
 
 export const QueryUpdateSchema = QueryInputSchema.omit({ tags: true }).partial().refine(
