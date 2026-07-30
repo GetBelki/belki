@@ -35,6 +35,12 @@ function templateKey(value: string): string {
   return cleanTemplate(value).toLocaleLowerCase();
 }
 
+function isPromptTemplate(value: string): boolean {
+  if (!value.includes("{")) return false;
+  const prose = value.replace(/\{[a-z0-9_]+\}/giu, "").trim();
+  return /[a-z]{2}/iu.test(prose);
+}
+
 export function extractPromptPlaceholders(value: string): string[] {
   const placeholders = new Set<string>();
   for (const match of value.matchAll(/\{([a-z0-9_]+)\}/giu)) {
@@ -79,7 +85,7 @@ export function parsePromptLibrary(markdown: string): PromptLibraryTemplate[] {
     const line = rawLine.trim();
     if (line.startsWith("# ")) {
       group = GROUPS.get(line.slice(2).trim()) ?? null;
-      category = "";
+      category = group === "Event-driven" ? "Reputation events" : "";
       inTextFence = false;
       continue;
     }
@@ -102,7 +108,7 @@ export function parsePromptLibrary(markdown: string): PromptLibraryTemplate[] {
           ? line.slice(2)
           : "";
     const text = cleanTemplate(candidate);
-    if (!text || !text.includes("{")) continue;
+    if (!text || !isPromptTemplate(text)) continue;
 
     const key = templateKey(text);
     if (entries.has(key)) continue;

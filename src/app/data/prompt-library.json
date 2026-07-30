@@ -1,516 +1,515 @@
 [
   {
-    "id": "universal-general-reputation-1",
     "group": "Universal",
     "category": "General reputation",
     "text": "What is {brand} known for?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "General reputation"
+    "suggestedTag": "General reputation",
+    "id": "universal-general-reputation-1"
   },
   {
-    "id": "universal-general-reputation-2",
     "group": "Universal",
     "category": "General reputation",
     "text": "Does {brand} have a good reputation?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "General reputation"
+    "suggestedTag": "General reputation",
+    "id": "universal-general-reputation-2"
   },
   {
-    "id": "universal-general-reputation-3",
     "group": "Universal",
     "category": "General reputation",
     "text": "Is {brand} considered trustworthy?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "General reputation"
+    "suggestedTag": "General reputation",
+    "id": "universal-general-reputation-3"
   },
   {
-    "id": "universal-general-reputation-4",
     "group": "Universal",
     "category": "General reputation",
     "text": "What do people think about {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "General reputation"
+    "suggestedTag": "General reputation",
+    "id": "universal-general-reputation-4"
   },
   {
-    "id": "universal-general-reputation-5",
     "group": "Universal",
     "category": "General reputation",
     "text": "What are the main strengths and weaknesses of {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "General reputation"
+    "suggestedTag": "General reputation",
+    "id": "universal-general-reputation-5"
   },
   {
-    "id": "universal-general-reputation-6",
     "group": "Universal",
     "category": "General reputation",
     "text": "What are the most common criticisms of {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "General reputation"
+    "suggestedTag": "General reputation",
+    "id": "universal-general-reputation-6"
   },
   {
-    "id": "universal-general-reputation-7",
     "group": "Universal",
     "category": "General reputation",
     "text": "Why do some people avoid {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "General reputation"
+    "suggestedTag": "General reputation",
+    "id": "universal-general-reputation-7"
   },
   {
-    "id": "universal-general-reputation-8",
     "group": "Universal",
     "category": "General reputation",
     "text": "Has {brand}'s reputation improved or declined recently?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "General reputation"
+    "suggestedTag": "General reputation",
+    "id": "universal-general-reputation-8"
   },
   {
-    "id": "universal-general-reputation-9",
     "group": "Universal",
     "category": "General reputation",
     "text": "What should I know about {brand} before buying from it?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "General reputation"
+    "suggestedTag": "General reputation",
+    "id": "universal-general-reputation-9"
   },
   {
-    "id": "universal-general-reputation-10",
     "group": "Universal",
     "category": "General reputation",
     "text": "Is {brand} a company worth supporting?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "General reputation"
+    "suggestedTag": "General reputation",
+    "id": "universal-general-reputation-10"
   },
   {
-    "id": "universal-brand-trust-11",
     "group": "Universal",
     "category": "Brand trust",
     "text": "Is {brand} a legitimate company?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Brand trust"
+    "suggestedTag": "Brand trust",
+    "id": "universal-brand-trust-11"
   },
   {
-    "id": "universal-brand-trust-12",
     "group": "Universal",
     "category": "Brand trust",
     "text": "What evidence supports {brand}'s claims?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Brand trust"
+    "suggestedTag": "Brand trust",
+    "id": "universal-brand-trust-12"
   },
   {
-    "id": "universal-brand-trust-13",
     "group": "Universal",
     "category": "Brand trust",
     "text": "Does {brand} have a good reputation among customers?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Brand trust"
+    "suggestedTag": "Brand trust",
+    "id": "universal-brand-trust-13"
   },
   {
-    "id": "universal-brand-trust-14",
     "group": "Universal",
     "category": "Brand trust",
     "text": "What should customers verify before choosing {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Brand trust"
+    "suggestedTag": "Brand trust",
+    "id": "universal-brand-trust-14"
   },
   {
-    "id": "universal-trust-and-credibility-15",
     "group": "Universal",
     "category": "Trust and credibility",
     "text": "Is {brand} reliable?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Trust and credibility"
+    "suggestedTag": "Trust and credibility",
+    "id": "universal-trust-and-credibility-15"
   },
   {
-    "id": "universal-trust-and-credibility-16",
     "group": "Universal",
     "category": "Trust and credibility",
     "text": "Can I trust the claims made by {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Trust and credibility"
+    "suggestedTag": "Trust and credibility",
+    "id": "universal-trust-and-credibility-16"
   },
   {
-    "id": "universal-trust-and-credibility-17",
     "group": "Universal",
     "category": "Trust and credibility",
     "text": "Is {brand} transparent about its products and business practices?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Trust and credibility"
+    "suggestedTag": "Trust and credibility",
+    "id": "universal-trust-and-credibility-17"
   },
   {
-    "id": "universal-trust-and-credibility-18",
     "group": "Universal",
     "category": "Trust and credibility",
     "text": "Has {brand} ever misled customers?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Trust and credibility"
+    "suggestedTag": "Trust and credibility",
+    "id": "universal-trust-and-credibility-18"
   },
   {
-    "id": "universal-trust-and-credibility-19",
     "group": "Universal",
     "category": "Trust and credibility",
     "text": "Does {brand} deliver what it promises?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Trust and credibility"
+    "suggestedTag": "Trust and credibility",
+    "id": "universal-trust-and-credibility-19"
   },
   {
-    "id": "universal-trust-and-credibility-20",
     "group": "Universal",
     "category": "Trust and credibility",
     "text": "Are reviews of {brand} generally trustworthy?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Trust and credibility"
+    "suggestedTag": "Trust and credibility",
+    "id": "universal-trust-and-credibility-20"
   },
   {
-    "id": "universal-trust-and-credibility-21",
     "group": "Universal",
     "category": "Trust and credibility",
     "text": "Has {brand} been accused of false or misleading advertising?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Trust and credibility"
+    "suggestedTag": "Trust and credibility",
+    "id": "universal-trust-and-credibility-21"
   },
   {
-    "id": "universal-trust-and-credibility-22",
     "group": "Universal",
     "category": "Trust and credibility",
     "text": "How does {brand} respond when it makes a mistake?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Trust and credibility"
+    "suggestedTag": "Trust and credibility",
+    "id": "universal-trust-and-credibility-22"
   },
   {
-    "id": "universal-pricing-and-fairness-23",
     "group": "Universal",
     "category": "Pricing and fairness",
     "text": "Does {brand} offer fair pricing?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pricing and fairness"
+    "suggestedTag": "Pricing and fairness",
+    "id": "universal-pricing-and-fairness-23"
   },
   {
-    "id": "universal-pricing-and-fairness-24",
     "group": "Universal",
     "category": "Pricing and fairness",
     "text": "Are there hidden fees associated with {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pricing and fairness"
+    "suggestedTag": "Pricing and fairness",
+    "id": "universal-pricing-and-fairness-24"
   },
   {
-    "id": "universal-pricing-and-fairness-25",
     "group": "Universal",
     "category": "Pricing and fairness",
     "text": "Is {brand} worth the price?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pricing and fairness"
+    "suggestedTag": "Pricing and fairness",
+    "id": "universal-pricing-and-fairness-25"
   },
   {
-    "id": "universal-pricing-and-fairness-26",
     "group": "Universal",
     "category": "Pricing and fairness",
     "text": "Has {brand} been criticised for its pricing practices?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pricing and fairness"
+    "suggestedTag": "Pricing and fairness",
+    "id": "universal-pricing-and-fairness-26"
   },
   {
-    "id": "universal-pricing-and-fairness-27",
     "group": "Universal",
     "category": "Pricing and fairness",
     "text": "How transparent is {brand} about costs and additional charges?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pricing and fairness"
+    "suggestedTag": "Pricing and fairness",
+    "id": "universal-pricing-and-fairness-27"
   },
   {
-    "id": "universal-customer-experience-28",
     "group": "Universal",
     "category": "Customer experience",
     "text": "What are the most common complaints about {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer experience"
+    "suggestedTag": "Customer experience",
+    "id": "universal-customer-experience-28"
   },
   {
-    "id": "universal-customer-experience-29",
     "group": "Universal",
     "category": "Customer experience",
     "text": "Does {brand} have good customer service?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer experience"
+    "suggestedTag": "Customer experience",
+    "id": "universal-customer-experience-29"
   },
   {
-    "id": "universal-customer-experience-30",
     "group": "Universal",
     "category": "Customer experience",
     "text": "How does {brand} handle refunds and complaints?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer experience"
+    "suggestedTag": "Customer experience",
+    "id": "universal-customer-experience-30"
   },
   {
-    "id": "universal-customer-experience-31",
     "group": "Universal",
     "category": "Customer experience",
     "text": "Are customers generally satisfied with {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer experience"
+    "suggestedTag": "Customer experience",
+    "id": "universal-customer-experience-31"
   },
   {
-    "id": "universal-customer-experience-32",
     "group": "Universal",
     "category": "Customer experience",
     "text": "What problems do customers frequently experience with {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer experience"
+    "suggestedTag": "Customer experience",
+    "id": "universal-customer-experience-32"
   },
   {
-    "id": "universal-customer-experience-33",
     "group": "Universal",
     "category": "Customer experience",
     "text": "Is it difficult to cancel or return an order from {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer experience"
+    "suggestedTag": "Customer experience",
+    "id": "universal-customer-experience-33"
   },
   {
-    "id": "universal-customer-experience-34",
     "group": "Universal",
     "category": "Customer experience",
     "text": "Does {brand} treat customers fairly?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer experience"
+    "suggestedTag": "Customer experience",
+    "id": "universal-customer-experience-34"
   },
   {
-    "id": "universal-customer-experience-35",
     "group": "Universal",
     "category": "Customer experience",
     "text": "Is {brand} responsive when customers report problems?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer experience"
+    "suggestedTag": "Customer experience",
+    "id": "universal-customer-experience-35"
   },
   {
-    "id": "universal-customer-service-36",
     "group": "Universal",
     "category": "Customer service",
     "text": "How good is {brand}'s customer service?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer service"
+    "suggestedTag": "Customer service",
+    "id": "universal-customer-service-36"
   },
   {
-    "id": "universal-customer-service-37",
     "group": "Universal",
     "category": "Customer service",
     "text": "What are the most common support complaints about {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer service"
+    "suggestedTag": "Customer service",
+    "id": "universal-customer-service-37"
   },
   {
-    "id": "universal-customer-service-38",
     "group": "Universal",
     "category": "Customer service",
     "text": "How quickly does {brand} resolve customer issues?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer service"
+    "suggestedTag": "Customer service",
+    "id": "universal-customer-service-38"
   },
   {
-    "id": "universal-customer-service-39",
     "group": "Universal",
     "category": "Customer service",
     "text": "Does {brand} handle refunds fairly?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer service"
+    "suggestedTag": "Customer service",
+    "id": "universal-customer-service-39"
   },
   {
-    "id": "universal-customer-service-40",
     "group": "Universal",
     "category": "Customer service",
     "text": "How does {brand} respond to negative reviews?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer service"
+    "suggestedTag": "Customer service",
+    "id": "universal-customer-service-40"
   },
   {
-    "id": "universal-product-and-service-quality-41",
     "group": "Universal",
     "category": "Product and service quality",
     "text": "Are {brand} products good quality?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Product and service quality"
+    "suggestedTag": "Product and service quality",
+    "id": "universal-product-and-service-quality-41"
   },
   {
-    "id": "universal-product-and-service-quality-42",
     "group": "Universal",
     "category": "Product and service quality",
     "text": "Are {brand} products reliable and durable?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Product and service quality"
+    "suggestedTag": "Product and service quality",
+    "id": "universal-product-and-service-quality-42"
   },
   {
-    "id": "universal-product-and-service-quality-43",
     "group": "Universal",
     "category": "Product and service quality",
     "text": "What are the main quality issues associated with {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Product and service quality"
+    "suggestedTag": "Product and service quality",
+    "id": "universal-product-and-service-quality-43"
   },
   {
-    "id": "universal-product-and-service-quality-44",
     "group": "Universal",
     "category": "Product and service quality",
     "text": "Has the quality of {brand} changed over time?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Product and service quality"
+    "suggestedTag": "Product and service quality",
+    "id": "universal-product-and-service-quality-44"
   },
   {
-    "id": "universal-product-and-service-quality-45",
     "group": "Universal",
     "category": "Product and service quality",
     "text": "Does {brand} offer good value for money?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Product and service quality"
+    "suggestedTag": "Product and service quality",
+    "id": "universal-product-and-service-quality-45"
   },
   {
-    "id": "universal-product-and-service-quality-46",
     "group": "Universal",
     "category": "Product and service quality",
     "text": "Are there better alternatives to {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Product and service quality"
+    "suggestedTag": "Product and service quality",
+    "id": "universal-product-and-service-quality-46"
   },
   {
-    "id": "universal-product-and-service-quality-47",
     "group": "Universal",
     "category": "Product and service quality",
     "text": "Which {brand} products should customers avoid?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Product and service quality"
+    "suggestedTag": "Product and service quality",
+    "id": "universal-product-and-service-quality-47"
   },
   {
-    "id": "universal-quality-and-reliability-48",
     "group": "Universal",
     "category": "Quality and reliability",
     "text": "How reliable are {brand}'s products or services?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Quality and reliability"
+    "suggestedTag": "Quality and reliability",
+    "id": "universal-quality-and-reliability-48"
   },
   {
-    "id": "universal-quality-and-reliability-49",
     "group": "Universal",
     "category": "Quality and reliability",
     "text": "What quality issues are commonly reported about {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Quality and reliability"
+    "suggestedTag": "Quality and reliability",
+    "id": "universal-quality-and-reliability-49"
   },
   {
-    "id": "universal-quality-and-reliability-50",
     "group": "Universal",
     "category": "Quality and reliability",
     "text": "Has the quality of {brand} improved or declined?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Quality and reliability"
+    "suggestedTag": "Quality and reliability",
+    "id": "universal-quality-and-reliability-50"
   },
   {
-    "id": "universal-quality-and-reliability-51",
     "group": "Universal",
     "category": "Quality and reliability",
     "text": "Does {brand} provide consistent quality?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Quality and reliability"
+    "suggestedTag": "Quality and reliability",
+    "id": "universal-quality-and-reliability-51"
   },
   {
-    "id": "universal-quality-and-reliability-52",
     "group": "Universal",
     "category": "Quality and reliability",
     "text": "How does {brand} compare with {competitor} for reliability?",
@@ -518,260 +517,260 @@
       "brand",
       "competitor"
     ],
-    "suggestedTag": "Quality and reliability"
+    "suggestedTag": "Quality and reliability",
+    "id": "universal-quality-and-reliability-52"
   },
   {
-    "id": "universal-safety-53",
     "group": "Universal",
     "category": "Safety",
     "text": "Is {brand} safe to use?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Safety"
+    "suggestedTag": "Safety",
+    "id": "universal-safety-53"
   },
   {
-    "id": "universal-safety-54",
     "group": "Universal",
     "category": "Safety",
     "text": "Have there been safety concerns involving {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Safety"
+    "suggestedTag": "Safety",
+    "id": "universal-safety-54"
   },
   {
-    "id": "universal-safety-55",
     "group": "Universal",
     "category": "Safety",
     "text": "Has {brand} issued any recalls or safety notices?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Safety"
+    "suggestedTag": "Safety",
+    "id": "universal-safety-55"
   },
   {
-    "id": "universal-safety-56",
     "group": "Universal",
     "category": "Safety",
     "text": "How does {brand} respond to safety incidents?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Safety"
+    "suggestedTag": "Safety",
+    "id": "universal-safety-56"
   },
   {
-    "id": "universal-safety-57",
     "group": "Universal",
     "category": "Safety",
     "text": "Does {brand} meet relevant safety standards?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Safety"
+    "suggestedTag": "Safety",
+    "id": "universal-safety-57"
   },
   {
-    "id": "universal-ethics-and-social-responsibility-58",
     "group": "Universal",
     "category": "Ethics and social responsibility",
     "text": "Is {brand} an ethical company?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics and social responsibility"
+    "suggestedTag": "Ethics and social responsibility",
+    "id": "universal-ethics-and-social-responsibility-58"
   },
   {
-    "id": "universal-ethics-and-social-responsibility-59",
     "group": "Universal",
     "category": "Ethics and social responsibility",
     "text": "How does {brand} treat its employees?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics and social responsibility"
+    "suggestedTag": "Ethics and social responsibility",
+    "id": "universal-ethics-and-social-responsibility-59"
   },
   {
-    "id": "universal-ethics-and-social-responsibility-60",
     "group": "Universal",
     "category": "Ethics and social responsibility",
     "text": "How does {brand} treat workers in its supply chain?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics and social responsibility"
+    "suggestedTag": "Ethics and social responsibility",
+    "id": "universal-ethics-and-social-responsibility-60"
   },
   {
-    "id": "universal-ethics-and-social-responsibility-61",
     "group": "Universal",
     "category": "Ethics and social responsibility",
     "text": "Has {brand} been linked to unfair labour practices?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics and social responsibility"
+    "suggestedTag": "Ethics and social responsibility",
+    "id": "universal-ethics-and-social-responsibility-61"
   },
   {
-    "id": "universal-ethics-and-social-responsibility-62",
     "group": "Universal",
     "category": "Ethics and social responsibility",
     "text": "Does {brand} support human rights?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics and social responsibility"
+    "suggestedTag": "Ethics and social responsibility",
+    "id": "universal-ethics-and-social-responsibility-62"
   },
   {
-    "id": "universal-ethics-and-social-responsibility-63",
     "group": "Universal",
     "category": "Ethics and social responsibility",
     "text": "Is {brand} involved in any ethical controversies?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics and social responsibility"
+    "suggestedTag": "Ethics and social responsibility",
+    "id": "universal-ethics-and-social-responsibility-63"
   },
   {
-    "id": "universal-ethics-and-social-responsibility-64",
     "group": "Universal",
     "category": "Ethics and social responsibility",
     "text": "Does {brand} make political or social claims that match its actions?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics and social responsibility"
+    "suggestedTag": "Ethics and social responsibility",
+    "id": "universal-ethics-and-social-responsibility-64"
   },
   {
-    "id": "universal-ethics-and-social-responsibility-65",
     "group": "Universal",
     "category": "Ethics and social responsibility",
     "text": "Is {brand} socially responsible?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics and social responsibility"
+    "suggestedTag": "Ethics and social responsibility",
+    "id": "universal-ethics-and-social-responsibility-65"
   },
   {
-    "id": "universal-ethics-66",
     "group": "Universal",
     "category": "Ethics",
     "text": "Is {brand} considered an ethical company?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics"
+    "suggestedTag": "Ethics",
+    "id": "universal-ethics-66"
   },
   {
-    "id": "universal-ethics-67",
     "group": "Universal",
     "category": "Ethics",
     "text": "Does {brand} treat workers fairly?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics"
+    "suggestedTag": "Ethics",
+    "id": "universal-ethics-67"
   },
   {
-    "id": "universal-ethics-68",
     "group": "Universal",
     "category": "Ethics",
     "text": "How transparent is {brand} about its supply chain?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics"
+    "suggestedTag": "Ethics",
+    "id": "universal-ethics-68"
   },
   {
-    "id": "universal-ethics-69",
     "group": "Universal",
     "category": "Ethics",
     "text": "Have there been ethical controversies involving {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics"
+    "suggestedTag": "Ethics",
+    "id": "universal-ethics-69"
   },
   {
-    "id": "universal-ethics-70",
     "group": "Universal",
     "category": "Ethics",
     "text": "Do {brand}'s actions align with its public values?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ethics"
+    "suggestedTag": "Ethics",
+    "id": "universal-ethics-70"
   },
   {
-    "id": "universal-sustainability-71",
     "group": "Universal",
     "category": "Sustainability",
     "text": "Is {brand} environmentally responsible?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Sustainability"
+    "suggestedTag": "Sustainability",
+    "id": "universal-sustainability-71"
   },
   {
-    "id": "universal-sustainability-72",
     "group": "Universal",
     "category": "Sustainability",
     "text": "Is {brand} genuinely sustainable?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Sustainability"
+    "suggestedTag": "Sustainability",
+    "id": "universal-sustainability-72"
   },
   {
-    "id": "universal-sustainability-73",
     "group": "Universal",
     "category": "Sustainability",
     "text": "Has {brand} been accused of greenwashing?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Sustainability"
+    "suggestedTag": "Sustainability",
+    "id": "universal-sustainability-73"
   },
   {
-    "id": "universal-sustainability-74",
     "group": "Universal",
     "category": "Sustainability",
     "text": "What is the environmental impact of {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Sustainability"
+    "suggestedTag": "Sustainability",
+    "id": "universal-sustainability-74"
   },
   {
-    "id": "universal-sustainability-75",
     "group": "Universal",
     "category": "Sustainability",
     "text": "Does {brand} provide evidence for its sustainability claims?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Sustainability"
+    "suggestedTag": "Sustainability",
+    "id": "universal-sustainability-75"
   },
   {
-    "id": "universal-sustainability-76",
     "group": "Universal",
     "category": "Sustainability",
     "text": "How sustainable is {brand}'s supply chain?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Sustainability"
+    "suggestedTag": "Sustainability",
+    "id": "universal-sustainability-76"
   },
   {
-    "id": "universal-sustainability-77",
     "group": "Universal",
     "category": "Sustainability",
     "text": "What environmental controversies has {brand} faced?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Sustainability"
+    "suggestedTag": "Sustainability",
+    "id": "universal-sustainability-77"
   },
   {
-    "id": "universal-sustainability-78",
     "group": "Universal",
     "category": "Sustainability",
     "text": "Is {brand} more sustainable than other companies in {category}?",
@@ -779,20 +778,20 @@
       "brand",
       "category"
     ],
-    "suggestedTag": "Sustainability"
+    "suggestedTag": "Sustainability",
+    "id": "universal-sustainability-78"
   },
   {
-    "id": "universal-sustainability-79",
     "group": "Universal",
     "category": "Sustainability",
     "text": "How sustainable is {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Sustainability"
+    "suggestedTag": "Sustainability",
+    "id": "universal-sustainability-79"
   },
   {
-    "id": "universal-sustainability-80",
     "group": "Universal",
     "category": "Sustainability",
     "text": "How does {brand} compare with {competitor} on sustainability?",
@@ -800,200 +799,200 @@
       "brand",
       "competitor"
     ],
-    "suggestedTag": "Sustainability"
+    "suggestedTag": "Sustainability",
+    "id": "universal-sustainability-80"
   },
   {
-    "id": "universal-controversies-and-risk-81",
     "group": "Universal",
     "category": "Controversies and risk",
     "text": "What controversies has {brand} been involved in?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Controversies and risk"
+    "suggestedTag": "Controversies and risk",
+    "id": "universal-controversies-and-risk-81"
   },
   {
-    "id": "universal-controversies-and-risk-82",
     "group": "Universal",
     "category": "Controversies and risk",
     "text": "Has {brand} faced any major scandals?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Controversies and risk"
+    "suggestedTag": "Controversies and risk",
+    "id": "universal-controversies-and-risk-82"
   },
   {
-    "id": "universal-controversies-and-risk-83",
     "group": "Universal",
     "category": "Controversies and risk",
     "text": "Has {brand} been sued or fined?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Controversies and risk"
+    "suggestedTag": "Controversies and risk",
+    "id": "universal-controversies-and-risk-83"
   },
   {
-    "id": "universal-controversies-and-risk-84",
     "group": "Universal",
     "category": "Controversies and risk",
     "text": "Has {brand} experienced any major data breaches?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Controversies and risk"
+    "suggestedTag": "Controversies and risk",
+    "id": "universal-controversies-and-risk-84"
   },
   {
-    "id": "universal-controversies-and-risk-85",
     "group": "Universal",
     "category": "Controversies and risk",
     "text": "Are there any safety concerns associated with {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Controversies and risk"
+    "suggestedTag": "Controversies and risk",
+    "id": "universal-controversies-and-risk-85"
   },
   {
-    "id": "universal-controversies-and-risk-86",
     "group": "Universal",
     "category": "Controversies and risk",
     "text": "Has {brand} recalled any products?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Controversies and risk"
+    "suggestedTag": "Controversies and risk",
+    "id": "universal-controversies-and-risk-86"
   },
   {
-    "id": "universal-controversies-and-risk-87",
     "group": "Universal",
     "category": "Controversies and risk",
     "text": "Why has {brand} been criticised or boycotted?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Controversies and risk"
+    "suggestedTag": "Controversies and risk",
+    "id": "universal-controversies-and-risk-87"
   },
   {
-    "id": "universal-controversies-and-risk-88",
     "group": "Universal",
     "category": "Controversies and risk",
     "text": "Are there any reasons not to buy from {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Controversies and risk"
+    "suggestedTag": "Controversies and risk",
+    "id": "universal-controversies-and-risk-88"
   },
   {
-    "id": "universal-controversies-and-risk-89",
     "group": "Universal",
     "category": "Controversies and risk",
     "text": "What reputational risks currently affect {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Controversies and risk"
+    "suggestedTag": "Controversies and risk",
+    "id": "universal-controversies-and-risk-89"
   },
   {
-    "id": "universal-controversies-and-risk-90",
     "group": "Universal",
     "category": "Controversies and risk",
     "text": "How did {brand} respond to its biggest controversy?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Controversies and risk"
+    "suggestedTag": "Controversies and risk",
+    "id": "universal-controversies-and-risk-90"
   },
   {
-    "id": "universal-privacy-and-security-91",
     "group": "Universal",
     "category": "Privacy and security",
     "text": "Can {brand} be trusted with personal data?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Privacy and security"
+    "suggestedTag": "Privacy and security",
+    "id": "universal-privacy-and-security-91"
   },
   {
-    "id": "universal-privacy-and-security-92",
     "group": "Universal",
     "category": "Privacy and security",
     "text": "What customer data does {brand} collect?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Privacy and security"
+    "suggestedTag": "Privacy and security",
+    "id": "universal-privacy-and-security-92"
   },
   {
-    "id": "universal-privacy-and-security-93",
     "group": "Universal",
     "category": "Privacy and security",
     "text": "Has {brand} had any privacy controversies?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Privacy and security"
+    "suggestedTag": "Privacy and security",
+    "id": "universal-privacy-and-security-93"
   },
   {
-    "id": "universal-privacy-and-security-94",
     "group": "Universal",
     "category": "Privacy and security",
     "text": "Has {brand} suffered a security breach?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Privacy and security"
+    "suggestedTag": "Privacy and security",
+    "id": "universal-privacy-and-security-94"
   },
   {
-    "id": "universal-privacy-and-security-95",
     "group": "Universal",
     "category": "Privacy and security",
     "text": "Does {brand} share customer data with third parties?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Privacy and security"
+    "suggestedTag": "Privacy and security",
+    "id": "universal-privacy-and-security-95"
   },
   {
-    "id": "universal-privacy-and-security-96",
     "group": "Universal",
     "category": "Privacy and security",
     "text": "How easy is it to delete personal data from {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Privacy and security"
+    "suggestedTag": "Privacy and security",
+    "id": "universal-privacy-and-security-96"
   },
   {
-    "id": "universal-privacy-and-security-97",
     "group": "Universal",
     "category": "Privacy and security",
     "text": "How secure are {brand}'s products or services?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Privacy and security"
+    "suggestedTag": "Privacy and security",
+    "id": "universal-privacy-and-security-97"
   },
   {
-    "id": "universal-legal-and-regulatory-reputation-98",
     "group": "Universal",
     "category": "Legal and regulatory reputation",
     "text": "Has {brand} faced any regulatory action?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Legal and regulatory reputation"
+    "suggestedTag": "Legal and regulatory reputation",
+    "id": "universal-legal-and-regulatory-reputation-98"
   },
   {
-    "id": "universal-legal-and-regulatory-reputation-99",
     "group": "Universal",
     "category": "Legal and regulatory reputation",
     "text": "Has {brand} been fined or sued?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Legal and regulatory reputation"
+    "suggestedTag": "Legal and regulatory reputation",
+    "id": "universal-legal-and-regulatory-reputation-99"
   },
   {
-    "id": "universal-legal-and-regulatory-reputation-100",
     "group": "Universal",
     "category": "Legal and regulatory reputation",
     "text": "Does {brand} comply with regulations in {country}?",
@@ -1001,70 +1000,70 @@
       "brand",
       "country"
     ],
-    "suggestedTag": "Legal and regulatory reputation"
+    "suggestedTag": "Legal and regulatory reputation",
+    "id": "universal-legal-and-regulatory-reputation-100"
   },
   {
-    "id": "universal-legal-and-regulatory-reputation-101",
     "group": "Universal",
     "category": "Legal and regulatory reputation",
     "text": "What legal controversies has {brand} faced?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Legal and regulatory reputation"
+    "suggestedTag": "Legal and regulatory reputation",
+    "id": "universal-legal-and-regulatory-reputation-101"
   },
   {
-    "id": "universal-legal-and-regulatory-reputation-102",
     "group": "Universal",
     "category": "Legal and regulatory reputation",
     "text": "How did {brand} respond to regulatory criticism?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Legal and regulatory reputation"
+    "suggestedTag": "Legal and regulatory reputation",
+    "id": "universal-legal-and-regulatory-reputation-102"
   },
   {
-    "id": "universal-crisis-response-103",
     "group": "Universal",
     "category": "Crisis response",
     "text": "Has {brand} taken responsibility for past mistakes?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Crisis response"
+    "suggestedTag": "Crisis response",
+    "id": "universal-crisis-response-103"
   },
   {
-    "id": "universal-crisis-response-104",
     "group": "Universal",
     "category": "Crisis response",
     "text": "Did {brand} compensate affected customers?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Crisis response"
+    "suggestedTag": "Crisis response",
+    "id": "universal-crisis-response-104"
   },
   {
-    "id": "universal-crisis-response-105",
     "group": "Universal",
     "category": "Crisis response",
     "text": "What changes did {brand} make after the incident?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Crisis response"
+    "suggestedTag": "Crisis response",
+    "id": "universal-crisis-response-105"
   },
   {
-    "id": "universal-crisis-response-106",
     "group": "Universal",
     "category": "Crisis response",
     "text": "Has public trust in {brand} recovered?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Crisis response"
+    "suggestedTag": "Crisis response",
+    "id": "universal-crisis-response-106"
   },
   {
-    "id": "universal-competitive-reputation-107",
     "group": "Universal",
     "category": "Competitive reputation",
     "text": "Which has a better reputation, {brand} or {competitor}?",
@@ -1072,10 +1071,10 @@
       "brand",
       "competitor"
     ],
-    "suggestedTag": "Competitive reputation"
+    "suggestedTag": "Competitive reputation",
+    "id": "universal-competitive-reputation-107"
   },
   {
-    "id": "universal-competitive-reputation-108",
     "group": "Universal",
     "category": "Competitive reputation",
     "text": "Is {brand} more trustworthy than {competitor}?",
@@ -1083,30 +1082,30 @@
       "brand",
       "competitor"
     ],
-    "suggestedTag": "Competitive reputation"
+    "suggestedTag": "Competitive reputation",
+    "id": "universal-competitive-reputation-108"
   },
   {
-    "id": "universal-competitive-reputation-109",
     "group": "Universal",
     "category": "Competitive reputation",
     "text": "How does {brand} compare with competitors on quality?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Competitive reputation"
+    "suggestedTag": "Competitive reputation",
+    "id": "universal-competitive-reputation-109"
   },
   {
-    "id": "universal-competitive-reputation-110",
     "group": "Universal",
     "category": "Competitive reputation",
     "text": "How does {brand} compare with competitors on customer service?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Competitive reputation"
+    "suggestedTag": "Competitive reputation",
+    "id": "universal-competitive-reputation-110"
   },
   {
-    "id": "universal-competitive-reputation-111",
     "group": "Universal",
     "category": "Competitive reputation",
     "text": "Is {brand} more ethical than other companies in {category}?",
@@ -1114,10 +1113,10 @@
       "brand",
       "category"
     ],
-    "suggestedTag": "Competitive reputation"
+    "suggestedTag": "Competitive reputation",
+    "id": "universal-competitive-reputation-111"
   },
   {
-    "id": "universal-competitive-reputation-112",
     "group": "Universal",
     "category": "Competitive reputation",
     "text": "What do customers prefer about {competitor} over {brand}?",
@@ -1125,20 +1124,20 @@
       "competitor",
       "brand"
     ],
-    "suggestedTag": "Competitive reputation"
+    "suggestedTag": "Competitive reputation",
+    "id": "universal-competitive-reputation-112"
   },
   {
-    "id": "universal-competitive-reputation-113",
     "group": "Universal",
     "category": "Competitive reputation",
     "text": "What are the best alternatives to {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Competitive reputation"
+    "suggestedTag": "Competitive reputation",
+    "id": "universal-competitive-reputation-113"
   },
   {
-    "id": "universal-competitive-reputation-114",
     "group": "Universal",
     "category": "Competitive reputation",
     "text": "Why would someone choose {brand} instead of {competitor}?",
@@ -1146,10 +1145,10 @@
       "brand",
       "competitor"
     ],
-    "suggestedTag": "Competitive reputation"
+    "suggestedTag": "Competitive reputation",
+    "id": "universal-competitive-reputation-114"
   },
   {
-    "id": "universal-location-and-audience-variants-115",
     "group": "Universal",
     "category": "Location and audience variants",
     "text": "What is the reputation of {brand} in {country}?",
@@ -1157,10 +1156,10 @@
       "brand",
       "country"
     ],
-    "suggestedTag": "Location and audience variants"
+    "suggestedTag": "Location and audience variants",
+    "id": "universal-location-and-audience-variants-115"
   },
   {
-    "id": "universal-location-and-audience-variants-116",
     "group": "Universal",
     "category": "Location and audience variants",
     "text": "Is {brand} trusted by customers in {country}?",
@@ -1168,10 +1167,10 @@
       "brand",
       "country"
     ],
-    "suggestedTag": "Location and audience variants"
+    "suggestedTag": "Location and audience variants",
+    "id": "universal-location-and-audience-variants-116"
   },
   {
-    "id": "universal-location-and-audience-variants-117",
     "group": "Universal",
     "category": "Location and audience variants",
     "text": "What complaints do customers in {country} have about {brand}?",
@@ -1179,10 +1178,10 @@
       "country",
       "brand"
     ],
-    "suggestedTag": "Location and audience variants"
+    "suggestedTag": "Location and audience variants",
+    "id": "universal-location-and-audience-variants-117"
   },
   {
-    "id": "universal-location-and-audience-variants-118",
     "group": "Universal",
     "category": "Location and audience variants",
     "text": "Is {brand} suitable for {audience}?",
@@ -1190,10 +1189,10 @@
       "brand",
       "audience"
     ],
-    "suggestedTag": "Location and audience variants"
+    "suggestedTag": "Location and audience variants",
+    "id": "universal-location-and-audience-variants-118"
   },
   {
-    "id": "universal-location-and-audience-variants-119",
     "group": "Universal",
     "category": "Location and audience variants",
     "text": "Is {brand} considered safe for {audience}?",
@@ -1201,10 +1200,10 @@
       "brand",
       "audience"
     ],
-    "suggestedTag": "Location and audience variants"
+    "suggestedTag": "Location and audience variants",
+    "id": "universal-location-and-audience-variants-119"
   },
   {
-    "id": "universal-location-and-audience-variants-120",
     "group": "Universal",
     "category": "Location and audience variants",
     "text": "How is {brand} perceived among {audience}?",
@@ -1212,10 +1211,10 @@
       "brand",
       "audience"
     ],
-    "suggestedTag": "Location and audience variants"
+    "suggestedTag": "Location and audience variants",
+    "id": "universal-location-and-audience-variants-120"
   },
   {
-    "id": "universal-location-and-audience-variants-121",
     "group": "Universal",
     "category": "Location and audience variants",
     "text": "Does {brand} have a different reputation in {country} than internationally?",
@@ -1223,480 +1222,380 @@
       "brand",
       "country"
     ],
-    "suggestedTag": "Location and audience variants"
+    "suggestedTag": "Location and audience variants",
+    "id": "universal-location-and-audience-variants-121"
   },
   {
-    "id": "industry-ecommerce-and-retail-122",
     "group": "Industry",
     "category": "Ecommerce and retail",
     "text": "Is {brand} a legitimate online store?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ecommerce and retail"
+    "suggestedTag": "Ecommerce and retail",
+    "id": "industry-ecommerce-and-retail-122"
   },
   {
-    "id": "industry-ecommerce-and-retail-123",
     "group": "Industry",
     "category": "Ecommerce and retail",
     "text": "Does {brand} sell authentic products?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ecommerce and retail"
+    "suggestedTag": "Ecommerce and retail",
+    "id": "industry-ecommerce-and-retail-123"
   },
   {
-    "id": "industry-ecommerce-and-retail-124",
     "group": "Industry",
     "category": "Ecommerce and retail",
     "text": "How reliable is delivery from {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ecommerce and retail"
+    "suggestedTag": "Ecommerce and retail",
+    "id": "industry-ecommerce-and-retail-124"
   },
   {
-    "id": "industry-ecommerce-and-retail-125",
     "group": "Industry",
     "category": "Ecommerce and retail",
     "text": "Does {brand} honour its return policy?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ecommerce and retail"
+    "suggestedTag": "Ecommerce and retail",
+    "id": "industry-ecommerce-and-retail-125"
   },
   {
-    "id": "industry-ecommerce-and-retail-126",
     "group": "Industry",
     "category": "Ecommerce and retail",
     "text": "What are the most common complaints about orders from {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ecommerce and retail"
+    "suggestedTag": "Ecommerce and retail",
+    "id": "industry-ecommerce-and-retail-126"
   },
   {
-    "id": "industry-ecommerce-and-retail-127",
     "group": "Industry",
     "category": "Ecommerce and retail",
     "text": "Does {brand} issue refunds promptly?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ecommerce and retail"
+    "suggestedTag": "Ecommerce and retail",
+    "id": "industry-ecommerce-and-retail-127"
   },
   {
-    "id": "industry-ecommerce-and-retail-128",
     "group": "Industry",
     "category": "Ecommerce and retail",
     "text": "Are product reviews on {brand} trustworthy?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ecommerce and retail"
+    "suggestedTag": "Ecommerce and retail",
+    "id": "industry-ecommerce-and-retail-128"
   },
   {
-    "id": "industry-ecommerce-and-retail-129",
     "group": "Industry",
     "category": "Ecommerce and retail",
     "text": "Does {brand} use misleading discounts?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ecommerce and retail"
+    "suggestedTag": "Ecommerce and retail",
+    "id": "industry-ecommerce-and-retail-129"
   },
   {
-    "id": "industry-ecommerce-and-retail-130",
     "group": "Industry",
     "category": "Ecommerce and retail",
     "text": "Are there counterfeit products on {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ecommerce and retail"
+    "suggestedTag": "Ecommerce and retail",
+    "id": "industry-ecommerce-and-retail-130"
   },
   {
-    "id": "industry-ecommerce-and-retail-131",
     "group": "Industry",
     "category": "Ecommerce and retail",
     "text": "Is it safe to enter payment details on {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Ecommerce and retail"
+    "suggestedTag": "Ecommerce and retail",
+    "id": "industry-ecommerce-and-retail-131"
   },
   {
-    "id": "industry-saas-and-technology-132",
     "group": "Industry",
     "category": "SaaS and technology",
     "text": "Is {brand} reliable for business use?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "SaaS and technology"
+    "suggestedTag": "SaaS and technology",
+    "id": "industry-saas-and-technology-132"
   },
   {
-    "id": "industry-saas-and-technology-133",
     "group": "Industry",
     "category": "SaaS and technology",
     "text": "How often does {brand} experience outages?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "SaaS and technology"
+    "suggestedTag": "SaaS and technology",
+    "id": "industry-saas-and-technology-133"
   },
   {
-    "id": "industry-saas-and-technology-134",
     "group": "Industry",
     "category": "SaaS and technology",
     "text": "Does {brand} lock customers into its platform?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "SaaS and technology"
+    "suggestedTag": "SaaS and technology",
+    "id": "industry-saas-and-technology-134"
   },
   {
-    "id": "industry-saas-and-technology-135",
     "group": "Industry",
     "category": "SaaS and technology",
     "text": "Is it easy to export data from {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "SaaS and technology"
+    "suggestedTag": "SaaS and technology",
+    "id": "industry-saas-and-technology-135"
   },
   {
-    "id": "industry-saas-and-technology-136",
     "group": "Industry",
     "category": "SaaS and technology",
     "text": "How responsive is {brand} to security vulnerabilities?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "SaaS and technology"
+    "suggestedTag": "SaaS and technology",
+    "id": "industry-saas-and-technology-136"
   },
   {
-    "id": "industry-saas-and-technology-137",
     "group": "Industry",
     "category": "SaaS and technology",
     "text": "Does {brand} unexpectedly increase prices?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "SaaS and technology"
+    "suggestedTag": "SaaS and technology",
+    "id": "industry-saas-and-technology-137"
   },
   {
-    "id": "industry-saas-and-technology-138",
     "group": "Industry",
     "category": "SaaS and technology",
     "text": "What do developers think about {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "SaaS and technology"
+    "suggestedTag": "SaaS and technology",
+    "id": "industry-saas-and-technology-138"
   },
   {
-    "id": "industry-saas-and-technology-139",
     "group": "Industry",
     "category": "SaaS and technology",
     "text": "Is {brand} suitable for enterprise customers?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "SaaS and technology"
+    "suggestedTag": "SaaS and technology",
+    "id": "industry-saas-and-technology-139"
   },
   {
-    "id": "industry-saas-and-technology-140",
     "group": "Industry",
     "category": "SaaS and technology",
     "text": "How reliable is {brand}'s customer support?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "SaaS and technology"
+    "suggestedTag": "SaaS and technology",
+    "id": "industry-saas-and-technology-140"
   },
   {
-    "id": "industry-saas-and-technology-141",
     "group": "Industry",
     "category": "SaaS and technology",
     "text": "What happens to customer data after cancelling {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "SaaS and technology"
+    "suggestedTag": "SaaS and technology",
+    "id": "industry-saas-and-technology-141"
   },
   {
-    "id": "industry-saas-and-technology-142",
-    "group": "Industry",
-    "category": "SaaS and technology",
-    "text": "{integration}",
-    "placeholders": [
-      "integration"
-    ],
-    "suggestedTag": "SaaS and technology"
-  },
-  {
-    "id": "industry-saas-and-technology-143",
-    "group": "Industry",
-    "category": "SaaS and technology",
-    "text": "{company_size}",
-    "placeholders": [
-      "company_size"
-    ],
-    "suggestedTag": "SaaS and technology"
-  },
-  {
-    "id": "industry-saas-and-technology-144",
-    "group": "Industry",
-    "category": "SaaS and technology",
-    "text": "{use_case}",
-    "placeholders": [
-      "use_case"
-    ],
-    "suggestedTag": "SaaS and technology"
-  },
-  {
-    "id": "industry-saas-and-technology-145",
-    "group": "Industry",
-    "category": "SaaS and technology",
-    "text": "{data_type}",
-    "placeholders": [
-      "data_type"
-    ],
-    "suggestedTag": "SaaS and technology"
-  },
-  {
-    "id": "industry-saas-and-technology-146",
-    "group": "Industry",
-    "category": "SaaS and technology",
-    "text": "{technical_requirement}",
-    "placeholders": [
-      "technical_requirement"
-    ],
-    "suggestedTag": "SaaS and technology"
-  },
-  {
-    "id": "industry-fintech-banking-and-payments-147",
     "group": "Industry",
     "category": "Fintech, banking, and payments",
     "text": "Is {brand} a regulated financial company?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fintech, banking, and payments"
+    "suggestedTag": "Fintech, banking, and payments",
+    "id": "industry-fintech-banking-and-payments-142"
   },
   {
-    "id": "industry-fintech-banking-and-payments-148",
     "group": "Industry",
     "category": "Fintech, banking, and payments",
     "text": "Is money held with {brand} protected?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fintech, banking, and payments"
+    "suggestedTag": "Fintech, banking, and payments",
+    "id": "industry-fintech-banking-and-payments-143"
   },
   {
-    "id": "industry-fintech-banking-and-payments-149",
     "group": "Industry",
     "category": "Fintech, banking, and payments",
     "text": "Are there hidden fees when using {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fintech, banking, and payments"
+    "suggestedTag": "Fintech, banking, and payments",
+    "id": "industry-fintech-banking-and-payments-144"
   },
   {
-    "id": "industry-fintech-banking-and-payments-150",
     "group": "Industry",
     "category": "Fintech, banking, and payments",
     "text": "Does {brand} freeze customer accounts?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fintech, banking, and payments"
+    "suggestedTag": "Fintech, banking, and payments",
+    "id": "industry-fintech-banking-and-payments-145"
   },
   {
-    "id": "industry-fintech-banking-and-payments-151",
     "group": "Industry",
     "category": "Fintech, banking, and payments",
     "text": "How long does {brand} take to resolve payment disputes?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fintech, banking, and payments"
+    "suggestedTag": "Fintech, banking, and payments",
+    "id": "industry-fintech-banking-and-payments-146"
   },
   {
-    "id": "industry-fintech-banking-and-payments-152",
     "group": "Industry",
     "category": "Fintech, banking, and payments",
     "text": "Is {brand} safe for international payments?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fintech, banking, and payments"
+    "suggestedTag": "Fintech, banking, and payments",
+    "id": "industry-fintech-banking-and-payments-147"
   },
   {
-    "id": "industry-fintech-banking-and-payments-153",
     "group": "Industry",
     "category": "Fintech, banking, and payments",
     "text": "What complaints do merchants have about {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fintech, banking, and payments"
+    "suggestedTag": "Fintech, banking, and payments",
+    "id": "industry-fintech-banking-and-payments-148"
   },
   {
-    "id": "industry-fintech-banking-and-payments-154",
     "group": "Industry",
     "category": "Fintech, banking, and payments",
     "text": "How reliable are payouts from {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fintech, banking, and payments"
+    "suggestedTag": "Fintech, banking, and payments",
+    "id": "industry-fintech-banking-and-payments-149"
   },
   {
-    "id": "industry-fintech-banking-and-payments-155",
     "group": "Industry",
     "category": "Fintech, banking, and payments",
     "text": "Has {brand} experienced fraud or security incidents?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fintech, banking, and payments"
+    "suggestedTag": "Fintech, banking, and payments",
+    "id": "industry-fintech-banking-and-payments-150"
   },
   {
-    "id": "industry-fintech-banking-and-payments-156",
     "group": "Industry",
     "category": "Fintech, banking, and payments",
     "text": "How transparent is {brand} about exchange rates?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fintech, banking, and payments"
+    "suggestedTag": "Fintech, banking, and payments",
+    "id": "industry-fintech-banking-and-payments-151"
   },
   {
-    "id": "industry-fintech-banking-and-payments-157",
-    "group": "Industry",
-    "category": "Fintech, banking, and payments",
-    "text": "{payment_method}",
-    "placeholders": [
-      "payment_method"
-    ],
-    "suggestedTag": "Fintech, banking, and payments"
-  },
-  {
-    "id": "industry-fintech-banking-and-payments-158",
-    "group": "Industry",
-    "category": "Fintech, banking, and payments",
-    "text": "{currency}",
-    "placeholders": [
-      "currency"
-    ],
-    "suggestedTag": "Fintech, banking, and payments"
-  },
-  {
-    "id": "industry-fintech-banking-and-payments-159",
-    "group": "Industry",
-    "category": "Fintech, banking, and payments",
-    "text": "{merchant_type}",
-    "placeholders": [
-      "merchant_type"
-    ],
-    "suggestedTag": "Fintech, banking, and payments"
-  },
-  {
-    "id": "industry-fintech-banking-and-payments-160",
-    "group": "Industry",
-    "category": "Fintech, banking, and payments",
-    "text": "{transaction_type}",
-    "placeholders": [
-      "transaction_type"
-    ],
-    "suggestedTag": "Fintech, banking, and payments"
-  },
-  {
-    "id": "industry-fintech-banking-and-payments-161",
-    "group": "Industry",
-    "category": "Fintech, banking, and payments",
-    "text": "{country}",
-    "placeholders": [
-      "country"
-    ],
-    "suggestedTag": "Fintech, banking, and payments"
-  },
-  {
-    "id": "industry-travel-and-hospitality-162",
     "group": "Industry",
     "category": "Travel and hospitality",
     "text": "Is {brand} reliable for booking travel?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Travel and hospitality"
+    "suggestedTag": "Travel and hospitality",
+    "id": "industry-travel-and-hospitality-152"
   },
   {
-    "id": "industry-travel-and-hospitality-163",
     "group": "Industry",
     "category": "Travel and hospitality",
     "text": "Does {brand} honour confirmed reservations?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Travel and hospitality"
+    "suggestedTag": "Travel and hospitality",
+    "id": "industry-travel-and-hospitality-153"
   },
   {
-    "id": "industry-travel-and-hospitality-164",
     "group": "Industry",
     "category": "Travel and hospitality",
     "text": "How does {brand} handle cancellations?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Travel and hospitality"
+    "suggestedTag": "Travel and hospitality",
+    "id": "industry-travel-and-hospitality-154"
   },
   {
-    "id": "industry-travel-and-hospitality-165",
     "group": "Industry",
     "category": "Travel and hospitality",
     "text": "Does {brand} provide refunds for disrupted trips?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Travel and hospitality"
+    "suggestedTag": "Travel and hospitality",
+    "id": "industry-travel-and-hospitality-155"
   },
   {
-    "id": "industry-travel-and-hospitality-166",
     "group": "Industry",
     "category": "Travel and hospitality",
     "text": "Are there hidden fees when booking with {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Travel and hospitality"
+    "suggestedTag": "Travel and hospitality",
+    "id": "industry-travel-and-hospitality-156"
   },
   {
-    "id": "industry-travel-and-hospitality-167",
     "group": "Industry",
     "category": "Travel and hospitality",
     "text": "How does {brand} respond when accommodation differs from its listing?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Travel and hospitality"
+    "suggestedTag": "Travel and hospitality",
+    "id": "industry-travel-and-hospitality-157"
   },
   {
-    "id": "industry-travel-and-hospitality-168",
     "group": "Industry",
     "category": "Travel and hospitality",
     "text": "Does {brand} protect customers from fraudulent listings?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Travel and hospitality"
+    "suggestedTag": "Travel and hospitality",
+    "id": "industry-travel-and-hospitality-158"
   },
   {
-    "id": "industry-travel-and-hospitality-169",
     "group": "Industry",
     "category": "Travel and hospitality",
     "text": "Is {brand} reliable for travellers in {country}?",
@@ -1704,100 +1603,60 @@
       "brand",
       "country"
     ],
-    "suggestedTag": "Travel and hospitality"
+    "suggestedTag": "Travel and hospitality",
+    "id": "industry-travel-and-hospitality-159"
   },
   {
-    "id": "industry-travel-and-hospitality-170",
-    "group": "Industry",
-    "category": "Travel and hospitality",
-    "text": "{destination}",
-    "placeholders": [
-      "destination"
-    ],
-    "suggestedTag": "Travel and hospitality"
-  },
-  {
-    "id": "industry-travel-and-hospitality-171",
-    "group": "Industry",
-    "category": "Travel and hospitality",
-    "text": "{traveller_type}",
-    "placeholders": [
-      "traveller_type"
-    ],
-    "suggestedTag": "Travel and hospitality"
-  },
-  {
-    "id": "industry-travel-and-hospitality-172",
-    "group": "Industry",
-    "category": "Travel and hospitality",
-    "text": "{accommodation_type}",
-    "placeholders": [
-      "accommodation_type"
-    ],
-    "suggestedTag": "Travel and hospitality"
-  },
-  {
-    "id": "industry-travel-and-hospitality-173",
-    "group": "Industry",
-    "category": "Travel and hospitality",
-    "text": "{booking_type}",
-    "placeholders": [
-      "booking_type"
-    ],
-    "suggestedTag": "Travel and hospitality"
-  },
-  {
-    "id": "industry-automotive-174",
     "group": "Industry",
     "category": "Automotive",
     "text": "Is {brand} known for reliable vehicles?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Automotive"
+    "suggestedTag": "Automotive",
+    "id": "industry-automotive-160"
   },
   {
-    "id": "industry-automotive-175",
     "group": "Industry",
     "category": "Automotive",
     "text": "What problems are commonly reported with {brand} vehicles?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Automotive"
+    "suggestedTag": "Automotive",
+    "id": "industry-automotive-161"
   },
   {
-    "id": "industry-automotive-176",
     "group": "Industry",
     "category": "Automotive",
     "text": "How does {brand} handle recalls?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Automotive"
+    "suggestedTag": "Automotive",
+    "id": "industry-automotive-162"
   },
   {
-    "id": "industry-automotive-177",
     "group": "Industry",
     "category": "Automotive",
     "text": "Is {brand} expensive to maintain?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Automotive"
+    "suggestedTag": "Automotive",
+    "id": "industry-automotive-163"
   },
   {
-    "id": "industry-automotive-178",
     "group": "Industry",
     "category": "Automotive",
     "text": "Does {brand} honour its warranty?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Automotive"
+    "suggestedTag": "Automotive",
+    "id": "industry-automotive-164"
   },
   {
-    "id": "industry-automotive-179",
     "group": "Industry",
     "category": "Automotive",
     "text": "How reliable is {model} after {number} years?",
@@ -1805,20 +1664,20 @@
       "model",
       "number"
     ],
-    "suggestedTag": "Automotive"
+    "suggestedTag": "Automotive",
+    "id": "industry-automotive-165"
   },
   {
-    "id": "industry-automotive-180",
     "group": "Industry",
     "category": "Automotive",
     "text": "Is {brand} transparent about vehicle defects?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Automotive"
+    "suggestedTag": "Automotive",
+    "id": "industry-automotive-166"
   },
   {
-    "id": "industry-automotive-181",
     "group": "Industry",
     "category": "Automotive",
     "text": "How does {brand} compare with {competitor} for long-term reliability?",
@@ -1826,120 +1685,70 @@
       "brand",
       "competitor"
     ],
-    "suggestedTag": "Automotive"
+    "suggestedTag": "Automotive",
+    "id": "industry-automotive-167"
   },
   {
-    "id": "industry-automotive-182",
-    "group": "Industry",
-    "category": "Automotive",
-    "text": "{model}",
-    "placeholders": [
-      "model"
-    ],
-    "suggestedTag": "Automotive"
-  },
-  {
-    "id": "industry-automotive-183",
-    "group": "Industry",
-    "category": "Automotive",
-    "text": "{model_year}",
-    "placeholders": [
-      "model_year"
-    ],
-    "suggestedTag": "Automotive"
-  },
-  {
-    "id": "industry-automotive-184",
-    "group": "Industry",
-    "category": "Automotive",
-    "text": "{vehicle_type}",
-    "placeholders": [
-      "vehicle_type"
-    ],
-    "suggestedTag": "Automotive"
-  },
-  {
-    "id": "industry-automotive-185",
-    "group": "Industry",
-    "category": "Automotive",
-    "text": "{engine_type}",
-    "placeholders": [
-      "engine_type"
-    ],
-    "suggestedTag": "Automotive"
-  },
-  {
-    "id": "industry-automotive-186",
-    "group": "Industry",
-    "category": "Automotive",
-    "text": "{ownership_period}",
-    "placeholders": [
-      "ownership_period"
-    ],
-    "suggestedTag": "Automotive"
-  },
-  {
-    "id": "industry-healthcare-and-wellness-187",
     "group": "Industry",
     "category": "Healthcare and wellness",
     "text": "Is {brand} considered credible by healthcare professionals?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Healthcare and wellness"
+    "suggestedTag": "Healthcare and wellness",
+    "id": "industry-healthcare-and-wellness-168"
   },
   {
-    "id": "industry-healthcare-and-wellness-188",
     "group": "Industry",
     "category": "Healthcare and wellness",
     "text": "Are {brand}'s health claims supported by evidence?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Healthcare and wellness"
+    "suggestedTag": "Healthcare and wellness",
+    "id": "industry-healthcare-and-wellness-169"
   },
   {
-    "id": "industry-healthcare-and-wellness-189",
     "group": "Industry",
     "category": "Healthcare and wellness",
     "text": "Has {brand} received warnings from health authorities?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Healthcare and wellness"
+    "suggestedTag": "Healthcare and wellness",
+    "id": "industry-healthcare-and-wellness-170"
   },
   {
-    "id": "industry-healthcare-and-wellness-190",
     "group": "Industry",
     "category": "Healthcare and wellness",
     "text": "Are there safety concerns associated with {product}?",
     "placeholders": [
       "product"
     ],
-    "suggestedTag": "Healthcare and wellness"
+    "suggestedTag": "Healthcare and wellness",
+    "id": "industry-healthcare-and-wellness-171"
   },
   {
-    "id": "industry-healthcare-and-wellness-191",
     "group": "Industry",
     "category": "Healthcare and wellness",
     "text": "How transparent is {brand} about ingredients and side effects?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Healthcare and wellness"
+    "suggestedTag": "Healthcare and wellness",
+    "id": "industry-healthcare-and-wellness-172"
   },
   {
-    "id": "industry-healthcare-and-wellness-192",
     "group": "Industry",
     "category": "Healthcare and wellness",
     "text": "Has {brand} been accused of making misleading health claims?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Healthcare and wellness"
+    "suggestedTag": "Healthcare and wellness",
+    "id": "industry-healthcare-and-wellness-173"
   },
   {
-    "id": "industry-healthcare-and-wellness-193",
     "group": "Industry",
     "category": "Healthcare and wellness",
     "text": "Does {brand} clearly disclose who should not use {product}?",
@@ -1947,20 +1756,20 @@
       "brand",
       "product"
     ],
-    "suggestedTag": "Healthcare and wellness"
+    "suggestedTag": "Healthcare and wellness",
+    "id": "industry-healthcare-and-wellness-174"
   },
   {
-    "id": "industry-healthcare-and-wellness-194",
     "group": "Industry",
     "category": "Healthcare and wellness",
     "text": "What verified complaints have been reported about {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Healthcare and wellness"
+    "suggestedTag": "Healthcare and wellness",
+    "id": "industry-healthcare-and-wellness-175"
   },
   {
-    "id": "industry-healthcare-and-wellness-195",
     "group": "Industry",
     "category": "Healthcare and wellness",
     "text": "Is {brand} licensed or certified in {country}?",
@@ -1968,140 +1777,90 @@
       "brand",
       "country"
     ],
-    "suggestedTag": "Healthcare and wellness"
+    "suggestedTag": "Healthcare and wellness",
+    "id": "industry-healthcare-and-wellness-176"
   },
   {
-    "id": "industry-healthcare-and-wellness-196",
     "group": "Industry",
     "category": "Healthcare and wellness",
     "text": "How does {brand} handle adverse-event reports?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Healthcare and wellness"
+    "suggestedTag": "Healthcare and wellness",
+    "id": "industry-healthcare-and-wellness-177"
   },
   {
-    "id": "industry-healthcare-and-wellness-197",
-    "group": "Industry",
-    "category": "Healthcare and wellness",
-    "text": "{product}",
-    "placeholders": [
-      "product"
-    ],
-    "suggestedTag": "Healthcare and wellness"
-  },
-  {
-    "id": "industry-healthcare-and-wellness-198",
-    "group": "Industry",
-    "category": "Healthcare and wellness",
-    "text": "{treatment}",
-    "placeholders": [
-      "treatment"
-    ],
-    "suggestedTag": "Healthcare and wellness"
-  },
-  {
-    "id": "industry-healthcare-and-wellness-199",
-    "group": "Industry",
-    "category": "Healthcare and wellness",
-    "text": "{condition}",
-    "placeholders": [
-      "condition"
-    ],
-    "suggestedTag": "Healthcare and wellness"
-  },
-  {
-    "id": "industry-healthcare-and-wellness-200",
-    "group": "Industry",
-    "category": "Healthcare and wellness",
-    "text": "{ingredient}",
-    "placeholders": [
-      "ingredient"
-    ],
-    "suggestedTag": "Healthcare and wellness"
-  },
-  {
-    "id": "industry-healthcare-and-wellness-201",
-    "group": "Industry",
-    "category": "Healthcare and wellness",
-    "text": "{regulator}",
-    "placeholders": [
-      "regulator"
-    ],
-    "suggestedTag": "Healthcare and wellness"
-  },
-  {
-    "id": "industry-food-and-beverage-202",
     "group": "Industry",
     "category": "Food and beverage",
     "text": "Is {brand} transparent about its ingredients?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Food and beverage"
+    "suggestedTag": "Food and beverage",
+    "id": "industry-food-and-beverage-178"
   },
   {
-    "id": "industry-food-and-beverage-203",
     "group": "Industry",
     "category": "Food and beverage",
     "text": "Has {brand} had any product recalls?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Food and beverage"
+    "suggestedTag": "Food and beverage",
+    "id": "industry-food-and-beverage-179"
   },
   {
-    "id": "industry-food-and-beverage-204",
     "group": "Industry",
     "category": "Food and beverage",
     "text": "Are there contamination concerns involving {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Food and beverage"
+    "suggestedTag": "Food and beverage",
+    "id": "industry-food-and-beverage-180"
   },
   {
-    "id": "industry-food-and-beverage-205",
     "group": "Industry",
     "category": "Food and beverage",
     "text": "Does {brand} accurately label allergens?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Food and beverage"
+    "suggestedTag": "Food and beverage",
+    "id": "industry-food-and-beverage-181"
   },
   {
-    "id": "industry-food-and-beverage-206",
     "group": "Industry",
     "category": "Food and beverage",
     "text": "Are {brand}'s nutritional claims trustworthy?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Food and beverage"
+    "suggestedTag": "Food and beverage",
+    "id": "industry-food-and-beverage-182"
   },
   {
-    "id": "industry-food-and-beverage-207",
     "group": "Industry",
     "category": "Food and beverage",
     "text": "How does {brand} source its ingredients?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Food and beverage"
+    "suggestedTag": "Food and beverage",
+    "id": "industry-food-and-beverage-183"
   },
   {
-    "id": "industry-food-and-beverage-208",
     "group": "Industry",
     "category": "Food and beverage",
     "text": "Has {brand} been criticised for misleading packaging?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Food and beverage"
+    "suggestedTag": "Food and beverage",
+    "id": "industry-food-and-beverage-184"
   },
   {
-    "id": "industry-food-and-beverage-209",
     "group": "Industry",
     "category": "Food and beverage",
     "text": "Is {brand} suitable for people with {dietary_requirement}?",
@@ -2109,200 +1868,130 @@
       "brand",
       "dietary_requirement"
     ],
-    "suggestedTag": "Food and beverage"
+    "suggestedTag": "Food and beverage",
+    "id": "industry-food-and-beverage-185"
   },
   {
-    "id": "industry-food-and-beverage-210",
     "group": "Industry",
     "category": "Food and beverage",
     "text": "How does {brand} respond to food safety incidents?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Food and beverage"
+    "suggestedTag": "Food and beverage",
+    "id": "industry-food-and-beverage-186"
   },
   {
-    "id": "industry-food-and-beverage-211",
     "group": "Industry",
     "category": "Food and beverage",
     "text": "Is {brand} genuinely organic, natural, or sustainable?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Food and beverage"
+    "suggestedTag": "Food and beverage",
+    "id": "industry-food-and-beverage-187"
   },
   {
-    "id": "industry-food-and-beverage-212",
-    "group": "Industry",
-    "category": "Food and beverage",
-    "text": "{diet}",
-    "placeholders": [
-      "diet"
-    ],
-    "suggestedTag": "Food and beverage"
-  },
-  {
-    "id": "industry-food-and-beverage-213",
-    "group": "Industry",
-    "category": "Food and beverage",
-    "text": "{allergen}",
-    "placeholders": [
-      "allergen"
-    ],
-    "suggestedTag": "Food and beverage"
-  },
-  {
-    "id": "industry-food-and-beverage-214",
-    "group": "Industry",
-    "category": "Food and beverage",
-    "text": "{certification}",
-    "placeholders": [
-      "certification"
-    ],
-    "suggestedTag": "Food and beverage"
-  },
-  {
-    "id": "industry-food-and-beverage-215",
-    "group": "Industry",
-    "category": "Food and beverage",
-    "text": "{product_type}",
-    "placeholders": [
-      "product_type"
-    ],
-    "suggestedTag": "Food and beverage"
-  },
-  {
-    "id": "industry-fashion-and-beauty-216",
     "group": "Industry",
     "category": "Fashion and beauty",
     "text": "Is {brand} considered fast fashion?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fashion and beauty"
+    "suggestedTag": "Fashion and beauty",
+    "id": "industry-fashion-and-beauty-188"
   },
   {
-    "id": "industry-fashion-and-beauty-217",
     "group": "Industry",
     "category": "Fashion and beauty",
     "text": "How ethical is {brand}'s supply chain?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fashion and beauty"
+    "suggestedTag": "Fashion and beauty",
+    "id": "industry-fashion-and-beauty-189"
   },
   {
-    "id": "industry-fashion-and-beauty-218",
     "group": "Industry",
     "category": "Fashion and beauty",
     "text": "Does {brand} use misleading sustainability claims?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fashion and beauty"
+    "suggestedTag": "Fashion and beauty",
+    "id": "industry-fashion-and-beauty-190"
   },
   {
-    "id": "industry-fashion-and-beauty-219",
     "group": "Industry",
     "category": "Fashion and beauty",
     "text": "How inclusive is {brand}'s product range?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fashion and beauty"
+    "suggestedTag": "Fashion and beauty",
+    "id": "industry-fashion-and-beauty-191"
   },
   {
-    "id": "industry-fashion-and-beauty-220",
     "group": "Industry",
     "category": "Fashion and beauty",
     "text": "Are {brand} products good quality for the price?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fashion and beauty"
+    "suggestedTag": "Fashion and beauty",
+    "id": "industry-fashion-and-beauty-192"
   },
   {
-    "id": "industry-fashion-and-beauty-221",
     "group": "Industry",
     "category": "Fashion and beauty",
     "text": "Has {brand} been linked to unsafe ingredients?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fashion and beauty"
+    "suggestedTag": "Fashion and beauty",
+    "id": "industry-fashion-and-beauty-193"
   },
   {
-    "id": "industry-fashion-and-beauty-222",
     "group": "Industry",
     "category": "Fashion and beauty",
     "text": "Does {brand} test products on animals?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fashion and beauty"
+    "suggestedTag": "Fashion and beauty",
+    "id": "industry-fashion-and-beauty-194"
   },
   {
-    "id": "industry-fashion-and-beauty-223",
     "group": "Industry",
     "category": "Fashion and beauty",
     "text": "How does {brand} treat factory workers?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fashion and beauty"
+    "suggestedTag": "Fashion and beauty",
+    "id": "industry-fashion-and-beauty-195"
   },
   {
-    "id": "industry-fashion-and-beauty-224",
     "group": "Industry",
     "category": "Fashion and beauty",
     "text": "Does {brand} handle returns fairly?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fashion and beauty"
+    "suggestedTag": "Fashion and beauty",
+    "id": "industry-fashion-and-beauty-196"
   },
   {
-    "id": "industry-fashion-and-beauty-225",
     "group": "Industry",
     "category": "Fashion and beauty",
     "text": "What controversies has {brand} faced regarding advertising or representation?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Fashion and beauty"
+    "suggestedTag": "Fashion and beauty",
+    "id": "industry-fashion-and-beauty-197"
   },
   {
-    "id": "industry-fashion-and-beauty-226",
-    "group": "Industry",
-    "category": "Fashion and beauty",
-    "text": "{material}",
-    "placeholders": [
-      "material"
-    ],
-    "suggestedTag": "Fashion and beauty"
-  },
-  {
-    "id": "industry-fashion-and-beauty-227",
-    "group": "Industry",
-    "category": "Fashion and beauty",
-    "text": "{product_line}",
-    "placeholders": [
-      "product_line"
-    ],
-    "suggestedTag": "Fashion and beauty"
-  },
-  {
-    "id": "industry-fashion-and-beauty-228",
-    "group": "Industry",
-    "category": "Fashion and beauty",
-    "text": "{size_range}",
-    "placeholders": [
-      "size_range"
-    ],
-    "suggestedTag": "Fashion and beauty"
-  },
-  {
-    "id": "industry-telecom-and-internet-providers-229",
     "group": "Industry",
     "category": "Telecom and internet providers",
     "text": "Is {brand}'s network reliable in {location}?",
@@ -2310,80 +1999,80 @@
       "brand",
       "location"
     ],
-    "suggestedTag": "Telecom and internet providers"
+    "suggestedTag": "Telecom and internet providers",
+    "id": "industry-telecom-and-internet-providers-198"
   },
   {
-    "id": "industry-telecom-and-internet-providers-230",
     "group": "Industry",
     "category": "Telecom and internet providers",
     "text": "Does {brand} deliver the advertised internet speed?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Telecom and internet providers"
+    "suggestedTag": "Telecom and internet providers",
+    "id": "industry-telecom-and-internet-providers-199"
   },
   {
-    "id": "industry-telecom-and-internet-providers-231",
     "group": "Industry",
     "category": "Telecom and internet providers",
     "text": "Are there hidden charges in {brand} contracts?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Telecom and internet providers"
+    "suggestedTag": "Telecom and internet providers",
+    "id": "industry-telecom-and-internet-providers-200"
   },
   {
-    "id": "industry-telecom-and-internet-providers-232",
     "group": "Industry",
     "category": "Telecom and internet providers",
     "text": "Is it difficult to cancel a contract with {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Telecom and internet providers"
+    "suggestedTag": "Telecom and internet providers",
+    "id": "industry-telecom-and-internet-providers-201"
   },
   {
-    "id": "industry-telecom-and-internet-providers-233",
     "group": "Industry",
     "category": "Telecom and internet providers",
     "text": "How good is {brand}'s customer support?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Telecom and internet providers"
+    "suggestedTag": "Telecom and internet providers",
+    "id": "industry-telecom-and-internet-providers-202"
   },
   {
-    "id": "industry-telecom-and-internet-providers-234",
     "group": "Industry",
     "category": "Telecom and internet providers",
     "text": "Does {brand} frequently increase prices?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Telecom and internet providers"
+    "suggestedTag": "Telecom and internet providers",
+    "id": "industry-telecom-and-internet-providers-203"
   },
   {
-    "id": "industry-telecom-and-internet-providers-235",
     "group": "Industry",
     "category": "Telecom and internet providers",
     "text": "How does {brand} handle service outages?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Telecom and internet providers"
+    "suggestedTag": "Telecom and internet providers",
+    "id": "industry-telecom-and-internet-providers-204"
   },
   {
-    "id": "industry-telecom-and-internet-providers-236",
     "group": "Industry",
     "category": "Telecom and internet providers",
     "text": "Is {brand} transparent about data limits?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Telecom and internet providers"
+    "suggestedTag": "Telecom and internet providers",
+    "id": "industry-telecom-and-internet-providers-205"
   },
   {
-    "id": "industry-telecom-and-internet-providers-237",
     "group": "Industry",
     "category": "Telecom and internet providers",
     "text": "How does {brand} compare with {competitor} in {location}?",
@@ -2392,80 +2081,80 @@
       "competitor",
       "location"
     ],
-    "suggestedTag": "Telecom and internet providers"
+    "suggestedTag": "Telecom and internet providers",
+    "id": "industry-telecom-and-internet-providers-206"
   },
   {
-    "id": "industry-insurance-238",
     "group": "Industry",
     "category": "Insurance",
     "text": "Does {brand} pay valid claims reliably?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Insurance"
+    "suggestedTag": "Insurance",
+    "id": "industry-insurance-207"
   },
   {
-    "id": "industry-insurance-239",
     "group": "Industry",
     "category": "Insurance",
     "text": "How long does {brand} take to process claims?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Insurance"
+    "suggestedTag": "Insurance",
+    "id": "industry-insurance-208"
   },
   {
-    "id": "industry-insurance-240",
     "group": "Industry",
     "category": "Insurance",
     "text": "Does {brand} clearly explain policy exclusions?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Insurance"
+    "suggestedTag": "Insurance",
+    "id": "industry-insurance-209"
   },
   {
-    "id": "industry-insurance-241",
     "group": "Industry",
     "category": "Insurance",
     "text": "Has {brand} been accused of unfairly rejecting claims?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Insurance"
+    "suggestedTag": "Insurance",
+    "id": "industry-insurance-210"
   },
   {
-    "id": "industry-insurance-242",
     "group": "Industry",
     "category": "Insurance",
     "text": "How responsive is {brand} during emergencies?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Insurance"
+    "suggestedTag": "Insurance",
+    "id": "industry-insurance-211"
   },
   {
-    "id": "industry-insurance-243",
     "group": "Industry",
     "category": "Insurance",
     "text": "Is {brand} financially stable?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Insurance"
+    "suggestedTag": "Insurance",
+    "id": "industry-insurance-212"
   },
   {
-    "id": "industry-insurance-244",
     "group": "Industry",
     "category": "Insurance",
     "text": "How easy is it to cancel a policy with {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Insurance"
+    "suggestedTag": "Insurance",
+    "id": "industry-insurance-213"
   },
   {
-    "id": "industry-insurance-245",
     "group": "Industry",
     "category": "Insurance",
     "text": "How does {brand} compare with {competitor} for claim satisfaction?",
@@ -2473,220 +2162,220 @@
       "brand",
       "competitor"
     ],
-    "suggestedTag": "Insurance"
+    "suggestedTag": "Insurance",
+    "id": "industry-insurance-214"
   },
   {
-    "id": "industry-education-and-online-courses-246",
     "group": "Industry",
     "category": "Education and online courses",
     "text": "Is {brand} a credible education provider?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Education and online courses"
+    "suggestedTag": "Education and online courses",
+    "id": "industry-education-and-online-courses-215"
   },
   {
-    "id": "industry-education-and-online-courses-247",
     "group": "Industry",
     "category": "Education and online courses",
     "text": "Are qualifications from {brand} recognised?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Education and online courses"
+    "suggestedTag": "Education and online courses",
+    "id": "industry-education-and-online-courses-216"
   },
   {
-    "id": "industry-education-and-online-courses-248",
     "group": "Industry",
     "category": "Education and online courses",
     "text": "Does {brand} make realistic employment claims?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Education and online courses"
+    "suggestedTag": "Education and online courses",
+    "id": "industry-education-and-online-courses-217"
   },
   {
-    "id": "industry-education-and-online-courses-249",
     "group": "Industry",
     "category": "Education and online courses",
     "text": "Are instructors on {brand} appropriately qualified?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Education and online courses"
+    "suggestedTag": "Education and online courses",
+    "id": "industry-education-and-online-courses-218"
   },
   {
-    "id": "industry-education-and-online-courses-250",
     "group": "Industry",
     "category": "Education and online courses",
     "text": "Is {brand} worth the tuition cost?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Education and online courses"
+    "suggestedTag": "Education and online courses",
+    "id": "industry-education-and-online-courses-219"
   },
   {
-    "id": "industry-education-and-online-courses-251",
     "group": "Industry",
     "category": "Education and online courses",
     "text": "Does {brand} publish reliable completion and employment statistics?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Education and online courses"
+    "suggestedTag": "Education and online courses",
+    "id": "industry-education-and-online-courses-220"
   },
   {
-    "id": "industry-education-and-online-courses-252",
     "group": "Industry",
     "category": "Education and online courses",
     "text": "Has {brand} been criticised for misleading marketing?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Education and online courses"
+    "suggestedTag": "Education and online courses",
+    "id": "industry-education-and-online-courses-221"
   },
   {
-    "id": "industry-marketplaces-and-gig-platforms-253",
     "group": "Industry",
     "category": "Marketplaces and gig platforms",
     "text": "Does {brand} protect buyers from scams?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Marketplaces and gig platforms"
+    "suggestedTag": "Marketplaces and gig platforms",
+    "id": "industry-marketplaces-and-gig-platforms-222"
   },
   {
-    "id": "industry-marketplaces-and-gig-platforms-254",
     "group": "Industry",
     "category": "Marketplaces and gig platforms",
     "text": "How does {brand} verify sellers or service providers?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Marketplaces and gig platforms"
+    "suggestedTag": "Marketplaces and gig platforms",
+    "id": "industry-marketplaces-and-gig-platforms-223"
   },
   {
-    "id": "industry-marketplaces-and-gig-platforms-255",
     "group": "Industry",
     "category": "Marketplaces and gig platforms",
     "text": "Does {brand} resolve disputes fairly?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Marketplaces and gig platforms"
+    "suggestedTag": "Marketplaces and gig platforms",
+    "id": "industry-marketplaces-and-gig-platforms-224"
   },
   {
-    "id": "industry-marketplaces-and-gig-platforms-256",
     "group": "Industry",
     "category": "Marketplaces and gig platforms",
     "text": "Are reviews on {brand} trustworthy?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Marketplaces and gig platforms"
+    "suggestedTag": "Marketplaces and gig platforms",
+    "id": "industry-marketplaces-and-gig-platforms-225"
   },
   {
-    "id": "industry-marketplaces-and-gig-platforms-257",
     "group": "Industry",
     "category": "Marketplaces and gig platforms",
     "text": "How does {brand} treat workers or contractors?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Marketplaces and gig platforms"
+    "suggestedTag": "Marketplaces and gig platforms",
+    "id": "industry-marketplaces-and-gig-platforms-226"
   },
   {
-    "id": "industry-marketplaces-and-gig-platforms-258",
     "group": "Industry",
     "category": "Marketplaces and gig platforms",
     "text": "Does {brand} remove fraudulent listings quickly?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Marketplaces and gig platforms"
+    "suggestedTag": "Marketplaces and gig platforms",
+    "id": "industry-marketplaces-and-gig-platforms-227"
   },
   {
-    "id": "industry-marketplaces-and-gig-platforms-259",
     "group": "Industry",
     "category": "Marketplaces and gig platforms",
     "text": "Has {brand} been criticised for unfair account suspensions?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Marketplaces and gig platforms"
+    "suggestedTag": "Marketplaces and gig platforms",
+    "id": "industry-marketplaces-and-gig-platforms-228"
   },
   {
-    "id": "industry-marketplaces-and-gig-platforms-260",
     "group": "Industry",
     "category": "Marketplaces and gig platforms",
     "text": "Is {brand} safe for high-value transactions?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Marketplaces and gig platforms"
+    "suggestedTag": "Marketplaces and gig platforms",
+    "id": "industry-marketplaces-and-gig-platforms-229"
   },
   {
-    "id": "industry-pet-care-261",
     "group": "Industry",
     "category": "Pet care",
     "text": "Are {brand} products considered safe for pets?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pet care"
+    "suggestedTag": "Pet care",
+    "id": "industry-pet-care-230"
   },
   {
-    "id": "industry-pet-care-262",
     "group": "Industry",
     "category": "Pet care",
     "text": "Has {brand} issued any pet food recalls?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pet care"
+    "suggestedTag": "Pet care",
+    "id": "industry-pet-care-231"
   },
   {
-    "id": "industry-pet-care-263",
     "group": "Industry",
     "category": "Pet care",
     "text": "Are {brand}'s nutritional claims supported by evidence?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pet care"
+    "suggestedTag": "Pet care",
+    "id": "industry-pet-care-232"
   },
   {
-    "id": "industry-pet-care-264",
     "group": "Industry",
     "category": "Pet care",
     "text": "How transparent is {brand} about ingredients?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pet care"
+    "suggestedTag": "Pet care",
+    "id": "industry-pet-care-233"
   },
   {
-    "id": "industry-pet-care-265",
     "group": "Industry",
     "category": "Pet care",
     "text": "What do veterinarians say about {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pet care"
+    "suggestedTag": "Pet care",
+    "id": "industry-pet-care-234"
   },
   {
-    "id": "industry-pet-care-266",
     "group": "Industry",
     "category": "Pet care",
     "text": "Have pet owners reported adverse reactions to {product}?",
     "placeholders": [
       "product"
     ],
-    "suggestedTag": "Pet care"
+    "suggestedTag": "Pet care",
+    "id": "industry-pet-care-235"
   },
   {
-    "id": "industry-pet-care-267",
     "group": "Industry",
     "category": "Pet care",
     "text": "Does {brand} meet nutritional standards in {country}?",
@@ -2694,10 +2383,10 @@
       "brand",
       "country"
     ],
-    "suggestedTag": "Pet care"
+    "suggestedTag": "Pet care",
+    "id": "industry-pet-care-236"
   },
   {
-    "id": "industry-pet-care-268",
     "group": "Industry",
     "category": "Pet care",
     "text": "Is {brand} suitable for pets with {condition}?",
@@ -2705,20 +2394,20 @@
       "brand",
       "condition"
     ],
-    "suggestedTag": "Pet care"
+    "suggestedTag": "Pet care",
+    "id": "industry-pet-care-237"
   },
   {
-    "id": "industry-pet-care-269",
     "group": "Industry",
     "category": "Pet care",
     "text": "How does {brand} handle product safety complaints?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Pet care"
+    "suggestedTag": "Pet care",
+    "id": "industry-pet-care-238"
   },
   {
-    "id": "industry-pet-care-270",
     "group": "Industry",
     "category": "Pet care",
     "text": "Is {brand} worth the price compared with {competitor}?",
@@ -2726,160 +2415,248 @@
       "brand",
       "competitor"
     ],
-    "suggestedTag": "Pet care"
+    "suggestedTag": "Pet care",
+    "id": "industry-pet-care-239"
   },
   {
-    "id": "stakeholder-customer-perspective-271",
     "group": "Stakeholder",
     "category": "Customer perspective",
     "text": "What do customers think about {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer perspective"
+    "suggestedTag": "Customer perspective",
+    "id": "stakeholder-customer-perspective-240"
   },
   {
-    "id": "stakeholder-customer-perspective-272",
     "group": "Stakeholder",
     "category": "Customer perspective",
     "text": "What problems do customers commonly experience with {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer perspective"
+    "suggestedTag": "Customer perspective",
+    "id": "stakeholder-customer-perspective-241"
   },
   {
-    "id": "stakeholder-customer-perspective-273",
     "group": "Stakeholder",
     "category": "Customer perspective",
     "text": "Would existing customers recommend {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Customer perspective"
+    "suggestedTag": "Customer perspective",
+    "id": "stakeholder-customer-perspective-242"
   },
   {
-    "id": "stakeholder-employee-perspective-274",
     "group": "Stakeholder",
     "category": "Employee perspective",
     "text": "Is {brand} a good company to work for?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Employee perspective"
+    "suggestedTag": "Employee perspective",
+    "id": "stakeholder-employee-perspective-243"
   },
   {
-    "id": "stakeholder-employee-perspective-275",
     "group": "Stakeholder",
     "category": "Employee perspective",
     "text": "How does {brand} treat employees?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Employee perspective"
+    "suggestedTag": "Employee perspective",
+    "id": "stakeholder-employee-perspective-244"
   },
   {
-    "id": "stakeholder-employee-perspective-276",
     "group": "Stakeholder",
     "category": "Employee perspective",
     "text": "What do former employees say about {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Employee perspective"
+    "suggestedTag": "Employee perspective",
+    "id": "stakeholder-employee-perspective-245"
   },
   {
-    "id": "stakeholder-employee-perspective-277",
     "group": "Stakeholder",
     "category": "Employee perspective",
     "text": "Has {brand} faced workplace-related controversies?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Employee perspective"
+    "suggestedTag": "Employee perspective",
+    "id": "stakeholder-employee-perspective-246"
   },
   {
-    "id": "stakeholder-investor-perspective-278",
     "group": "Stakeholder",
     "category": "Investor perspective",
     "text": "What reputational risks could affect {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Investor perspective"
+    "suggestedTag": "Investor perspective",
+    "id": "stakeholder-investor-perspective-247"
   },
   {
-    "id": "stakeholder-investor-perspective-279",
     "group": "Stakeholder",
     "category": "Investor perspective",
     "text": "Has {brand} faced governance controversies?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Investor perspective"
+    "suggestedTag": "Investor perspective",
+    "id": "stakeholder-investor-perspective-248"
   },
   {
-    "id": "stakeholder-investor-perspective-280",
     "group": "Stakeholder",
     "category": "Investor perspective",
     "text": "Is {brand}'s leadership considered credible?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Investor perspective"
+    "suggestedTag": "Investor perspective",
+    "id": "stakeholder-investor-perspective-249"
   },
   {
-    "id": "stakeholder-investor-perspective-281",
     "group": "Stakeholder",
     "category": "Investor perspective",
     "text": "Could regulatory issues damage {brand}'s business?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Investor perspective"
+    "suggestedTag": "Investor perspective",
+    "id": "stakeholder-investor-perspective-250"
   },
   {
-    "id": "stakeholder-partner-or-supplier-perspective-282",
     "group": "Stakeholder",
     "category": "Partner or supplier perspective",
     "text": "Is {brand} reliable when paying suppliers?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Partner or supplier perspective"
+    "suggestedTag": "Partner or supplier perspective",
+    "id": "stakeholder-partner-or-supplier-perspective-251"
   },
   {
-    "id": "stakeholder-partner-or-supplier-perspective-283",
     "group": "Stakeholder",
     "category": "Partner or supplier perspective",
     "text": "Is {brand} considered a trustworthy business partner?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Partner or supplier perspective"
+    "suggestedTag": "Partner or supplier perspective",
+    "id": "stakeholder-partner-or-supplier-perspective-252"
   },
   {
-    "id": "stakeholder-partner-or-supplier-perspective-284",
     "group": "Stakeholder",
     "category": "Partner or supplier perspective",
     "text": "Does {brand} impose unfair terms on suppliers?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Partner or supplier perspective"
+    "suggestedTag": "Partner or supplier perspective",
+    "id": "stakeholder-partner-or-supplier-perspective-253"
   },
   {
-    "id": "stakeholder-partner-or-supplier-perspective-285",
     "group": "Stakeholder",
     "category": "Partner or supplier perspective",
     "text": "What should companies know before partnering with {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Partner or supplier perspective"
+    "suggestedTag": "Partner or supplier perspective",
+    "id": "stakeholder-partner-or-supplier-perspective-254"
   },
   {
-    "id": "formulas-reusable-templates-286",
+    "group": "Event-driven",
+    "category": "Reputation events",
+    "text": "How has {event} affected {brand}'s reputation?",
+    "placeholders": [
+      "event",
+      "brand"
+    ],
+    "suggestedTag": "Reputation events",
+    "id": "event-driven-reputation-events-255"
+  },
+  {
+    "group": "Event-driven",
+    "category": "Reputation events",
+    "text": "What did {brand} say about {event}?",
+    "placeholders": [
+      "brand",
+      "event"
+    ],
+    "suggestedTag": "Reputation events",
+    "id": "event-driven-reputation-events-256"
+  },
+  {
+    "group": "Event-driven",
+    "category": "Reputation events",
+    "text": "Has {brand} taken action following {event}?",
+    "placeholders": [
+      "brand",
+      "event"
+    ],
+    "suggestedTag": "Reputation events",
+    "id": "event-driven-reputation-events-257"
+  },
+  {
+    "group": "Event-driven",
+    "category": "Reputation events",
+    "text": "How have customers responded to {brand} after {event}?",
+    "placeholders": [
+      "brand",
+      "event"
+    ],
+    "suggestedTag": "Reputation events",
+    "id": "event-driven-reputation-events-258"
+  },
+  {
+    "group": "Event-driven",
+    "category": "Reputation events",
+    "text": "Is criticism of {brand} regarding {event} supported by evidence?",
+    "placeholders": [
+      "brand",
+      "event"
+    ],
+    "suggestedTag": "Reputation events",
+    "id": "event-driven-reputation-events-259"
+  },
+  {
+    "group": "Event-driven",
+    "category": "Reputation events",
+    "text": "Has {brand} recovered from {event}?",
+    "placeholders": [
+      "brand",
+      "event"
+    ],
+    "suggestedTag": "Reputation events",
+    "id": "event-driven-reputation-events-260"
+  },
+  {
+    "group": "Event-driven",
+    "category": "Reputation events",
+    "text": "How does {brand}'s response compare with {competitor}'s response?",
+    "placeholders": [
+      "brand",
+      "competitor"
+    ],
+    "suggestedTag": "Reputation events",
+    "id": "event-driven-reputation-events-261"
+  },
+  {
+    "group": "Event-driven",
+    "category": "Reputation events",
+    "text": "What unresolved questions remain about {brand} and {event}?",
+    "placeholders": [
+      "brand",
+      "event"
+    ],
+    "suggestedTag": "Reputation events",
+    "id": "event-driven-reputation-events-262"
+  },
+  {
     "group": "Formulas",
     "category": "Reusable templates",
     "text": "How trustworthy is {brand} regarding {topic} in {country}?",
@@ -2888,10 +2665,10 @@
       "topic",
       "country"
     ],
-    "suggestedTag": "Reusable templates"
+    "suggestedTag": "Reusable templates",
+    "id": "formulas-reusable-templates-263"
   },
   {
-    "id": "formulas-reusable-templates-287",
     "group": "Formulas",
     "category": "Reusable templates",
     "text": "What verified complaints have customers reported about {brand}'s {product}?",
@@ -2899,10 +2676,10 @@
       "brand",
       "product"
     ],
-    "suggestedTag": "Reusable templates"
+    "suggestedTag": "Reusable templates",
+    "id": "formulas-reusable-templates-264"
   },
   {
-    "id": "formulas-reusable-templates-288",
     "group": "Formulas",
     "category": "Reusable templates",
     "text": "How does {brand} compare with {competitor} on {reputation_dimension}?",
@@ -2911,10 +2688,10 @@
       "competitor",
       "reputation_dimension"
     ],
-    "suggestedTag": "Reusable templates"
+    "suggestedTag": "Reusable templates",
+    "id": "formulas-reusable-templates-265"
   },
   {
-    "id": "formulas-reusable-templates-289",
     "group": "Formulas",
     "category": "Reusable templates",
     "text": "Has {brand} taken meaningful action following {controversy}?",
@@ -2922,10 +2699,10 @@
       "brand",
       "controversy"
     ],
-    "suggestedTag": "Reusable templates"
+    "suggestedTag": "Reusable templates",
+    "id": "formulas-reusable-templates-266"
   },
   {
-    "id": "formulas-reusable-templates-290",
     "group": "Formulas",
     "category": "Reusable templates",
     "text": "What evidence supports or contradicts {brand}'s claims about {topic}?",
@@ -2933,10 +2710,10 @@
       "brand",
       "topic"
     ],
-    "suggestedTag": "Reusable templates"
+    "suggestedTag": "Reusable templates",
+    "id": "formulas-reusable-templates-267"
   },
   {
-    "id": "formulas-additional-scalable-formulas-291",
     "group": "Formulas",
     "category": "Additional scalable formulas",
     "text": "What is {brand}'s reputation for {topic} among {audience} in {country}?",
@@ -2946,10 +2723,10 @@
       "audience",
       "country"
     ],
-    "suggestedTag": "Additional scalable formulas"
+    "suggestedTag": "Additional scalable formulas",
+    "id": "formulas-additional-scalable-formulas-268"
   },
   {
-    "id": "formulas-additional-scalable-formulas-292",
     "group": "Formulas",
     "category": "Additional scalable formulas",
     "text": "How reliable is {brand} for {use_case} according to customers in {country}?",
@@ -2958,10 +2735,10 @@
       "use_case",
       "country"
     ],
-    "suggestedTag": "Additional scalable formulas"
+    "suggestedTag": "Additional scalable formulas",
+    "id": "formulas-additional-scalable-formulas-269"
   },
   {
-    "id": "formulas-additional-scalable-formulas-293",
     "group": "Formulas",
     "category": "Additional scalable formulas",
     "text": "What are the strongest positive and negative opinions about {brand}'s {product}?",
@@ -2969,10 +2746,10 @@
       "brand",
       "product"
     ],
-    "suggestedTag": "Additional scalable formulas"
+    "suggestedTag": "Additional scalable formulas",
+    "id": "formulas-additional-scalable-formulas-270"
   },
   {
-    "id": "formulas-additional-scalable-formulas-294",
     "group": "Formulas",
     "category": "Additional scalable formulas",
     "text": "What recurring complaints are associated with {brand} in the {category} market?",
@@ -2980,10 +2757,10 @@
       "brand",
       "category"
     ],
-    "suggestedTag": "Additional scalable formulas"
+    "suggestedTag": "Additional scalable formulas",
+    "id": "formulas-additional-scalable-formulas-271"
   },
   {
-    "id": "formulas-additional-scalable-formulas-295",
     "group": "Formulas",
     "category": "Additional scalable formulas",
     "text": "How has public perception of {brand} changed after {event}?",
@@ -2991,10 +2768,10 @@
       "brand",
       "event"
     ],
-    "suggestedTag": "Additional scalable formulas"
+    "suggestedTag": "Additional scalable formulas",
+    "id": "formulas-additional-scalable-formulas-272"
   },
   {
-    "id": "formulas-additional-scalable-formulas-296",
     "group": "Formulas",
     "category": "Additional scalable formulas",
     "text": "Is {brand}'s claim about {topic} supported by independent evidence?",
@@ -3002,10 +2779,10 @@
       "brand",
       "topic"
     ],
-    "suggestedTag": "Additional scalable formulas"
+    "suggestedTag": "Additional scalable formulas",
+    "id": "formulas-additional-scalable-formulas-273"
   },
   {
-    "id": "formulas-additional-scalable-formulas-297",
     "group": "Formulas",
     "category": "Additional scalable formulas",
     "text": "What should {audience} know before choosing {brand} for {use_case}?",
@@ -3014,10 +2791,10 @@
       "brand",
       "use_case"
     ],
-    "suggestedTag": "Additional scalable formulas"
+    "suggestedTag": "Additional scalable formulas",
+    "id": "formulas-additional-scalable-formulas-274"
   },
   {
-    "id": "formulas-additional-scalable-formulas-298",
     "group": "Formulas",
     "category": "Additional scalable formulas",
     "text": "How does {brand}'s reputation differ across {country_1} and {country_2}?",
@@ -3026,26 +2803,27 @@
       "country_1",
       "country_2"
     ],
-    "suggestedTag": "Additional scalable formulas"
+    "suggestedTag": "Additional scalable formulas",
+    "id": "formulas-additional-scalable-formulas-275"
   },
   {
-    "id": "formulas-additional-scalable-formulas-299",
     "group": "Formulas",
     "category": "Additional scalable formulas",
     "text": "Which sources most strongly influence the reputation of {brand}?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Additional scalable formulas"
+    "suggestedTag": "Additional scalable formulas",
+    "id": "formulas-additional-scalable-formulas-276"
   },
   {
-    "id": "formulas-additional-scalable-formulas-300",
     "group": "Formulas",
     "category": "Additional scalable formulas",
     "text": "What risks could damage {brand}'s reputation in the future?",
     "placeholders": [
       "brand"
     ],
-    "suggestedTag": "Additional scalable formulas"
+    "suggestedTag": "Additional scalable formulas",
+    "id": "formulas-additional-scalable-formulas-277"
   }
 ]

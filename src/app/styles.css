@@ -3329,6 +3329,18 @@ a.evidence-source:hover strong {
   margin: 0 0 4px;
 }
 
+.prompt-library-configure .label > span {
+  align-items: stretch;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  justify-content: flex-start;
+}
+
+.prompt-library-configure .label {
+  margin-bottom: 0;
+}
+
 .prompt-library-configure section > p {
   color: #71717a;
   font-size: 11px;

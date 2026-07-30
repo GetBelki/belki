@@ -20,6 +20,17 @@ describe("prompt library", () => {
     expect(
       PROMPT_LIBRARY.some((template) => template.text === "Product recall"),
     ).toBe(false);
+    expect(
+      PROMPT_LIBRARY.some((template) => /^\{[^}]+\}$/u.test(template.text)),
+    ).toBe(false);
+    expect(
+      PROMPT_LIBRARY.some(
+        (template) =>
+          template.group === "Event-driven" &&
+          template.text ===
+            "How has {event} affected {brand}'s reputation?",
+      ),
+    ).toBe(true);
   });
 
   it("parses formulas and de-duplicates repeated prompts", () => {
@@ -28,20 +39,26 @@ describe("prompt library", () => {
 ## Trust
 - Is \`{brand}\` trusted?
 - Is \`{brand}\` trusted?
+# Event-driven reputation templates
+- How did {brand} respond to {event}?
 # Prompt-generation formulas
 ## Reusable templates
 \`\`\`text
 How does {brand} compare with {competitor}?
 \`\`\`
 `);
-    expect(result).toHaveLength(2);
+    expect(result).toHaveLength(3);
     expect(result[0]).toMatchObject({
       group: "Universal",
       category: "Trust",
       text: "Is {brand} trusted?",
       placeholders: ["brand"],
     });
-    expect(result[1]?.group).toBe("Formulas");
+    expect(result[1]).toMatchObject({
+      group: "Event-driven",
+      category: "Reputation events",
+    });
+    expect(result[2]?.group).toBe("Formulas");
   });
 
   it("fills known values and leaves missing values visible", () => {
