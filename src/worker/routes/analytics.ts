@@ -325,6 +325,97 @@ async function loadShoppingProductOccurrences(
   ).flat();
 }
 
+async function loadReadModelShoppingProductOccurrences(
+  env: Env,
+  projectId: string,
+  startTimestamp: string,
+  endExclusiveTimestamp: string,
+  identity?: string,
+): Promise<ShoppingProductOccurrence[]> {
+  const identityClause = identity ? " AND p.product_identity = ?" : "";
+  const bindings = identity
+    ? [projectId, startTimestamp, endExclusiveTimestamp, identity]
+    : [projectId, startTimestamp, endExclusiveTimestamp];
+  const result = await env.CONTROL_DB.prepare(
+    `SELECT
+      p.product_row_id AS id,
+      p.snapshot_id,
+      p.tracked_query_id,
+      q.query_text AS keyword,
+      q.location_code,
+      q.language_code,
+      p.ordinal,
+      p.rank_absolute,
+      p.provider_product_id,
+      p.merchants,
+      p.title,
+      p.price,
+      p.currency,
+      p.tag,
+      p.raw_url,
+      p.canonical_url,
+      p.registrable_domain,
+      p.rating_value,
+      p.rating_votes_count,
+      p.rating_max,
+      p.images_json,
+      p.product_ids_json,
+      p.captured_at
+     FROM analytics_product_occurrences p
+     JOIN tracked_queries q ON q.id = p.tracked_query_id
+     WHERE p.project_id = ?
+       AND p.captured_at >= ?
+       AND p.captured_at < ?${identityClause}
+     ORDER BY p.captured_at DESC, p.product_row_id DESC`,
+  )
+    .bind(...bindings)
+    .all<ShoppingProductOccurrence>();
+  return result.results;
+}
+
+type CitationSourceOccurrence = {
+  snapshot_id: string;
+  tracked_query_id: string;
+  keyword: string;
+  location_code: number;
+  language_code: string;
+  url: string | null;
+  title: string | null;
+  source_name: string | null;
+  captured_at: string;
+};
+
+async function loadReadModelCitationOccurrences(
+  env: Env,
+  projectId: string,
+  domain: string,
+  startTimestamp: string,
+  endExclusiveTimestamp: string,
+): Promise<CitationSourceOccurrence[]> {
+  const result = await env.CONTROL_DB.prepare(
+    `SELECT
+      citation.snapshot_id,
+      citation.tracked_query_id,
+      query.query_text AS keyword,
+      query.location_code,
+      query.language_code,
+      COALESCE(citation.canonical_url, citation.raw_url) AS url,
+      citation.title,
+      citation.source_name,
+      citation.captured_at
+     FROM analytics_citation_occurrences citation
+     JOIN tracked_queries query ON query.id = citation.tracked_query_id
+     WHERE citation.project_id = ?
+       AND citation.registrable_domain = ?
+       AND citation.captured_at >= ?
+       AND citation.captured_at < ?
+     ORDER BY citation.captured_at DESC, citation.snapshot_id, citation.ordinal`,
+  )
+    .bind(projectId, domain, startTimestamp, endExclusiveTimestamp)
+    .all<CitationSourceOccurrence>();
+  return result.results;
+}
+
 function serializedShoppingProduct(
   product: ShoppingProductOccurrence & { appearances?: number },
 ) {
@@ -348,13 +439,113 @@ async function assertProjectAccess(
   env: Env,
   workspaceId: string,
   projectId: string,
+  timing?: AppEnv["Variables"]["timing"],
 ): Promise<void> {
-  const project = await env.CONTROL_DB.prepare(
-    "SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL",
-  )
-    .bind(projectId, workspaceId)
-    .first();
+  const lookup = () =>
+    env.CONTROL_DB.prepare(
+      "SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL",
+    )
+      .bind(projectId, workspaceId)
+      .first();
+  const project = timing
+    ? await timing.measure("project_access", lookup)
+    : await lookup();
   if (!project) throw new ApiError(404, "project_not_found", "Project not found.");
+}
+
+async function analyticsReadModelReady(
+  env: Env,
+  projectId: string,
+  timing?: AppEnv["Variables"]["timing"],
+): Promise<boolean> {
+  const lookup = () =>
+    env.CONTROL_DB.prepare(
+      `SELECT status
+       FROM analytics_read_model_projects
+       WHERE project_id = ? AND schema_version = 1`,
+    )
+      .bind(projectId)
+      .first<{ status: string }>();
+  try {
+    const state = timing
+      ? await timing.measure("read_model_check", lookup)
+      : await lookup();
+    return state?.status === "ready";
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("no such table: analytics_read_model_projects")) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+async function loadReadModelBrandMentions(
+  env: Env,
+  projectId: string,
+  from: string,
+  to: string,
+  extraSnapshotIds: string[] = [],
+): Promise<VerifiedBrandMentions> {
+  type FactRow = {
+    snapshot_id: string;
+    tracked_query_id: string;
+    metric_date: string;
+    brand_mentioned_runs: number;
+    brand_mentions_count: number;
+  };
+  const queries = [
+    env.CONTROL_DB.prepare(
+      `SELECT snapshot_id, tracked_query_id, metric_date,
+        brand_mentioned_runs, brand_mentions_count
+       FROM analytics_snapshot_facts
+       WHERE project_id = ? AND metric_date BETWEEN ? AND ?`,
+    )
+      .bind(projectId, from, to)
+      .all<FactRow>(),
+    ...chunks([...new Set(extraSnapshotIds)]).map((snapshotIds) =>
+      env.CONTROL_DB.prepare(
+        `SELECT snapshot_id, tracked_query_id, metric_date,
+          brand_mentioned_runs, brand_mentions_count
+         FROM analytics_snapshot_facts
+         WHERE project_id = ?
+           AND snapshot_id IN (${snapshotIds.map(() => "?").join(",")})`,
+      )
+        .bind(projectId, ...snapshotIds)
+        .all<FactRow>(),
+    ),
+  ];
+  const results = await Promise.all(queries);
+  const facts = new Map(
+    results.flatMap((result) => result.results).map((fact) => [fact.snapshot_id, fact]),
+  );
+  const byDate = new Map<string, number>();
+  const byQuery = new Map<string, number>();
+  const bySnapshot = new Map<string, Set<string>>();
+  let total = 0;
+  for (const fact of facts.values()) {
+    const mentionCount = Number(fact.brand_mentions_count) || 0;
+    bySnapshot.set(
+      fact.snapshot_id,
+      new Set(
+        Array.from({ length: mentionCount }, (_, index) => `brand:${index}`),
+      ),
+    );
+    if (!fact.brand_mentioned_runs) continue;
+    total += 1;
+    byDate.set(fact.metric_date, (byDate.get(fact.metric_date) ?? 0) + 1);
+    byQuery.set(
+      fact.tracked_query_id,
+      (byQuery.get(fact.tracked_query_id) ?? 0) + 1,
+    );
+  }
+  return {
+    byBrand: new Map(),
+    byDate,
+    byQuery,
+    bySnapshot,
+    total,
+  };
 }
 
 export const analyticsRoutes = new Hono<AppEnv>();
@@ -365,7 +556,12 @@ analyticsRoutes.get(
   async (c) => {
     const principal = requireRole(c, "admin");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
     const dates = billingDateRange(input.period);
     const rows = await c.env.CONTROL_DB.prepare(
       `SELECT
@@ -405,8 +601,18 @@ analyticsRoutes.get(
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
     const dates = range(input);
+    const readModelReady = await analyticsReadModelReady(
+      c.env,
+      input.projectId,
+      c.get("timing"),
+    );
     const [
       summary,
       productCoverage,
@@ -478,18 +684,20 @@ analyticsRoutes.get(
           total_citations: number;
           updated_at: string;
         }>(),
-      c.env.CONTROL_DB.prepare(
-        `SELECT id, shard_id FROM snapshot_index
-         WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
-           AND products_count > 0
-         ORDER BY captured_at DESC`,
-      )
-        .bind(
-          input.projectId,
-          `${dates.from}T00:00:00.000Z`,
-          exclusiveDateEnd(dates.to),
-        )
-        .all<ProductSnapshotIndex>(),
+      readModelReady
+        ? Promise.resolve({ results: [] as ProductSnapshotIndex[] })
+        : c.env.CONTROL_DB.prepare(
+            `SELECT id, shard_id FROM snapshot_index
+             WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
+               AND products_count > 0
+             ORDER BY captured_at DESC`,
+          )
+            .bind(
+              input.projectId,
+              `${dates.from}T00:00:00.000Z`,
+              exclusiveDateEnd(dates.to),
+            )
+            .all<ProductSnapshotIndex>(),
       c.env.CONTROL_DB.prepare(
         `SELECT domain, SUM(citation_count) AS total_citations
          FROM daily_domain_metrics
@@ -506,12 +714,27 @@ analyticsRoutes.get(
       )
         .bind(input.projectId)
         .first<{ primary_domain: string | null }>(),
-      verifyStoredBrandMentions(
-        c.env,
-        input.projectId,
-        dates.from,
-        dates.to,
-      ),
+      readModelReady
+        ? c
+            .get("timing")
+            .measure("analytics_read_model", () =>
+              loadReadModelBrandMentions(
+                c.env,
+                input.projectId,
+                dates.from,
+                dates.to,
+              ),
+            )
+        : c
+            .get("timing")
+            .measure("legacy_shards", () =>
+              verifyStoredBrandMentions(
+                c.env,
+                input.projectId,
+                dates.from,
+                dates.to,
+              ),
+            ),
     ]);
     const projectDomain = normalizeHostname(project?.primary_domain)
       .registrableDomain;
@@ -566,7 +789,22 @@ analyticsRoutes.get(
       }
     }
     const recentOccurrences = (
-      await loadShoppingProductOccurrences(c.env, productIndexes.results)
+      readModelReady
+        ? await c
+            .get("timing")
+            .measure("analytics_read_model", () =>
+              loadReadModelShoppingProductOccurrences(
+                c.env,
+                input.projectId,
+                `${dates.from}T00:00:00.000Z`,
+                exclusiveDateEnd(dates.to),
+              ),
+            )
+        : await c
+            .get("timing")
+            .measure("legacy_shards", () =>
+              loadShoppingProductOccurrences(c.env, productIndexes.results),
+            )
     ).sort((left, right) => right.captured_at.localeCompare(left.captured_at));
     const recentProducts = new Map<string, ShoppingProductOccurrence>();
     const topProducts = new Map<
@@ -654,7 +892,12 @@ analyticsRoutes.get(
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
     const dates = range(input);
     const rows = await c.env.CONTROL_DB.prepare(
       `SELECT
@@ -682,7 +925,17 @@ analyticsRoutes.get(
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
+    const readModelReady = await analyticsReadModelReady(
+      c.env,
+      input.projectId,
+      c.get("timing"),
+    );
     const clauses = ["q.project_id = ?", "q.deleted_at IS NULL"];
     const bindings: Array<string | number> = [input.projectId];
     if (input.search) {
@@ -816,54 +1069,110 @@ analyticsRoutes.get(
       string,
       { sourceCount: number; citationCount: number }
     >();
-    const grouped = new Map<number, string[]>();
-    for (const row of rows) {
-      for (const snapshotId of [row.latest_snapshot_id, row.previous_snapshot_id]) {
-        if (snapshotId) {
-          grouped.set(row.shard_id, [...(grouped.get(row.shard_id) ?? []), snapshotId]);
-        }
-      }
-    }
-    await Promise.all(
-      [...grouped.entries()].flatMap(([shardId, ids]) =>
-        chunks([...new Set(ids)]).map(async (snapshotIds) => {
-          const placeholders = snapshotIds.map(() => "?").join(",");
-          const result = await getShard(c.env, shardId)
-            .prepare(
-              `SELECT s.id,
-                (SELECT COUNT(*) FROM snapshot_search_results r
-                  WHERE r.snapshot_id = s.id) AS source_count,
-                (SELECT COUNT(*) FROM snapshot_sources c
-                  WHERE c.snapshot_id = s.id) AS citation_count
-               FROM snapshots s WHERE s.id IN (${placeholders})`,
-            )
-            .bind(...snapshotIds)
-            .all<{ id: string; source_count: number; citation_count: number }>();
-          for (const value of result.results) {
-            snapshotCounts.set(value.id, {
-              sourceCount: value.source_count,
-              citationCount: value.citation_count,
-            });
-          }
-        }),
-      ),
-    );
     const contributionIds = rows
       .flatMap((row) => [row.latest_snapshot_id, row.previous_snapshot_id])
       .filter((value): value is string => Boolean(value));
+    if (readModelReady) {
+      await c.get("timing").measure("analytics_read_model", async () => {
+        const results = await Promise.all(
+          chunks([...new Set(contributionIds)]).map((snapshotIds) =>
+            c.env.CONTROL_DB.prepare(
+              `SELECT snapshot_id, retrieved_domains_count, citation_count
+               FROM analytics_snapshot_facts
+               WHERE snapshot_id IN (${snapshotIds.map(() => "?").join(",")})`,
+            )
+              .bind(...snapshotIds)
+              .all<{
+                snapshot_id: string;
+                retrieved_domains_count: number;
+                citation_count: number;
+              }>(),
+          ),
+        );
+        for (const value of results.flatMap((result) => result.results)) {
+          snapshotCounts.set(value.snapshot_id, {
+            sourceCount: Number(value.retrieved_domains_count) || 0,
+            citationCount: Number(value.citation_count) || 0,
+          });
+        }
+      });
+    } else {
+      const grouped = new Map<number, string[]>();
+      for (const row of rows) {
+        for (const snapshotId of [
+          row.latest_snapshot_id,
+          row.previous_snapshot_id,
+        ]) {
+          if (snapshotId) {
+            grouped.set(row.shard_id, [
+              ...(grouped.get(row.shard_id) ?? []),
+              snapshotId,
+            ]);
+          }
+        }
+      }
+      await c.get("timing").measure("legacy_shards", () =>
+        Promise.all(
+          [...grouped.entries()].flatMap(([shardId, ids]) =>
+            chunks([...new Set(ids)]).map(async (snapshotIds) => {
+              const placeholders = snapshotIds.map(() => "?").join(",");
+              const result = await getShard(c.env, shardId)
+                .prepare(
+                  `SELECT s.id,
+                    (SELECT COUNT(*) FROM snapshot_search_results r
+                      WHERE r.snapshot_id = s.id) AS source_count,
+                    (SELECT COUNT(*) FROM snapshot_sources c
+                      WHERE c.snapshot_id = s.id) AS citation_count
+                   FROM snapshots s WHERE s.id IN (${placeholders})`,
+                )
+                .bind(...snapshotIds)
+                .all<{
+                  id: string;
+                  source_count: number;
+                  citation_count: number;
+                }>();
+              for (const value of result.results) {
+                snapshotCounts.set(value.id, {
+                  sourceCount: value.source_count,
+                  citationCount: value.citation_count,
+                });
+              }
+            }),
+          ),
+        ),
+      );
+    }
     const mentionDates = range({});
     const [verifiedBrandMentions, mentionRates] = await Promise.all([
-      verifyStoredBrandMentions(
-        c.env,
-        input.projectId,
-        mentionDates.from,
-        mentionDates.to,
-        contributionIds,
-      ),
+      readModelReady
+        ? c
+            .get("timing")
+            .measure("analytics_read_model", () =>
+              loadReadModelBrandMentions(
+                c.env,
+                input.projectId,
+                mentionDates.from,
+                mentionDates.to,
+                contributionIds,
+              ),
+            )
+        : c
+            .get("timing")
+            .measure("legacy_shards", () =>
+              verifyStoredBrandMentions(
+                c.env,
+                input.projectId,
+                mentionDates.from,
+                mentionDates.to,
+                contributionIds,
+              ),
+            ),
       c.env.CONTROL_DB.prepare(
         `SELECT tracked_query_id,
-          SUM(completed_runs) AS completed_runs
-         FROM metric_contributions
+          ${readModelReady ? "COUNT(*)" : "SUM(completed_runs)"} AS completed_runs
+         FROM ${
+           readModelReady ? "analytics_snapshot_facts" : "metric_contributions"
+         }
          WHERE project_id = ? AND metric_date BETWEEN ? AND ?
          GROUP BY tracked_query_id`,
       )
@@ -944,8 +1253,18 @@ analyticsRoutes.get(
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
     const dates = range(input);
+    const readModelReady = await analyticsReadModelReady(
+      c.env,
+      input.projectId,
+      c.get("timing"),
+    );
     const sourceCursor = decodeCursor<{
       totalCitations: number;
       domain: string;
@@ -1025,52 +1344,86 @@ analyticsRoutes.get(
     const pageDomains = pageRows.map((row) => row.domain);
     const urls = new Map<string, Set<string>>();
     if (pageDomains.length) {
-      const indexes = await c.env.CONTROL_DB.prepare(
-        `SELECT id, shard_id FROM snapshot_index
-         WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
-      )
-        .bind(
-          input.projectId,
-          `${dates.from}T00:00:00.000Z`,
-          exclusiveDateEnd(dates.to),
+      if (readModelReady) {
+        await c.get("timing").measure("analytics_read_model", async () => {
+          const result = await c.env.CONTROL_DB.prepare(
+            `SELECT registrable_domain, canonical_url, raw_url
+             FROM analytics_citation_occurrences
+             WHERE project_id = ?
+               AND captured_at >= ?
+               AND captured_at < ?
+               AND registrable_domain IN (${pageDomains.map(() => "?").join(",")})`,
+          )
+            .bind(
+              input.projectId,
+              `${dates.from}T00:00:00.000Z`,
+              exclusiveDateEnd(dates.to),
+              ...pageDomains,
+            )
+            .all<{
+              registrable_domain: string;
+              canonical_url: string | null;
+              raw_url: string | null;
+            }>();
+          for (const source of result.results) {
+            const url = source.canonical_url ?? source.raw_url;
+            if (!url) continue;
+            const set = urls.get(source.registrable_domain) ?? new Set<string>();
+            set.add(url);
+            urls.set(source.registrable_domain, set);
+          }
+        });
+      } else {
+        const indexes = await c.env.CONTROL_DB.prepare(
+          `SELECT id, shard_id FROM snapshot_index
+           WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
         )
-        .all<{ id: string; shard_id: number }>();
-      const grouped = new Map<number, string[]>();
-      for (const index of indexes.results) {
-        grouped.set(index.shard_id, [
-          ...(grouped.get(index.shard_id) ?? []),
-          index.id,
-        ]);
+          .bind(
+            input.projectId,
+            `${dates.from}T00:00:00.000Z`,
+            exclusiveDateEnd(dates.to),
+          )
+          .all<{ id: string; shard_id: number }>();
+        const grouped = new Map<number, string[]>();
+        for (const index of indexes.results) {
+          grouped.set(index.shard_id, [
+            ...(grouped.get(index.shard_id) ?? []),
+            index.id,
+          ]);
+        }
+        await c.get("timing").measure("legacy_shards", () =>
+          Promise.all(
+            [...grouped.entries()].flatMap(([shardId, ids]) =>
+              chunks(ids).map(async (snapshotIds) => {
+                const snapshotPlaceholders = snapshotIds.map(() => "?").join(",");
+                const domainPlaceholders = pageDomains.map(() => "?").join(",");
+                const result = await getShard(c.env, shardId)
+                  .prepare(
+                    `SELECT registrable_domain, canonical_url, raw_url
+                     FROM snapshot_sources
+                     WHERE snapshot_id IN (${snapshotPlaceholders})
+                       AND registrable_domain IN (${domainPlaceholders})`,
+                  )
+                  .bind(...snapshotIds, ...pageDomains)
+                  .all<{
+                    registrable_domain: string | null;
+                    canonical_url: string | null;
+                    raw_url: string | null;
+                  }>();
+                for (const source of result.results) {
+                  if (!source.registrable_domain) continue;
+                  const url = source.canonical_url ?? source.raw_url;
+                  if (!url) continue;
+                  const set =
+                    urls.get(source.registrable_domain) ?? new Set<string>();
+                  set.add(url);
+                  urls.set(source.registrable_domain, set);
+                }
+              }),
+            ),
+          ),
+        );
       }
-      await Promise.all(
-        [...grouped.entries()].flatMap(([shardId, ids]) =>
-          chunks(ids).map(async (snapshotIds) => {
-            const snapshotPlaceholders = snapshotIds.map(() => "?").join(",");
-            const domainPlaceholders = pageDomains.map(() => "?").join(",");
-            const result = await getShard(c.env, shardId)
-              .prepare(
-                `SELECT registrable_domain, canonical_url, raw_url
-                 FROM snapshot_sources
-                 WHERE snapshot_id IN (${snapshotPlaceholders})
-                   AND registrable_domain IN (${domainPlaceholders})`,
-              )
-              .bind(...snapshotIds, ...pageDomains)
-              .all<{
-                registrable_domain: string | null;
-                canonical_url: string | null;
-                raw_url: string | null;
-              }>();
-            for (const source of result.results) {
-              if (!source.registrable_domain) continue;
-              const url = source.canonical_url ?? source.raw_url;
-              if (!url) continue;
-              const set = urls.get(source.registrable_domain) ?? new Set<string>();
-              set.add(url);
-              urls.set(source.registrable_domain, set);
-            }
-          }),
-        ),
-      );
     }
     const completed = Number(completedResult?.completed ?? 0);
     const page = pageRows.map((row) => ({
@@ -1107,8 +1460,18 @@ analyticsRoutes.get(
     const principal = c.get("principal");
     const { domain } = c.req.valid("param");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
     const dates = range(input);
+    const readModelReady = await analyticsReadModelReady(
+      c.env,
+      input.projectId,
+      c.get("timing"),
+    );
     const [dailyMetrics, indexes] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT
@@ -1131,61 +1494,67 @@ analyticsRoutes.get(
           cited_snapshot_count: number;
           citation_count: number;
         }>(),
-      c.env.CONTROL_DB.prepare(
-        `SELECT id, shard_id FROM snapshot_index
-         WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
-      )
-        .bind(
-          input.projectId,
-          `${dates.from}T00:00:00.000Z`,
-          exclusiveDateEnd(dates.to),
-        )
-        .all<{ id: string; shard_id: number }>(),
+      readModelReady
+        ? Promise.resolve({ results: [] as ProductSnapshotIndex[] })
+        : c.env.CONTROL_DB.prepare(
+            `SELECT id, shard_id FROM snapshot_index
+             WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
+          )
+            .bind(
+              input.projectId,
+              `${dates.from}T00:00:00.000Z`,
+              exclusiveDateEnd(dates.to),
+            )
+            .all<ProductSnapshotIndex>(),
     ]);
     const grouped = new Map<number, string[]>();
     for (const index of indexes.results) {
       grouped.set(index.shard_id, [...(grouped.get(index.shard_id) ?? []), index.id]);
     }
-    const sourceOccurrences = (
-      await Promise.all(
-        [...grouped.entries()].flatMap(([shardId, ids]) =>
-          chunks(ids).map(async (snapshotIds) => {
-            const placeholders = snapshotIds.map(() => "?").join(",");
-            return (
-              await getShard(c.env, shardId)
-                .prepare(
-                  `SELECT
-                    c.snapshot_id,
-                    s.tracked_query_id,
-                    s.keyword,
-                    s.location_code,
-                    s.language_code,
-                    COALESCE(c.canonical_url, c.raw_url) AS url,
-                    c.title,
-                    c.source_name,
-                    s.captured_at
-                   FROM snapshot_sources c
-                   JOIN snapshots s ON s.id = c.snapshot_id
-                   WHERE c.snapshot_id IN (${placeholders})
-                     AND c.registrable_domain = ?`,
-                )
-                .bind(...snapshotIds, domain)
-                .all<{
-                  snapshot_id: string;
-                  tracked_query_id: string;
-                  keyword: string;
-                  location_code: number;
-                  language_code: string;
-                  url: string | null;
-                  title: string | null;
-                  source_name: string | null;
-                  captured_at: string;
-                }>()
-            ).results;
-          }),
-        ),
-      )
-    ).flat();
+    const sourceOccurrences = readModelReady
+      ? await c
+          .get("timing")
+          .measure("analytics_read_model", () =>
+            loadReadModelCitationOccurrences(
+              c.env,
+              input.projectId,
+              domain,
+              `${dates.from}T00:00:00.000Z`,
+              exclusiveDateEnd(dates.to),
+            ),
+          )
+      : (
+          await c.get("timing").measure("legacy_shards", () =>
+            Promise.all(
+              [...grouped.entries()].flatMap(([shardId, ids]) =>
+                chunks(ids).map(async (snapshotIds) => {
+                  const placeholders = snapshotIds.map(() => "?").join(",");
+                  return (
+                    await getShard(c.env, shardId)
+                      .prepare(
+                      `SELECT
+                        c.snapshot_id,
+                        s.tracked_query_id,
+                        s.keyword,
+                        s.location_code,
+                        s.language_code,
+                        COALESCE(c.canonical_url, c.raw_url) AS url,
+                        c.title,
+                        c.source_name,
+                        s.captured_at
+                       FROM snapshot_sources c
+                       JOIN snapshots s ON s.id = c.snapshot_id
+                       WHERE c.snapshot_id IN (${placeholders})
+                         AND c.registrable_domain = ?`,
+                    )
+                    .bind(...snapshotIds, domain)
+                      .all<CitationSourceOccurrence>()
+                  ).results;
+                }),
+              ),
+            ),
+          )
+        ).flat();
     const urls = new Map<
       string,
       {
@@ -1367,15 +1736,31 @@ analyticsRoutes.get(
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
     const dates = range(input);
-    const indexes = await c.env.CONTROL_DB.prepare(
-      `SELECT id, shard_id FROM snapshot_index
-       WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
-         AND products_count > 0 ORDER BY captured_at DESC`,
-    )
-      .bind(input.projectId, `${dates.from}T00:00:00.000Z`, exclusiveDateEnd(dates.to))
-      .all<{ id: string; shard_id: number }>();
+    const readModelReady = await analyticsReadModelReady(
+      c.env,
+      input.projectId,
+      c.get("timing"),
+    );
+    const indexes = readModelReady
+      ? { results: [] as ProductSnapshotIndex[] }
+      : await c.env.CONTROL_DB.prepare(
+          `SELECT id, shard_id FROM snapshot_index
+           WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
+             AND products_count > 0 ORDER BY captured_at DESC`,
+        )
+          .bind(
+            input.projectId,
+            `${dates.from}T00:00:00.000Z`,
+            exclusiveDateEnd(dates.to),
+          )
+          .all<ProductSnapshotIndex>();
     let matchingPromptIds: Set<string> | null = null;
     if (input.tagIds?.length) {
       const tagPlaceholders = input.tagIds.map(() => "?").join(",");
@@ -1407,7 +1792,22 @@ analyticsRoutes.get(
     }
     const normalizedSearch = input.search?.toLocaleLowerCase();
     const occurrences = (
-      await loadShoppingProductOccurrences(c.env, indexes.results)
+      readModelReady
+        ? await c
+            .get("timing")
+            .measure("analytics_read_model", () =>
+              loadReadModelShoppingProductOccurrences(
+                c.env,
+                input.projectId,
+                `${dates.from}T00:00:00.000Z`,
+                exclusiveDateEnd(dates.to),
+              ),
+            )
+        : await c
+            .get("timing")
+            .measure("legacy_shards", () =>
+              loadShoppingProductOccurrences(c.env, indexes.results),
+            )
     ).filter((occurrence) => {
       if (
         input.locationCode !== undefined &&
@@ -1505,21 +1905,37 @@ analyticsRoutes.get(
     const principal = c.get("principal");
     const { productKey: routeProductKey } = c.req.valid("param");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
     const identity = productIdentityFromKey(routeProductKey);
     if (!identity) {
       throw new ApiError(404, "product_not_found", "Product not found.");
     }
     const dates = productAnalyticsDateRange(input.period);
+    const readModelReady = await analyticsReadModelReady(
+      c.env,
+      input.projectId,
+      c.get("timing"),
+    );
     const [indexes, projectMetrics] = await Promise.all([
-      c.env.CONTROL_DB.prepare(
-        `SELECT id, shard_id FROM snapshot_index
-         WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
-           AND products_count > 0
-         ORDER BY captured_at DESC`,
-      )
-        .bind(input.projectId, dates.startTimestamp, dates.endExclusiveTimestamp)
-        .all<ProductSnapshotIndex>(),
+      readModelReady
+        ? Promise.resolve({ results: [] as ProductSnapshotIndex[] })
+        : c.env.CONTROL_DB.prepare(
+            `SELECT id, shard_id FROM snapshot_index
+             WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
+               AND products_count > 0
+             ORDER BY captured_at DESC`,
+          )
+            .bind(
+              input.projectId,
+              dates.startTimestamp,
+              dates.endExclusiveTimestamp,
+            )
+            .all<ProductSnapshotIndex>(),
       c.env.CONTROL_DB.prepare(
         `SELECT metric_date, completed_runs
          FROM daily_project_metrics
@@ -1530,7 +1946,23 @@ analyticsRoutes.get(
         .all<{ metric_date: string; completed_runs: number }>(),
     ]);
     const occurrences = (
-      await loadShoppingProductOccurrences(c.env, indexes.results, identity)
+      readModelReady
+        ? await c
+            .get("timing")
+            .measure("analytics_read_model", () =>
+              loadReadModelShoppingProductOccurrences(
+                c.env,
+                input.projectId,
+                dates.startTimestamp,
+                dates.endExclusiveTimestamp,
+                identity,
+              ),
+            )
+        : await c
+            .get("timing")
+            .measure("legacy_shards", () =>
+              loadShoppingProductOccurrences(c.env, indexes.results, identity),
+            )
     )
       .filter((occurrence) => productIdentity(occurrence) === identity)
       .sort(
@@ -1943,7 +2375,12 @@ analyticsRoutes.get(
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
     const dates = range(input);
     const [rows, verifiedBrandMentions] = await Promise.all([
       c.env.CONTROL_DB.prepare(
@@ -1986,7 +2423,12 @@ analyticsRoutes.get(
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
     const dates = range(input);
     const indexes = await c.env.CONTROL_DB.prepare(
       `SELECT id, shard_id FROM snapshot_index
@@ -2048,7 +2490,12 @@ analyticsRoutes.get(
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
-    await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
     const clauses = ["s.project_id = ?"];
     const bindings: Array<string | number> = [input.projectId];
     if (input.queryId) {

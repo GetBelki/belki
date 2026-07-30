@@ -15,6 +15,7 @@ import { authMiddleware } from "./lib/auth";
 import { errorResponse, nowIso, requestId } from "./lib/http";
 import { timingSafeTextEqual, verifySignedJobTag } from "./lib/crypto";
 import { missingDefaultSecurityHeaders } from "./lib/security-headers";
+import { RequestTiming } from "./lib/timing";
 import { dispatchLiveBatch, dispatchStandardBatch, collectReadyTasks } from "./ingestion/dispatch";
 import { normalizeBatch } from "./ingestion/normalize";
 import { rollupBatch } from "./ingestion/rollup";
@@ -27,14 +28,31 @@ import {
 } from "./ingestion/scheduler";
 import { exportBatch } from "./automation/exports";
 import { notificationBatch } from "./automation/notifications";
+import { backfillAnalyticsReadModel } from "./ingestion/analytics-backfill";
 
 const app = new Hono<AppEnv>();
 
 app.use("*", async (c, next) => {
   c.set("requestId", c.req.header("cf-ray") ?? requestId());
+  const timing = new RequestTiming();
+  c.set("timing", timing);
   await next();
   for (const [name, value] of missingDefaultSecurityHeaders(c.res.headers)) {
     c.header(name, value);
+  }
+  c.header("Server-Timing", timing.toServerTiming(), { append: true });
+  if (c.req.path.startsWith("/api/v1/analytics/")) {
+    console.log(
+      JSON.stringify({
+        level: "info",
+        message: "analytics_request_timing",
+        requestId: c.get("requestId"),
+        method: c.req.method,
+        path: c.req.path,
+        status: c.res.status,
+        timingMs: timing.toLogRecord(),
+      }),
+    );
   }
 });
 
@@ -159,6 +177,11 @@ async function scheduled(
     metrics.reconciledJobs = await reconcileJobs(env);
   } else if (event.cron === "* * * * *") {
     metrics.recoveredPostbacks = await collectReadyTasks(env);
+    const backfill = await backfillAnalyticsReadModel(env);
+    metrics.analyticsBackfillProjects = backfill.projects;
+    metrics.analyticsBackfillSnapshots = backfill.snapshots;
+    metrics.analyticsBackfillReady = backfill.ready;
+    metrics.analyticsBackfillFailed = backfill.failed;
   } else if (event.cron === "0 3 * * *") {
     await runRetention(env);
     metrics.retention = 1;

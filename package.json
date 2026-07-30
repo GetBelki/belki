@@ -37,7 +37,7 @@
     "db:migrate:local": "node scripts/migrate.mjs --local",
     "db:migrate:remote": "node scripts/migrate.mjs --remote",
     "r2:lifecycle": "wrangler r2 bucket lifecycle set ai-tracker-evidence --file infrastructure/r2-lifecycle.json --force",
-    "deploy": "wrangler deploy && pnpm db:migrate:remote",
+    "deploy": "pnpm db:migrate:remote && wrangler deploy",
     "deploy:dry": "pnpm build && wrangler deploy --dry-run",
     "cf-typegen": "wrangler types"
   },

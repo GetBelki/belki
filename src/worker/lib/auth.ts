@@ -39,19 +39,22 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
 
   const sessionToken = getCookie(c, SESSION_COOKIE);
   if (!sessionToken) throw new ApiError(401, "authentication_required", "Sign in is required.");
-  const tokenHash = await sha256(sessionToken);
-  const row = await c.env.CONTROL_DB.prepare(
-    `SELECT
-      s.id AS session_id, s.user_id, m.workspace_id, u.email, u.display_name,
-      m.role, s.csrf_hash, s.expires_at, s.last_seen_at, u.status
-    FROM sessions s
-    JOIN users u ON u.id = s.user_id
-    JOIN memberships m ON m.user_id = u.id
-    WHERE s.token_hash = ?
-    LIMIT 1`,
-  )
-    .bind(tokenHash)
-    .first<SessionRow>();
+  const timing = c.get("timing");
+  const tokenHash = await timing.measure("auth_crypto", () => sha256(sessionToken));
+  const row = await timing.measure("auth_db", () =>
+    c.env.CONTROL_DB.prepare(
+      `SELECT
+        s.id AS session_id, s.user_id, m.workspace_id, u.email, u.display_name,
+        m.role, s.csrf_hash, s.expires_at, s.last_seen_at, u.status
+      FROM sessions s
+      JOIN users u ON u.id = s.user_id
+      JOIN memberships m ON m.user_id = u.id
+      WHERE s.token_hash = ?
+      LIMIT 1`,
+    )
+      .bind(tokenHash)
+      .first<SessionRow>(),
+  );
 
   if (!row || row.status !== "active" || Date.parse(row.expires_at) <= Date.now()) {
     deleteAuthCookies(c);

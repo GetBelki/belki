@@ -2,6 +2,7 @@ import type { RollupQueueMessage } from "../../shared/contracts";
 import { nowIso } from "../lib/http";
 import { getShard } from "../lib/shards";
 import { evaluateSnapshotAlerts } from "../automation/alerts";
+import { syncAnalyticsReadModel } from "./analytics-read-model";
 
 interface DomainMetric {
   citedSnapshotCount: number;
@@ -128,6 +129,13 @@ export async function applyRollup(
     }
     await env.CONTROL_DB.batch(statements);
   }
+
+  await syncAnalyticsReadModel(env, message.shardId, {
+    snapshotId: payload.snapshotId,
+    projectId: payload.projectId,
+    trackedQueryId: payload.trackedQueryId,
+    metricDate: payload.metricDate,
+  });
 
   await shard
     .prepare(
