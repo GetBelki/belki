@@ -486,10 +486,12 @@ export function PromptsPage() {
   const pageScope = [projectId, search, country, language, tagKey].join("\u0000");
   const [promptPagination, setPromptPagination] = useState<{
     scope: string;
-    offset: number;
-  }>(() => ({ scope: "", offset: 0 }));
-  const offset =
-    promptPagination.scope === pageScope ? promptPagination.offset : 0;
+    cursors: string[];
+  }>(() => ({ scope: "", cursors: [] }));
+  const promptCursors =
+    promptPagination.scope === pageScope ? promptPagination.cursors : [];
+  const promptCursor = promptCursors.at(-1);
+  const pageOffset = promptCursors.length * pageSize;
   const selectionScope = [projectId, search, country, language, tagKey].join("\u0000");
   const selectedPromptIds =
     promptSelection.scope === selectionScope
@@ -517,10 +519,18 @@ export function PromptsPage() {
   if (country) reportParams.set("locationCode", country);
   if (language) reportParams.set("languageCode", language);
   if (selectedTagIds.length) reportParams.set("tagIds", tagKey);
-  reportParams.set("offset", String(offset));
+  if (promptCursor) reportParams.set("cursor", promptCursor);
   reportParams.set("limit", String(pageSize));
   const queries = useQuery({
-    queryKey: ["prompts", projectId, search, country, language, tagKey, offset],
+    queryKey: [
+      "prompts",
+      projectId,
+      search,
+      country,
+      language,
+      tagKey,
+      promptCursor ?? "",
+    ],
     queryFn: () => apiPage<QueryRow[]>(`/analytics/prompts?${reportParams}`),
     enabled: Boolean(projectId),
     refetchInterval: (current) =>
@@ -975,16 +985,16 @@ export function PromptsPage() {
             {totalPrompts > pageSize ? (
               <div className="table-pagination">
                 <span>
-                  {offset + 1}–{Math.min(offset + promptRows.length, totalPrompts)} of{" "}
+                  {pageOffset + 1}–{Math.min(pageOffset + promptRows.length, totalPrompts)} of{" "}
                   {totalPrompts} prompts
                 </span>
                 <div>
                   <Button
-                    disabled={offset === 0 || queries.isFetching}
+                    disabled={!promptCursors.length || queries.isFetching}
                     onClick={() =>
                       setPromptPagination({
                         scope: pageScope,
-                        offset: Math.max(0, offset - pageSize),
+                        cursors: promptCursors.slice(0, -1),
                       })
                     }
                     variant="secondary"
@@ -993,12 +1003,14 @@ export function PromptsPage() {
                   </Button>
                   <Button
                     disabled={!queries.data?.page.nextCursor || queries.isFetching}
-                    onClick={() =>
+                    onClick={() => {
+                      const nextCursor = queries.data?.page.nextCursor;
+                      if (!nextCursor) return;
                       setPromptPagination({
                         scope: pageScope,
-                        offset: offset + pageSize,
-                      })
-                    }
+                        cursors: [...promptCursors, nextCursor],
+                      });
+                    }}
                     variant="secondary"
                   >
                     Next

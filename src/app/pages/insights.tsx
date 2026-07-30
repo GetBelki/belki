@@ -137,22 +137,29 @@ export function CitationSourcesPage() {
   const { projectId } = useApp();
   const navigate = useNavigate();
   const pageSize = 10;
-  const [pagination, setPagination] = useState({ projectId, offset: 0 });
-  const offset =
-    pagination.projectId === projectId ? pagination.offset : 0;
+  const [pagination, setPagination] = useState({
+    projectId,
+    cursors: [] as string[],
+  });
+  const cursors =
+    pagination.projectId === projectId ? pagination.cursors : [];
+  const cursor = cursors.at(-1);
+  const pageOffset = cursors.length * pageSize;
   const query = useQuery({
-    queryKey: ["citation-sources", projectId, offset],
+    queryKey: ["citation-sources", projectId, cursor ?? ""],
     queryFn: () =>
       apiPage<CitationSourceRow[]>(
-        `/analytics/citation-sources?projectId=${projectId}&offset=${offset}&limit=${pageSize}`,
+        `/analytics/citation-sources?projectId=${projectId}&limit=${pageSize}${
+          cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
+        }`,
       ),
     enabled: Boolean(projectId),
   });
   if (!projectId) return <NoProject />;
   const sources = query.data?.data ?? [];
   const total = query.data?.page.total ?? 0;
-  const firstItem = total ? offset + 1 : 0;
-  const lastItem = Math.min(offset + sources.length, total);
+  const firstItem = total ? pageOffset + 1 : 0;
+  const lastItem = Math.min(pageOffset + sources.length, total);
   return (
     <div className="page">
       <PageHeader
@@ -212,11 +219,11 @@ export function CitationSourcesPage() {
               <div>
                 <Button
                   variant="secondary"
-                  disabled={offset === 0 || query.isFetching}
+                  disabled={!cursors.length || query.isFetching}
                   onClick={() =>
                     setPagination({
                       projectId,
-                      offset: Math.max(0, offset - pageSize),
+                      cursors: cursors.slice(0, -1),
                     })
                   }
                 >
@@ -225,12 +232,14 @@ export function CitationSourcesPage() {
                 <Button
                   variant="secondary"
                   disabled={!query.data?.page.nextCursor || query.isFetching}
-                  onClick={() =>
+                  onClick={() => {
+                    const nextCursor = query.data?.page.nextCursor;
+                    if (!nextCursor) return;
                     setPagination({
                       projectId,
-                      offset: offset + pageSize,
-                    })
-                  }
+                      cursors: [...cursors, nextCursor],
+                    });
+                  }}
                 >
                   Next <ChevronRight size={14} />
                 </Button>
@@ -302,27 +311,35 @@ export function CitationSourceDetailPage() {
   const domain = routeDomain.trim().toLowerCase();
   const pageSize = 10;
   const pageKey = `${projectId ?? ""}:${domain}`;
-  const [pagination, setPagination] = useState({ pageKey, offset: 0 });
+  const [pagination, setPagination] = useState({
+    pageKey,
+    cursors: [] as string[],
+  });
   const [promptPagination, setPromptPagination] = useState({
     pageKey,
     offset: 0,
   });
-  const offset = pagination.pageKey === pageKey ? pagination.offset : 0;
+  const cursors =
+    pagination.pageKey === pageKey ? pagination.cursors : [];
+  const cursor = cursors.at(-1);
+  const pageOffset = cursors.length * pageSize;
   const promptOffset =
     promptPagination.pageKey === pageKey ? promptPagination.offset : 0;
   const query = useQuery({
-    queryKey: ["citation-source", projectId, domain, offset],
+    queryKey: ["citation-source", projectId, domain, cursor ?? ""],
     queryFn: () =>
       apiPage<CitationSourceDetail>(
-        `/analytics/citation-sources/${encodeURIComponent(domain)}?projectId=${projectId}&offset=${offset}&limit=${pageSize}`,
+        `/analytics/citation-sources/${encodeURIComponent(domain)}?projectId=${projectId}&limit=${pageSize}${
+          cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
+        }`,
       ),
     enabled: Boolean(projectId && domain),
   });
   if (!projectId) return <NoProject />;
   const detail = query.data?.data;
   const total = query.data?.page.total ?? 0;
-  const firstItem = total ? offset + 1 : 0;
-  const lastItem = Math.min(offset + (detail?.urls.length ?? 0), total);
+  const firstItem = total ? pageOffset + 1 : 0;
+  const lastItem = Math.min(pageOffset + (detail?.urls.length ?? 0), total);
   const promptRows =
     detail?.prompts.slice(promptOffset, promptOffset + pageSize) ?? [];
 
@@ -608,11 +625,11 @@ export function CitationSourceDetailPage() {
                   <div>
                     <Button
                       variant="secondary"
-                      disabled={offset === 0 || query.isFetching}
+                      disabled={!cursors.length || query.isFetching}
                       onClick={() =>
                         setPagination({
                           pageKey,
-                          offset: Math.max(0, offset - pageSize),
+                          cursors: cursors.slice(0, -1),
                         })
                       }
                     >
@@ -621,12 +638,14 @@ export function CitationSourceDetailPage() {
                     <Button
                       variant="secondary"
                       disabled={!query.data?.page.nextCursor || query.isFetching}
-                      onClick={() =>
+                      onClick={() => {
+                        const nextCursor = query.data?.page.nextCursor;
+                        if (!nextCursor) return;
                         setPagination({
                           pageKey,
-                          offset: offset + pageSize,
-                        })
-                      }
+                          cursors: [...cursors, nextCursor],
+                        });
+                      }}
                     >
                       Next <ChevronRight size={14} />
                     </Button>
@@ -747,9 +766,13 @@ export function ShoppingPage() {
   const tagKey = selectedTagIds.join(",");
   const pageSize = 10;
   const pageScope = [projectId, search, country, tagKey].join("\u0000");
-  const [pagination, setPagination] = useState({ scope: "", offset: 0 });
-  const offset =
-    pagination.scope === pageScope ? pagination.offset : 0;
+  const [pagination, setPagination] = useState({
+    scope: "",
+    cursors: [] as string[],
+  });
+  const cursors = pagination.scope === pageScope ? pagination.cursors : [];
+  const cursor = cursors.at(-1);
+  const pageOffset = cursors.length * pageSize;
   const tags = useQuery({
     queryKey: ["prompt-tags", projectId],
     queryFn: () => api<PromptTag[]>(`/projects/${projectId}/tags`),
@@ -760,14 +783,14 @@ export function ShoppingPage() {
     .filter((tag): tag is PromptTag => Boolean(tag));
   const reportParams = new URLSearchParams({
     projectId: projectId ?? "",
-    offset: String(offset),
     limit: String(pageSize),
   });
+  if (cursor) reportParams.set("cursor", cursor);
   if (search) reportParams.set("search", search);
   if (country) reportParams.set("locationCode", country);
   if (selectedTagIds.length) reportParams.set("tagIds", tagKey);
   const query = useQuery({
-    queryKey: ["shopping", projectId, search, country, tagKey, offset],
+    queryKey: ["shopping", projectId, search, country, tagKey, cursor ?? ""],
     queryFn: () =>
       apiPage<ShoppingRow[]>(
         `/analytics/shopping?${reportParams}`,
@@ -778,8 +801,8 @@ export function ShoppingPage() {
   if (!projectId) return <NoProject />;
   const products = query.data?.data ?? [];
   const total = query.data?.page.total ?? 0;
-  const firstItem = total ? offset + 1 : 0;
-  const lastItem = Math.min(offset + products.length, total);
+  const firstItem = total ? pageOffset + 1 : 0;
+  const lastItem = Math.min(pageOffset + products.length, total);
   return (
     <div className="page">
       <PageHeader
@@ -929,11 +952,11 @@ export function ShoppingPage() {
               <div>
                 <Button
                   variant="secondary"
-                  disabled={offset === 0 || query.isFetching}
+                  disabled={!cursors.length || query.isFetching}
                   onClick={() =>
                     setPagination({
                       scope: pageScope,
-                      offset: Math.max(0, offset - pageSize),
+                      cursors: cursors.slice(0, -1),
                     })
                   }
                 >
@@ -942,12 +965,14 @@ export function ShoppingPage() {
                 <Button
                   variant="secondary"
                   disabled={!query.data?.page.nextCursor || query.isFetching}
-                  onClick={() =>
+                  onClick={() => {
+                    const nextCursor = query.data?.page.nextCursor;
+                    if (!nextCursor) return;
                     setPagination({
                       scope: pageScope,
-                      offset: offset + pageSize,
-                    })
-                  }
+                      cursors: [...cursors, nextCursor],
+                    });
+                  }}
                 >
                   Next <ChevronRight size={14} />
                 </Button>
@@ -1116,12 +1141,14 @@ export function ProductAnalyticsPage() {
   const pageScope = `${projectId ?? ""}:${productKey}:${period}`;
   const [pagination, setPagination] = useState({
     scope: pageScope,
-    occurrenceOffset: 0,
+    occurrenceCursors: [] as string[],
     promptOffset: 0,
     merchantOffset: 0,
   });
-  const occurrenceOffset =
-    pagination.scope === pageScope ? pagination.occurrenceOffset : 0;
+  const occurrenceCursors =
+    pagination.scope === pageScope ? pagination.occurrenceCursors : [];
+  const occurrenceCursor = occurrenceCursors.at(-1);
+  const occurrenceOffset = occurrenceCursors.length * pageSize;
   const promptOffset =
     pagination.scope === pageScope ? pagination.promptOffset : 0;
   const merchantOffset =
@@ -1132,11 +1159,15 @@ export function ProductAnalyticsPage() {
       projectId,
       productKey,
       period,
-      occurrenceOffset,
+      occurrenceCursor ?? "",
     ],
     queryFn: () =>
       apiPage<ProductAnalyticsDetail>(
-        `/analytics/shopping/${encodeURIComponent(productKey)}?projectId=${projectId}&period=${period}&offset=${occurrenceOffset}&limit=${pageSize}`,
+        `/analytics/shopping/${encodeURIComponent(productKey)}?projectId=${projectId}&period=${period}&limit=${pageSize}${
+          occurrenceCursor
+            ? `&cursor=${encodeURIComponent(occurrenceCursor)}`
+            : ""
+        }`,
       ),
     enabled: Boolean(projectId && productKey),
   });
@@ -1168,13 +1199,13 @@ export function ProductAnalyticsPage() {
     : undefined;
   const productImage = detail?.product.images[0];
   const updateSectionOffset = (
-    key: "occurrenceOffset" | "promptOffset" | "merchantOffset",
+    key: "promptOffset" | "merchantOffset",
     value: number,
   ) =>
     setPagination((current) => ({
       scope: pageScope,
-      occurrenceOffset:
-        current.scope === pageScope ? current.occurrenceOffset : 0,
+      occurrenceCursors:
+        current.scope === pageScope ? current.occurrenceCursors : [],
       promptOffset: current.scope === pageScope ? current.promptOffset : 0,
       merchantOffset: current.scope === pageScope ? current.merchantOffset : 0,
       [key]: value,
@@ -1530,8 +1561,48 @@ export function ProductAnalyticsPage() {
               <div className="table-pagination">
                 <span>{occurrenceOffset + 1}–{Math.min(occurrenceOffset + detail.occurrences.length, occurrenceTotal)} of {occurrenceTotal}</span>
                 <div>
-                  <Button variant="secondary" disabled={occurrenceOffset === 0 || query.isFetching} onClick={() => updateSectionOffset("occurrenceOffset", Math.max(0, occurrenceOffset - pageSize))}><ChevronLeft size={14} /> Previous</Button>
-                  <Button variant="secondary" disabled={!query.data?.page.nextCursor || query.isFetching} onClick={() => updateSectionOffset("occurrenceOffset", occurrenceOffset + pageSize)}>Next <ChevronRight size={14} /></Button>
+                  <Button
+                    variant="secondary"
+                    disabled={!occurrenceCursors.length || query.isFetching}
+                    onClick={() =>
+                      setPagination((current) => ({
+                        scope: pageScope,
+                        occurrenceCursors:
+                          current.scope === pageScope
+                            ? current.occurrenceCursors.slice(0, -1)
+                            : [],
+                        promptOffset:
+                          current.scope === pageScope ? current.promptOffset : 0,
+                        merchantOffset:
+                          current.scope === pageScope ? current.merchantOffset : 0,
+                      }))
+                    }
+                  >
+                    <ChevronLeft size={14} /> Previous
+                  </Button>
+                  <Button
+                    variant="secondary"
+                    disabled={!query.data?.page.nextCursor || query.isFetching}
+                    onClick={() => {
+                      const nextCursor = query.data?.page.nextCursor;
+                      if (!nextCursor) return;
+                      setPagination((current) => ({
+                        scope: pageScope,
+                        occurrenceCursors: [
+                          ...(current.scope === pageScope
+                            ? current.occurrenceCursors
+                            : []),
+                          nextCursor,
+                        ],
+                        promptOffset:
+                          current.scope === pageScope ? current.promptOffset : 0,
+                        merchantOffset:
+                          current.scope === pageScope ? current.merchantOffset : 0,
+                      }));
+                    }}
+                  >
+                    Next <ChevronRight size={14} />
+                  </Button>
                 </div>
               </div>
             ) : null}

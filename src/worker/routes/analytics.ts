@@ -8,6 +8,7 @@ import {
   sanitizeCapturedHtmlResponse,
 } from "../lib/dataforseo-html";
 import { requireRole } from "../lib/auth";
+import { decodeCursor, encodeCursor } from "../lib/cursor";
 import { matchedBrandTerms, normalizeHostname } from "../lib/domain";
 import { evidenceResponseHeaders } from "../lib/evidence";
 import { getShard } from "../lib/shards";
@@ -29,7 +30,8 @@ const DateRangeSchema = z.object({
   to: z.string().date().optional(),
 });
 const PaginatedDateRangeSchema = DateRangeSchema.extend({
-  offset: z.coerce.number().int().min(0).default(0),
+  cursor: z.string().max(4096).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });
 const CitationSourceParamSchema = z.object({
@@ -56,7 +58,8 @@ const PromptAnalyticsSchema = z.object({
   locationCode: z.coerce.number().int().optional(),
   languageCode: z.string().trim().max(12).optional(),
   tagIds: PromptTagIdsSchema.optional(),
-  offset: z.coerce.number().int().min(0).default(0),
+  cursor: z.string().max(4096).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
 const ShoppingAnalyticsSchema = PaginatedDateRangeSchema.extend({
@@ -74,7 +77,8 @@ const ShoppingProductParamSchema = z.object({
 const ShoppingProductDetailSchema = z.object({
   projectId: z.string().uuid(),
   period: z.enum(["7d", "30d", "90d", "365d"]).default("30d"),
-  offset: z.coerce.number().int().min(0).default(0),
+  cursor: z.string().max(4096).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });
 
@@ -703,6 +707,17 @@ analyticsRoutes.get(
       );
       bindings.push(...input.tagIds, input.tagIds.length);
     }
+    const promptCursor = decodeCursor<{ createdAt: string; id: string }>(
+      input.cursor,
+      "analytics-prompts",
+    );
+    if (
+      promptCursor &&
+      (typeof promptCursor.createdAt !== "string" ||
+        typeof promptCursor.id !== "string")
+    ) {
+      throw new ApiError(400, "invalid_cursor", "The prompt cursor is invalid.");
+    }
     const totalRow = await c.env.CONTROL_DB.prepare(
       `SELECT COUNT(*) AS total
        FROM tracked_queries q
@@ -711,10 +726,23 @@ analyticsRoutes.get(
       .bind(...bindings)
       .first<{ total: number }>();
     const total = totalRow?.total ?? 0;
-    bindings.push(input.limit, input.offset);
+    if (promptCursor) {
+      clauses.push(
+        "(q.created_at < ? OR (q.created_at = ? AND q.id < ?))",
+      );
+      bindings.push(
+        promptCursor.createdAt,
+        promptCursor.createdAt,
+        promptCursor.id,
+      );
+    }
+    bindings.push(input.limit + 1);
+    if (!promptCursor && input.offset !== undefined) {
+      bindings.push(input.offset);
+    }
     const queryRows = await c.env.CONTROL_DB.prepare(
       `SELECT
-        q.id, q.query_text, q.location_code, q.language_code,
+        q.id, q.query_text, q.location_code, q.language_code, q.created_at,
         q.schedule_cadence, q.schedule_time, q.schedule_timezone, q.is_active,
         q.shard_id,
         (SELECT s.id FROM snapshot_index s WHERE s.tracked_query_id = q.id
@@ -729,8 +757,8 @@ analyticsRoutes.get(
           ORDER BY j.created_at DESC LIMIT 1) AS latest_run_status
       FROM tracked_queries q
       WHERE ${clauses.join(" AND ")}
-      ORDER BY q.id
-      LIMIT ? OFFSET ?`,
+      ORDER BY q.created_at DESC, q.id DESC
+      LIMIT ?${!promptCursor && input.offset !== undefined ? " OFFSET ?" : ""}`,
     )
       .bind(...bindings)
       .all<{
@@ -738,6 +766,7 @@ analyticsRoutes.get(
         query_text: string;
         location_code: number;
         language_code: string;
+        created_at: string;
         schedule_cadence: string;
         schedule_time: string;
         schedule_timezone: string;
@@ -749,7 +778,8 @@ analyticsRoutes.get(
         snapshot_count: number;
         latest_run_status: string | null;
       }>();
-    const rows = queryRows.results;
+    const hasMore = queryRows.results.length > input.limit;
+    const rows = queryRows.results.slice(0, input.limit);
     const promptTags = new Map<
       string,
       Array<{ id: string; name: string; colorIndex: number }>
@@ -896,10 +926,12 @@ analyticsRoutes.get(
         };
       }),
       page: {
-        nextCursor:
-          input.offset + rows.length < total
-            ? String(input.offset + rows.length)
-            : null,
+        nextCursor: hasMore && rows.length
+          ? encodeCursor("analytics-prompts", {
+              createdAt: rows.at(-1)!.created_at,
+              id: rows.at(-1)!.id,
+            })
+          : null,
         total,
       },
     });
@@ -914,81 +946,154 @@ analyticsRoutes.get(
     const input = c.req.valid("query");
     await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
     const dates = range(input);
-    const indexes = await c.env.CONTROL_DB.prepare(
-      `SELECT id, shard_id FROM snapshot_index
-       WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
-    )
-      .bind(input.projectId, `${dates.from}T00:00:00.000Z`, exclusiveDateEnd(dates.to))
-      .all<{ id: string; shard_id: number }>();
-    const grouped = new Map<number, string[]>();
-    for (const index of indexes.results) {
-      grouped.set(index.shard_id, [...(grouped.get(index.shard_id) ?? []), index.id]);
+    const sourceCursor = decodeCursor<{
+      totalCitations: number;
+      domain: string;
+    }>(input.cursor, "citation-sources");
+    if (
+      sourceCursor &&
+      (typeof sourceCursor.totalCitations !== "number" ||
+        typeof sourceCursor.domain !== "string")
+    ) {
+      throw new ApiError(400, "invalid_cursor", "The source cursor is invalid.");
     }
+    const cursorClause = sourceCursor
+      ? `AND (
+          SUM(citation_count) < ?
+          OR (SUM(citation_count) = ? AND domain > ?)
+        )`
+      : "";
+    const pageBindings: Array<string | number> = [
+      input.projectId,
+      dates.from,
+      dates.to,
+    ];
+    if (sourceCursor) {
+      pageBindings.push(
+        sourceCursor.totalCitations,
+        sourceCursor.totalCitations,
+        sourceCursor.domain,
+      );
+    }
+    pageBindings.push(input.limit + 1);
+    if (!sourceCursor && input.offset) {
+      pageBindings.push(input.offset);
+    }
+    const [completedResult, totalResult, pageResult] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `SELECT COALESCE(SUM(completed_runs), 0) AS completed
+         FROM daily_project_metrics
+         WHERE project_id = ? AND metric_date BETWEEN ? AND ?`,
+      )
+        .bind(input.projectId, dates.from, dates.to)
+        .first<{ completed: number }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS total
+         FROM (
+           SELECT domain
+           FROM daily_domain_metrics
+           WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+           GROUP BY domain
+           HAVING SUM(citation_count) > 0
+         )`,
+      )
+        .bind(input.projectId, dates.from, dates.to)
+        .first<{ total: number }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT
+           domain,
+           SUM(cited_snapshot_count) AS cited_snapshots,
+           SUM(citation_count) AS total_citations
+         FROM daily_domain_metrics
+         WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+         GROUP BY domain
+         HAVING SUM(citation_count) > 0
+         ${cursorClause}
+         ORDER BY total_citations DESC, domain ASC
+         LIMIT ?
+         ${!sourceCursor && input.offset ? "OFFSET ?" : ""}`,
+      )
+        .bind(...pageBindings)
+        .all<{
+          domain: string;
+          cited_snapshots: number;
+          total_citations: number;
+        }>(),
+    ]);
+    const candidates = pageResult.results;
+    const pageRows = candidates.slice(0, input.limit);
+    const pageDomains = pageRows.map((row) => row.domain);
     const urls = new Map<string, Set<string>>();
-    const citations = new Map<
-      string,
-      { total: number; snapshotIds: Set<string> }
-    >();
-    await Promise.all(
-      [...grouped.entries()].flatMap(([shardId, ids]) =>
-        chunks(ids).map(async (snapshotIds) => {
-          const placeholders = snapshotIds.map(() => "?").join(",");
-          const result = await getShard(c.env, shardId)
-            .prepare(
-              `SELECT snapshot_id, registrable_domain, canonical_url, raw_url
-               FROM snapshot_sources WHERE snapshot_id IN (${placeholders})`,
-            )
-            .bind(...snapshotIds)
-            .all<{
-              snapshot_id: string;
-              registrable_domain: string | null;
-              canonical_url: string | null;
-              raw_url: string | null;
-            }>();
-          for (const source of result.results) {
-            if (!source.registrable_domain) continue;
-            const url = source.canonical_url ?? source.raw_url;
-            if (url) {
+    if (pageDomains.length) {
+      const indexes = await c.env.CONTROL_DB.prepare(
+        `SELECT id, shard_id FROM snapshot_index
+         WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
+      )
+        .bind(
+          input.projectId,
+          `${dates.from}T00:00:00.000Z`,
+          exclusiveDateEnd(dates.to),
+        )
+        .all<{ id: string; shard_id: number }>();
+      const grouped = new Map<number, string[]>();
+      for (const index of indexes.results) {
+        grouped.set(index.shard_id, [
+          ...(grouped.get(index.shard_id) ?? []),
+          index.id,
+        ]);
+      }
+      await Promise.all(
+        [...grouped.entries()].flatMap(([shardId, ids]) =>
+          chunks(ids).map(async (snapshotIds) => {
+            const snapshotPlaceholders = snapshotIds.map(() => "?").join(",");
+            const domainPlaceholders = pageDomains.map(() => "?").join(",");
+            const result = await getShard(c.env, shardId)
+              .prepare(
+                `SELECT registrable_domain, canonical_url, raw_url
+                 FROM snapshot_sources
+                 WHERE snapshot_id IN (${snapshotPlaceholders})
+                   AND registrable_domain IN (${domainPlaceholders})`,
+              )
+              .bind(...snapshotIds, ...pageDomains)
+              .all<{
+                registrable_domain: string | null;
+                canonical_url: string | null;
+                raw_url: string | null;
+              }>();
+            for (const source of result.results) {
+              if (!source.registrable_domain) continue;
+              const url = source.canonical_url ?? source.raw_url;
+              if (!url) continue;
               const set = urls.get(source.registrable_domain) ?? new Set<string>();
               set.add(url);
               urls.set(source.registrable_domain, set);
             }
-            const metric = citations.get(source.registrable_domain) ?? {
-              total: 0,
-              snapshotIds: new Set<string>(),
-            };
-            metric.total += 1;
-            metric.snapshotIds.add(source.snapshot_id);
-            citations.set(source.registrable_domain, metric);
-          }
-        }),
-      ),
-    );
-    const completed = indexes.results.length;
-    const sortedSources = [...citations.entries()]
-      .map(([domain, metric]) => ({
-        domain,
-        citationRate: completed
-          ? (metric.snapshotIds.size / completed) * 100
-          : 0,
-        totalUrls: urls.get(domain)?.size ?? 0,
-        totalCitations: metric.total,
-        citedSnapshots: metric.snapshotIds.size,
-      }))
-      .sort(
-        (left, right) =>
-          right.totalCitations - left.totalCitations ||
-          left.domain.localeCompare(right.domain),
+          }),
+        ),
       );
-    const page = sortedSources.slice(input.offset, input.offset + input.limit);
+    }
+    const completed = Number(completedResult?.completed ?? 0);
+    const page = pageRows.map((row) => ({
+      domain: row.domain,
+      citationRate: completed
+        ? (Number(row.cited_snapshots) / completed) * 100
+        : 0,
+      totalUrls: urls.get(row.domain)?.size ?? 0,
+      totalCitations: Number(row.total_citations),
+      citedSnapshots: Number(row.cited_snapshots),
+    }));
+    const lastSource = page.at(-1);
     return c.json({
       data: page,
       page: {
         nextCursor:
-          input.offset + page.length < sortedSources.length
-            ? String(input.offset + page.length)
+          candidates.length > input.limit && lastSource
+            ? encodeCursor("citation-sources", {
+                totalCitations: lastSource.totalCitations,
+                domain: lastSource.domain,
+              })
             : null,
-        total: sortedSources.length,
+        total: Number(totalResult?.total ?? 0),
       },
     });
   },
@@ -1183,7 +1288,33 @@ analyticsRoutes.get(
           right.lastCitedAt.localeCompare(left.lastCitedAt) ||
           left.url.localeCompare(right.url),
       );
-    const page = rankedUrls.slice(input.offset, input.offset + input.limit);
+    const urlCursor = decodeCursor<{
+      citationCount: number;
+      lastCitedAt: string;
+      url: string;
+    }>(input.cursor, "citation-source-urls");
+    if (
+      urlCursor &&
+      (typeof urlCursor.citationCount !== "number" ||
+        typeof urlCursor.lastCitedAt !== "string" ||
+        typeof urlCursor.url !== "string")
+    ) {
+      throw new ApiError(400, "invalid_cursor", "The cited URL cursor is invalid.");
+    }
+    const afterCursor = urlCursor
+      ? rankedUrls.filter(
+          (source) =>
+            source.citationCount < urlCursor.citationCount ||
+            (source.citationCount === urlCursor.citationCount &&
+              (source.lastCitedAt < urlCursor.lastCitedAt ||
+                (source.lastCitedAt === urlCursor.lastCitedAt &&
+                  source.url.localeCompare(urlCursor.url) > 0))),
+        )
+      : rankedUrls;
+    const start = !urlCursor ? input.offset ?? 0 : 0;
+    const candidates = afterCursor.slice(start, start + input.limit + 1);
+    const page = candidates.slice(0, input.limit);
+    const lastUrl = page.at(-1);
     const totals = dailyMetrics.results.reduce(
       (summary, point) => ({
         completedRuns: summary.completedRuns + point.completed_runs,
@@ -1217,8 +1348,12 @@ analyticsRoutes.get(
       },
       page: {
         nextCursor:
-          input.offset + page.length < rankedUrls.length
-            ? String(input.offset + page.length)
+          candidates.length > input.limit && lastUrl
+            ? encodeCursor("citation-source-urls", {
+                citationCount: lastUrl.citationCount,
+                lastCitedAt: lastUrl.lastCitedAt,
+                url: lastUrl.url,
+              })
             : null,
         total: rankedUrls.length,
       },
@@ -1310,18 +1445,51 @@ analyticsRoutes.get(
         products.set(key, { ...occurrence, appearances: 1 });
       }
     }
-    const sortedProducts = [...products.values()].sort(
-      (left, right) =>
-        right.appearances - left.appearances ||
-        right.captured_at.localeCompare(left.captured_at),
-    );
-    const page = sortedProducts.slice(input.offset, input.offset + input.limit);
+    const sortedProducts = [...products.values()]
+      .map((product) => ({ ...product, identity: productIdentity(product) }))
+      .sort(
+        (left, right) =>
+          right.appearances - left.appearances ||
+          right.captured_at.localeCompare(left.captured_at) ||
+          left.identity.localeCompare(right.identity),
+      );
+    const shoppingCursor = decodeCursor<{
+      appearances: number;
+      capturedAt: string;
+      key: string;
+    }>(input.cursor, "shopping");
+    if (
+      shoppingCursor &&
+      (typeof shoppingCursor.appearances !== "number" ||
+        typeof shoppingCursor.capturedAt !== "string" ||
+        typeof shoppingCursor.key !== "string")
+    ) {
+      throw new ApiError(400, "invalid_cursor", "The shopping cursor is invalid.");
+    }
+    const afterCursor = shoppingCursor
+      ? sortedProducts.filter(
+          (product) =>
+            product.appearances < shoppingCursor.appearances ||
+            (product.appearances === shoppingCursor.appearances &&
+              (product.captured_at < shoppingCursor.capturedAt ||
+                (product.captured_at === shoppingCursor.capturedAt &&
+                  product.identity.localeCompare(shoppingCursor.key) > 0))),
+        )
+      : sortedProducts;
+    const start = !shoppingCursor ? input.offset ?? 0 : 0;
+    const candidates = afterCursor.slice(start, start + input.limit + 1);
+    const page = candidates.slice(0, input.limit);
+    const lastProduct = page.at(-1);
     return c.json({
       data: page.map(serializedShoppingProduct),
       page: {
         nextCursor:
-          input.offset + page.length < sortedProducts.length
-            ? String(input.offset + page.length)
+          candidates.length > input.limit && lastProduct
+            ? encodeCursor("shopping", {
+                appearances: lastProduct.appearances,
+                capturedAt: lastProduct.captured_at,
+                key: lastProduct.identity,
+              })
             : null,
         total: sortedProducts.length,
       },
@@ -1676,10 +1844,36 @@ analyticsRoutes.get(
           right.latestSeen.localeCompare(left.latestSeen),
       );
 
-    const occurrencePage = occurrences.slice(
-      input.offset,
-      input.offset + input.limit,
+    const occurrenceCursor = decodeCursor<{
+      capturedAt: string;
+      id: string;
+    }>(input.cursor, "shopping-product-occurrences");
+    if (
+      occurrenceCursor &&
+      (typeof occurrenceCursor.capturedAt !== "string" ||
+        typeof occurrenceCursor.id !== "string")
+    ) {
+      throw new ApiError(
+        400,
+        "invalid_cursor",
+        "The product observation cursor is invalid.",
+      );
+    }
+    const afterCursor = occurrenceCursor
+      ? occurrences.filter(
+          (occurrence) =>
+            occurrence.captured_at < occurrenceCursor.capturedAt ||
+            (occurrence.captured_at === occurrenceCursor.capturedAt &&
+              occurrence.id < occurrenceCursor.id),
+        )
+      : occurrences;
+    const start = !occurrenceCursor ? input.offset ?? 0 : 0;
+    const occurrenceCandidates = afterCursor.slice(
+      start,
+      start + input.limit + 1,
     );
+    const occurrencePage = occurrenceCandidates.slice(0, input.limit);
+    const lastOccurrence = occurrencePage.at(-1);
     return c.json({
       data: {
         product: serializedShoppingProduct(latest),
@@ -1731,8 +1925,11 @@ analyticsRoutes.get(
       },
       page: {
         nextCursor:
-          input.offset + occurrencePage.length < occurrences.length
-            ? String(input.offset + occurrencePage.length)
+          occurrenceCandidates.length > input.limit && lastOccurrence
+            ? encodeCursor("shopping-product-occurrences", {
+                capturedAt: lastOccurrence.captured_at,
+                id: lastOccurrence.id,
+              })
             : null,
         total: occurrences.length,
       },
@@ -1844,7 +2041,7 @@ analyticsRoutes.get(
     z.object({
       projectId: z.string().uuid(),
       queryId: z.string().uuid().optional(),
-      cursor: z.string().optional(),
+      cursor: z.string().max(4096).optional(),
       limit: z.coerce.number().int().min(1).max(100).default(50),
     }),
   ),
@@ -1852,33 +2049,53 @@ analyticsRoutes.get(
     const principal = c.get("principal");
     const input = c.req.valid("query");
     await assertProjectAccess(c.env, principal.workspaceId, input.projectId);
-    const clauses = ["project_id = ?"];
+    const clauses = ["s.project_id = ?"];
     const bindings: Array<string | number> = [input.projectId];
     if (input.queryId) {
-      clauses.push("tracked_query_id = ?");
+      clauses.push("s.tracked_query_id = ?");
       bindings.push(input.queryId);
     }
-    if (input.cursor) {
-      clauses.push("captured_at < ?");
-      bindings.push(input.cursor);
+    const snapshotCursor = decodeCursor<{
+      capturedAt: string;
+      id: string;
+    }>(input.cursor, "snapshots");
+    if (
+      snapshotCursor &&
+      (typeof snapshotCursor.capturedAt !== "string" ||
+        typeof snapshotCursor.id !== "string")
+    ) {
+      throw new ApiError(400, "invalid_cursor", "The snapshot cursor is invalid.");
+    }
+    if (snapshotCursor) {
+      clauses.push(
+        "(s.captured_at < ? OR (s.captured_at = ? AND s.id < ?))",
+      );
+      bindings.push(
+        snapshotCursor.capturedAt,
+        snapshotCursor.capturedAt,
+        snapshotCursor.id,
+      );
     }
     bindings.push(input.limit + 1);
     const rows = await c.env.CONTROL_DB.prepare(
       `SELECT s.*, q.query_text
        FROM snapshot_index s
        JOIN tracked_queries q ON q.id = s.tracked_query_id
-       WHERE ${clauses.map((clause) => `s.${clause}`).join(" AND ")}
-       ORDER BY s.captured_at DESC LIMIT ?`,
+       WHERE ${clauses.join(" AND ")}
+       ORDER BY s.captured_at DESC, s.id DESC LIMIT ?`,
     )
       .bind(...bindings)
-      .all<{ captured_at: string }>();
+      .all<{ id: string; captured_at: string }>();
     const results = rows.results.slice(0, input.limit);
     return c.json({
       data: results,
       page: {
         nextCursor:
           rows.results.length > input.limit
-            ? results.at(-1)?.captured_at ?? ""
+            ? encodeCursor("snapshots", {
+                capturedAt: results.at(-1)?.captured_at ?? "",
+                id: String(results.at(-1)?.id ?? ""),
+              })
             : null,
       },
     });
