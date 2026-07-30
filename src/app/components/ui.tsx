@@ -187,13 +187,22 @@ export function Select({
 }: {
   value?: string;
   onValueChange: (value: string) => void;
-  options: Array<{ value: string; label: string }>;
+  options: Array<{ value: string; label: string; icon?: ReactNode }>;
   placeholder?: string;
 }) {
+  const selectedOption = options.find((option) => option.value === value);
+
   return (
     <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
       <SelectPrimitive.Trigger className="select-trigger">
-        <SelectPrimitive.Value placeholder={placeholder} />
+        <SelectPrimitive.Value placeholder={placeholder}>
+          {selectedOption ? (
+            <span className="select-value-content">
+              {selectedOption.icon}
+              <span>{selectedOption.label}</span>
+            </span>
+          ) : undefined}
+        </SelectPrimitive.Value>
         <SelectPrimitive.Icon><ChevronDown size={15} /></SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
@@ -205,7 +214,10 @@ export function Select({
                 key={option.value}
                 value={option.value}
               >
-                <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>
+                <span className="select-option-content">
+                  {option.icon}
+                  <SelectPrimitive.ItemText>{option.label}</SelectPrimitive.ItemText>
+                </span>
                 <SelectPrimitive.ItemIndicator><Check size={14} /></SelectPrimitive.ItemIndicator>
               </SelectPrimitive.Item>
             ))}

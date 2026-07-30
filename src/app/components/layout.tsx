@@ -15,6 +15,7 @@ import { useApp } from "../context";
 import { post } from "../lib/api";
 import { projectChangeDestination } from "../lib/project-navigation";
 import { AppIcon } from "./app-icon";
+import { DomainFavicon } from "./domain-favicon";
 import { BillingIcon, PromptsIcon, SourcesIcon } from "./navigation-icons";
 import { Button, Select } from "./ui";
 import { cn } from "../lib/utils";
@@ -58,7 +59,11 @@ export function AppLayout() {
             const destination = projectChangeDestination(location.pathname);
             if (destination) void navigate(destination, { replace: true });
           }}
-          options={projects.map((project) => ({ value: project.id, label: project.name }))}
+          options={projects.map((project) => ({
+            value: project.id,
+            label: project.name,
+            icon: <DomainFavicon domain={project.primary_domain} size={18} />,
+          }))}
           placeholder="Select project"
         />
         <nav className="sidebar-nav">
