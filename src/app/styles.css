@@ -262,6 +262,20 @@ button { border: 0; }
   min-width: 0;
 }
 .chart { height: 300px; padding: 5px 13px 15px; }
+.recharts-default-tooltip {
+  font-size: 11px !important;
+  line-height: 1.35;
+  padding: 8px 10px !important;
+}
+.recharts-tooltip-label {
+  font-size: 11px !important;
+  margin-bottom: 4px !important;
+}
+.recharts-tooltip-item {
+  font-size: 11px !important;
+  line-height: 1.35;
+  padding: 2px 0 !important;
+}
 .activity-list { padding: 0 16px 14px; }
 .activity-row { align-items: center; border-top: 1px solid #eeebf1; display: flex; gap: 10px; padding: 12px 2px; }
 .activity-icon { align-items: center; background: #f1eff8; border-radius: 7px; color: #675c79; display: flex; height: 28px; justify-content: center; width: 28px; }
