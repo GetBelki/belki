@@ -248,16 +248,17 @@ button { border: 0; }
 .brand-card-skeleton,
 .product-card-skeleton { height: 126px; }
 .dashboard-grid { display: grid; gap: 18px; grid-template-columns: minmax(0, 1.65fr) minmax(300px, .85fr); }
-.overview-dashboard-grid {
-  align-items: start;
+.overview-dashboard {
   display: grid;
   gap: 18px;
-  grid-template-columns: minmax(0, 1.65fr) minmax(320px, .85fr);
+  min-width: 0;
 }
-.overview-charts-column,
-.overview-products-column {
+.overview-charts-row,
+.overview-products-row {
+  align-items: stretch;
   display: grid;
   gap: 18px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   min-width: 0;
 }
 .chart { height: 300px; padding: 5px 13px 15px; }
@@ -403,7 +404,8 @@ tbody tr:hover { background: #fcfbfd; }
 @media (max-width: 1100px) {
   .kpi-grid, .brand-grid, .products-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .dashboard-grid,
-  .overview-dashboard-grid { grid-template-columns: 1fr; }
+  .overview-charts-row,
+  .overview-products-row { grid-template-columns: 1fr; }
 }
 @media (max-width: 760px) {
   .sidebar { box-shadow: 10px 0 40px #17122130; transform: translateX(-105%); transition: transform .2s ease; }
@@ -2692,9 +2694,9 @@ a.evidence-source:hover strong {
 
 /* Keep dashboard visualizations and prompt titles usable on narrow screens. */
 .dashboard-grid > *,
-.overview-dashboard-grid > *,
-.overview-charts-column > *,
-.overview-products-column > *,
+.overview-dashboard > *,
+.overview-charts-row > *,
+.overview-products-row > *,
 .chart-card,
 .chart,
 .chart .recharts-responsive-container,

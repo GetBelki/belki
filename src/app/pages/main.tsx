@@ -257,8 +257,8 @@ export function OverviewPage() {
           <KpiCard label="Completed runs" value={compact(overview.data?.summary.completed_runs ?? 0)} detail={`${pluralize(overview.data?.summary.total_citations ?? 0, "citation")} captured`} icon={<CompletedRunsIcon size={19} />} tone="amber" />
         </div>
       )}
-      <div className="overview-dashboard-grid">
-        <div className="overview-charts-column">
+      <div className="overview-dashboard">
+        <div className="overview-charts-row">
           <Card className="chart-card">
             <CardHeader title="Visibility trend" description="Daily citation and brand-mention rates" />
             <div className="chart">
@@ -380,7 +380,7 @@ export function OverviewPage() {
           </Card>
         </div>
 
-        <div className="overview-products-column">
+        <div className="overview-products-row">
           <Card className="recent-products-card">
             <CardHeader
               title="Top products"
