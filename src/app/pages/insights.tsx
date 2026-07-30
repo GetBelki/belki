@@ -1111,7 +1111,7 @@ export function ProductAnalyticsPage() {
   const { productKey: routeProductKey = "" } = useParams();
   const productKey = routeProductKey.trim();
   const [period, setPeriod] =
-    useState<"7d" | "30d" | "90d" | "365d">("30d");
+    useState<"7d" | "30d" | "90d" | "365d">("7d");
   const pageSize = 10;
   const pageScope = `${projectId ?? ""}:${productKey}:${period}`;
   const [pagination, setPagination] = useState({
