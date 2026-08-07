@@ -24,6 +24,8 @@ shards, queue-backed ingestion, and R2 for raw evidence and exports.
 - Recovery through `tasks_ready`, signed provider tags, idempotent ingestion,
   queue retries, and dead-letter queues
 - Normalized D1 analytics and streamed gzip evidence/export storage in R2
+- Permanent single and bulk prompt deletion with asynchronous D1/R2 cleanup,
+  export invalidation, and anonymous billing-total preservation
 - In-app alerts and HMAC-signed HTTPS webhooks
 - Twelve-month hot snapshots, two-year raw evidence, opt-in 90-day HTML
   evidence, and seven-day export retention
@@ -155,7 +157,7 @@ pnpm wrangler secret put BOOTSTRAP_TOKEN
 | Schedule | Responsibility |
 |---|---|
 | Every 5 minutes | Enqueue due queries and recover stale submissions |
-| Every 15 minutes | Collect failed/missed postbacks from `tasks_ready` |
+| Every minute | Collect failed/missed postbacks, reconcile prompt purges, and advance analytics backfills |
 | Daily 03:00 UTC | Expire sessions, tokens, jobs, indexes, and hot snapshots |
 | Sunday 04:00 UTC | Refresh locale catalog and reconcile metric outboxes |
 

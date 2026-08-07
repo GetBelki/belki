@@ -5,6 +5,7 @@ import {
   BrandInputSchema,
   BulkQueryInputSchema,
   ManualRunSchema,
+  PromptPurgeInputSchema,
   PromptTagMutationSchema,
   ProjectInputSchema,
   ProjectUpdateSchema,
@@ -32,6 +33,7 @@ import {
   promptTagKey,
   uniquePromptTagNames,
 } from "../../shared/prompt-tags";
+import { requestPromptPurges } from "../automation/prompt-purges";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 const ProjectIdParamSchema = z.object({ projectId: z.string().uuid() });
@@ -463,6 +465,24 @@ coreRoutes.patch(
         mode: input.mode,
       },
     });
+  },
+);
+
+coreRoutes.post(
+  "/projects/:projectId/queries/purge",
+  zValidator("param", ProjectIdParamSchema),
+  zValidator("json", PromptPurgeInputSchema),
+  async (c) => {
+    const principal = requireRole(c, "editor");
+    const { projectId } = c.req.valid("param");
+    const { queryIds } = c.req.valid("json");
+    const result = await requestPromptPurges(
+      c.env,
+      principal,
+      projectId,
+      queryIds,
+    );
+    return c.json({ data: result }, 202);
   },
 );
 
@@ -911,35 +931,25 @@ coreRoutes.delete(
     const principal = requireRole(c, "editor");
     const { id } = c.req.valid("param");
     const current = await c.env.CONTROL_DB.prepare(
-      `SELECT q.shard_id, q.project_id FROM tracked_queries q JOIN projects p ON p.id = q.project_id
-       WHERE q.id = ? AND p.workspace_id = ? AND q.deleted_at IS NULL`,
+      `SELECT project_id FROM tracked_queries
+       WHERE id = ? AND project_id IN (
+         SELECT id FROM projects WHERE workspace_id = ? AND deleted_at IS NULL
+       )
+       UNION ALL
+       SELECT project_id FROM prompt_purge_jobs
+       WHERE tracked_query_id = ? AND workspace_id = ?
+       LIMIT 1`,
     )
-      .bind(id, principal.workspaceId)
-      .first<{ shard_id: number; project_id: string }>();
+      .bind(id, principal.workspaceId, id, principal.workspaceId)
+      .first<{ project_id: string }>();
     if (!current) throw new ApiError(404, "query_not_found", "Tracked query not found.");
-    const now = nowIso();
-    await c.env.CONTROL_DB.batch([
-      c.env.CONTROL_DB.prepare(
-        `UPDATE tracked_queries SET is_active = 0, deleted_at = ?, updated_at = ?
-         WHERE id = ?`,
-      ).bind(now, now, id),
-      c.env.CONTROL_DB.prepare(
-        `UPDATE shard_registry
-         SET assigned_queries = MAX(assigned_queries - 1, 0), updated_at = ?
-         WHERE shard_id = ?`,
-      ).bind(now, current.shard_id),
-      c.env.CONTROL_DB.prepare(
-        "DELETE FROM tracked_query_tags WHERE tracked_query_id = ?",
-      ).bind(id),
-      c.env.CONTROL_DB.prepare(
-        `DELETE FROM prompt_tags
-         WHERE project_id = ?
-           AND NOT EXISTS (
-             SELECT 1 FROM tracked_query_tags qt WHERE qt.tag_id = prompt_tags.id
-           )`,
-      ).bind(current.project_id),
-    ]);
-    return c.json({ data: { deleted: true } });
+    const result = await requestPromptPurges(
+      c.env,
+      principal,
+      current.project_id,
+      [id],
+    );
+    return c.json({ data: result }, 202);
   },
 );
 

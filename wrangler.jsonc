@@ -80,7 +80,8 @@
       { "binding": "NORMALIZE_QUEUE", "queue": "ai-tracker-normalize" },
       { "binding": "ROLLUP_QUEUE", "queue": "ai-tracker-rollup" },
       { "binding": "EXPORT_QUEUE", "queue": "ai-tracker-export" },
-      { "binding": "NOTIFICATION_QUEUE", "queue": "ai-tracker-notification" }
+      { "binding": "NOTIFICATION_QUEUE", "queue": "ai-tracker-notification" },
+      { "binding": "PROMPT_PURGE_QUEUE", "queue": "ai-tracker-prompt-purge" }
     ],
     "consumers": [
       { "queue": "ai-tracker-standard", "max_batch_size": 100, "max_batch_timeout": 5, "max_concurrency": 8, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
@@ -88,7 +89,8 @@
       { "queue": "ai-tracker-normalize", "max_batch_size": 10, "max_batch_timeout": 2, "max_concurrency": 16, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
       { "queue": "ai-tracker-rollup", "max_batch_size": 50, "max_batch_timeout": 5, "max_concurrency": 8, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
       { "queue": "ai-tracker-export", "max_batch_size": 5, "max_batch_timeout": 5, "max_concurrency": 4, "max_retries": 2, "dead_letter_queue": "ai-tracker-dlq" },
-      { "queue": "ai-tracker-notification", "max_batch_size": 20, "max_batch_timeout": 5, "max_concurrency": 4, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" }
+      { "queue": "ai-tracker-notification", "max_batch_size": 20, "max_batch_timeout": 5, "max_concurrency": 4, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
+      { "queue": "ai-tracker-prompt-purge", "max_batch_size": 5, "max_batch_timeout": 2, "max_concurrency": 4, "max_retries": 5, "dead_letter_queue": "ai-tracker-dlq" }
     ]
   }
 }

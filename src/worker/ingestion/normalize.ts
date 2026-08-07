@@ -10,6 +10,7 @@ import { getTaskHtml } from "../lib/dataforseo";
 import { jsonParse, nowIso } from "../lib/http";
 import { sha256 } from "../lib/crypto";
 import { getShard } from "../lib/shards";
+import { promptPurgeRequested } from "../lib/prompt-purges";
 import { parseAdvancedPayload } from "./dataforseo-schema";
 
 interface JobRow {
@@ -21,6 +22,9 @@ interface JobRow {
   capture_html: number;
   delivery_method: string;
   request_cost_usd: number | null;
+  status: string;
+  deleted_at: string | null;
+  purging: number;
 }
 
 interface BrandRow {
@@ -57,6 +61,10 @@ function safeText(value: string | null | undefined, maximum = 200_000): string |
   return value ? value.slice(0, maximum) : null;
 }
 
+function uniqueEvidenceKeys(rawKey: string, htmlKey: string | null): string[] {
+  return [...new Set([rawKey, htmlKey].filter((key): key is string => Boolean(key)))];
+}
+
 function providerDate(value: string | null | undefined): string {
   if (!value) return nowIso();
   const normalized = value
@@ -91,16 +99,30 @@ async function readRawPayload(
 export async function normalizeSnapshot(
   env: Env,
   message: NormalizeQueueMessage,
-): Promise<string> {
+): Promise<string | null> {
   const job = await env.CONTROL_DB.prepare(
     `SELECT
-      id, workspace_id, project_id, tracked_query_id, shard_id,
-      capture_html, delivery_method, request_cost_usd
-     FROM crawl_jobs WHERE id = ?`,
+      job.id, job.workspace_id, job.project_id, job.tracked_query_id, job.shard_id,
+      job.capture_html, job.delivery_method, job.request_cost_usd, job.status,
+      query.deleted_at,
+      EXISTS(
+        SELECT 1 FROM prompt_purge_jobs purge
+        WHERE purge.tracked_query_id = job.tracked_query_id
+      ) AS purging
+     FROM crawl_jobs job
+     JOIN tracked_queries query ON query.id = job.tracked_query_id
+     WHERE job.id = ?`,
   )
     .bind(message.jobId)
     .first<JobRow>();
-  if (!job) throw new Error(`Unknown crawl job: ${message.jobId}`);
+  if (!job) {
+    await env.EVIDENCE_BUCKET.delete(message.rawR2Key);
+    return null;
+  }
+  if (job.deleted_at || job.purging || job.status === "cancelled") {
+    await env.EVIDENCE_BUCKET.delete(message.rawR2Key);
+    return null;
+  }
 
   const shard = getShard(env, job.shard_id);
   const existing = await shard
@@ -108,8 +130,14 @@ export async function normalizeSnapshot(
     .bind(message.taskId)
     .first<{ id: string }>();
   if (existing) {
+    if (await promptPurgeRequested(env.CONTROL_DB, job.tracked_query_id)) {
+      await shard.prepare("DELETE FROM snapshots WHERE id = ?").bind(existing.id).run();
+      await env.EVIDENCE_BUCKET.delete(message.rawR2Key);
+      return null;
+    }
     await env.CONTROL_DB.prepare(
-      "UPDATE crawl_jobs SET status = 'completed', completed_at = ?, updated_at = ? WHERE id = ?",
+      `UPDATE crawl_jobs SET status = 'completed', completed_at = ?, updated_at = ?
+       WHERE id = ? AND status != 'cancelled'`,
     )
       .bind(nowIso(), nowIso(), job.id)
       .run();
@@ -161,6 +189,11 @@ export async function normalizeSnapshot(
       httpMetadata: { contentType: "text/html; charset=utf-8" },
       customMetadata: { jobId: job.id, taskId: message.taskId },
     });
+    await env.CONTROL_DB.prepare(
+      "UPDATE crawl_jobs SET html_r2_key = ?, updated_at = ? WHERE id = ?",
+    )
+      .bind(htmlR2Key, nowIso(), job.id)
+      .run();
   }
 
   const snapshotId = crypto.randomUUID();
@@ -512,9 +545,24 @@ export async function normalizeSnapshot(
         createdAt,
       ),
   );
+  if (await promptPurgeRequested(env.CONTROL_DB, job.tracked_query_id)) {
+    await env.EVIDENCE_BUCKET.delete(
+      uniqueEvidenceKeys(message.rawR2Key, htmlR2Key),
+    );
+    return null;
+  }
   await shard.batch(statements);
 
-  await env.CONTROL_DB.batch([
+  if (await promptPurgeRequested(env.CONTROL_DB, job.tracked_query_id)) {
+    await shard.prepare("DELETE FROM snapshots WHERE id = ?").bind(snapshotId).run();
+    await env.EVIDENCE_BUCKET.delete(
+      uniqueEvidenceKeys(message.rawR2Key, htmlR2Key),
+    );
+    return null;
+  }
+
+  try {
+    await env.CONTROL_DB.batch([
     env.CONTROL_DB.prepare(
       `INSERT OR IGNORE INTO snapshot_index (
         id, crawl_job_id, workspace_id, project_id, tracked_query_id, shard_id,
@@ -546,9 +594,17 @@ export async function normalizeSnapshot(
     env.CONTROL_DB.prepare(
       `UPDATE crawl_jobs SET
         status = 'completed', dataforseo_task_id = ?, completed_at = ?,
+        raw_r2_key = ?, html_r2_key = ?,
         error_code = NULL, error_message = NULL, updated_at = ?
        WHERE id = ?`,
-    ).bind(message.taskId, nowIso(), nowIso(), job.id),
+    ).bind(
+      message.taskId,
+      nowIso(),
+      message.rawR2Key,
+      htmlR2Key,
+      nowIso(),
+      job.id,
+    ),
     env.CONTROL_DB.prepare(
       `UPDATE shard_registry SET
         completed_snapshots = completed_snapshots + 1, updated_at = ?
@@ -559,7 +615,17 @@ export async function normalizeSnapshot(
         id, crawl_job_id, dataforseo_task_id, event_type, status, r2_key, received_at
       ) VALUES (?, ?, ?, 'normalized', 'completed', ?, ?)`,
     ).bind(crypto.randomUUID(), job.id, message.taskId, message.rawR2Key, nowIso()),
-  ]);
+    ]);
+  } catch (error) {
+    if (await promptPurgeRequested(env.CONTROL_DB, job.tracked_query_id)) {
+      await shard.prepare("DELETE FROM snapshots WHERE id = ?").bind(snapshotId).run();
+      await env.EVIDENCE_BUCKET.delete(
+        uniqueEvidenceKeys(message.rawR2Key, htmlR2Key),
+      );
+      return null;
+    }
+    throw error;
+  }
 
   await env.ROLLUP_QUEUE.send({
     snapshotId,

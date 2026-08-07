@@ -57,24 +57,35 @@ export async function processExport(env: Env, exportId: string): Promise<void> {
     }
     let cursor = "";
     while (true) {
-      const clauses = ["workspace_id = ?", "id > ?"];
+      const clauses = [
+        "snapshot.workspace_id = ?",
+        "snapshot.id > ?",
+        `EXISTS (
+          SELECT 1 FROM tracked_queries query
+          WHERE query.id = snapshot.tracked_query_id AND query.deleted_at IS NULL
+        )`,
+        `NOT EXISTS (
+          SELECT 1 FROM prompt_purge_jobs purge
+          WHERE purge.tracked_query_id = snapshot.tracked_query_id
+        )`,
+      ];
       const bindings: Array<string | number> = [row.workspace_id, cursor];
       if (row.project_id) {
-        clauses.push("project_id = ?");
+        clauses.push("snapshot.project_id = ?");
         bindings.push(row.project_id);
       }
       if (filters.dateFrom) {
-        clauses.push("captured_at >= ?");
+        clauses.push("snapshot.captured_at >= ?");
         bindings.push(`${filters.dateFrom}T00:00:00.000Z`);
       }
       if (filters.dateTo) {
-        clauses.push("captured_at < ?");
+        clauses.push("snapshot.captured_at < ?");
         bindings.push(exclusiveDateEnd(filters.dateTo));
       }
       const page = await env.CONTROL_DB.prepare(
-        `SELECT * FROM snapshot_index
+        `SELECT snapshot.* FROM snapshot_index snapshot
          WHERE ${clauses.join(" AND ")}
-         ORDER BY id LIMIT 500`,
+         ORDER BY snapshot.id LIMIT 500`,
       )
         .bind(...bindings)
         .all<Record<string, unknown>>();
@@ -112,17 +123,19 @@ export async function processExport(env: Env, exportId: string): Promise<void> {
     const expires = new Date(
       Date.now() + Number(env.EXPORT_RETENTION_DAYS) * 86_400_000,
     ).toISOString();
-    await env.CONTROL_DB.prepare(
+    const completed = await env.CONTROL_DB.prepare(
       `UPDATE exports SET
         status = 'completed', r2_key = ?, row_count = ?, expires_at = ?, updated_at = ?
-       WHERE id = ?`,
+       WHERE id = ? AND status = 'processing'`,
     )
       .bind(key, rowsWritten, expires, nowIso(), row.id)
       .run();
+    if (completed.meta.changes === 0) await env.EVIDENCE_BUCKET.delete(key);
   } catch (error) {
     await writer.abort(error).catch(() => undefined);
     await env.CONTROL_DB.prepare(
-      `UPDATE exports SET status = 'failed', error_message = ?, updated_at = ? WHERE id = ?`,
+      `UPDATE exports SET status = 'failed', error_message = ?, updated_at = ?
+       WHERE id = ? AND status = 'processing'`,
     )
       .bind(String(error).slice(0, 1000), nowIso(), row.id)
       .run();

@@ -158,6 +158,14 @@ export const PromptTagMutationSchema = z.object({
   mode: z.enum(["add", "remove"]),
 });
 
+export const PromptPurgeInputSchema = z.object({
+  queryIds: z
+    .array(z.string().uuid())
+    .min(1)
+    .max(50)
+    .transform((values) => [...new Set(values)]),
+});
+
 export const MembershipUpdateSchema = z.object({
   role: RoleSchema.exclude(["owner"]).optional(),
   status: z.enum(["active", "disabled"]).optional(),
@@ -238,6 +246,10 @@ export interface ExportQueueMessage {
 
 export interface NotificationQueueMessage {
   deliveryId: string;
+}
+
+export interface PromptPurgeQueueMessage {
+  purgeJobId: string;
 }
 
 export interface ApiErrorShape {

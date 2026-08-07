@@ -1,6 +1,7 @@
 import type { NotificationQueueMessage } from "../../shared/contracts";
 import { jsonParse, nowIso } from "../lib/http";
 import { getShard } from "../lib/shards";
+import { promptPurgeRequested } from "../lib/prompt-purges";
 
 interface RuleRow {
   id: string;
@@ -89,6 +90,7 @@ export async function evaluateSnapshotAlerts(
       has_product_block: number;
     }>();
   if (!current) return;
+  if (await promptPurgeRequested(env.CONTROL_DB, current.tracked_query_id)) return;
   const rules = await env.CONTROL_DB.prepare(
     "SELECT id, event_type, threshold, tracked_brand_id, channels_json FROM alert_rules WHERE project_id = ? AND is_enabled = 1",
   )
@@ -275,7 +277,14 @@ export async function emitRunFailureAlerts(
   errorMessage: string,
 ): Promise<void> {
   const job = await env.CONTROL_DB.prepare(
-    "SELECT project_id, tracked_query_id FROM crawl_jobs WHERE id = ?",
+    `SELECT job.project_id, job.tracked_query_id
+     FROM crawl_jobs job
+     JOIN tracked_queries query ON query.id = job.tracked_query_id
+     WHERE job.id = ? AND query.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM prompt_purge_jobs purge
+         WHERE purge.tracked_query_id = query.id
+       )`,
   )
     .bind(jobId)
     .first<{ project_id: string; tracked_query_id: string }>();

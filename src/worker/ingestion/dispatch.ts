@@ -32,7 +32,13 @@ async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
     FROM crawl_jobs j
     JOIN tracked_queries q ON q.id = j.tracked_query_id
     JOIN workspaces w ON w.id = j.workspace_id
-    WHERE j.id IN (${placeholders}) AND j.status IN ('queued', 'submission_unknown')`,
+    WHERE j.id IN (${placeholders})
+      AND j.status IN ('queued', 'submission_unknown')
+      AND q.deleted_at IS NULL
+      AND NOT EXISTS (
+        SELECT 1 FROM prompt_purge_jobs purge
+        WHERE purge.tracked_query_id = q.id
+      )`,
   )
     .bind(...ids)
     .all<DispatchJobRow>();
@@ -57,9 +63,9 @@ export async function dispatchStandardBatch(
   await env.CONTROL_DB.batch(
     jobs.map((job) =>
       env.CONTROL_DB.prepare(
-        `UPDATE crawl_jobs
+         `UPDATE crawl_jobs
          SET status = 'submitting', submit_attempts = submit_attempts + 1, updated_at = ?
-         WHERE id = ?`,
+         WHERE id = ? AND status IN ('queued', 'submission_unknown')`,
       ).bind(now, job.id),
     ),
   );
@@ -103,7 +109,7 @@ export async function dispatchStandardBatch(
             error_code = CASE WHEN ? THEN NULL ELSE 'provider_rejected' END,
             error_message = CASE WHEN ? THEN NULL ELSE ? END,
             updated_at = ?
-          WHERE id = ?`,
+          WHERE id = ? AND status != 'cancelled'`,
         ).bind(
           accepted ? "awaiting_result" : "failed",
           task.id ?? null,
@@ -127,7 +133,7 @@ export async function dispatchStandardBatch(
           `UPDATE crawl_jobs SET
             status = 'submission_unknown', error_code = 'missing_provider_task',
             error_message = 'Provider response did not include this task.', updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ? AND status != 'cancelled'`,
         ).bind(nowIso(), job.id),
       );
     }
@@ -144,7 +150,7 @@ export async function dispatchStandardBatch(
           `UPDATE crawl_jobs SET
             status = 'submission_unknown', error_code = 'submission_ambiguous',
             error_message = ?, updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ? AND status != 'cancelled'`,
         ).bind(String(error).slice(0, 1000), nowIso(), job.id),
       ),
     );
@@ -175,7 +181,7 @@ export async function dispatchLiveBatch(
         await env.CONTROL_DB.prepare(
           `UPDATE crawl_jobs
            SET status = 'submitting', submit_attempts = submit_attempts + 1, updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ? AND status IN ('queued', 'submission_unknown')`,
         )
           .bind(nowIso(), job.id)
           .run();
@@ -195,12 +201,12 @@ export async function dispatchLiveBatch(
           httpMetadata: { contentType: "application/json" },
           customMetadata: { jobId: job.id, taskId: providerTask.id },
         });
-        await env.CONTROL_DB.prepare(
+        const update = await env.CONTROL_DB.prepare(
           `UPDATE crawl_jobs SET
             status = 'normalizing', dataforseo_task_id = ?, request_cost_usd = ?,
             task_status_code = ?, task_status_message = ?, submitted_at = ?,
-            updated_at = ?
-           WHERE id = ?`,
+            raw_r2_key = ?, updated_at = ?
+           WHERE id = ? AND status != 'cancelled'`,
         )
           .bind(
             providerTask.id,
@@ -208,10 +214,16 @@ export async function dispatchLiveBatch(
             providerTask.status_code ?? null,
             providerTask.status_message ?? null,
             nowIso(),
+            rawKey,
             nowIso(),
             job.id,
           )
           .run();
+        if (update.meta.changes === 0) {
+          await env.EVIDENCE_BUCKET.delete(rawKey);
+          message.ack();
+          return;
+        }
         const normalizeMessage: NormalizeQueueMessage = {
           jobId: job.id,
           taskId: providerTask.id,
@@ -225,7 +237,7 @@ export async function dispatchLiveBatch(
         await env.CONTROL_DB.prepare(
           `UPDATE crawl_jobs SET
             status = 'failed', error_code = 'live_failed', error_message = ?, updated_at = ?
-           WHERE id = ?`,
+           WHERE id = ? AND status != 'cancelled'`,
         )
           .bind(messageText, nowIso(), job.id)
           .run();
@@ -244,7 +256,15 @@ export async function collectReadyTasks(env: Env): Promise<number> {
     const jobId = await verifySignedJobTag(task.tag, env.APP_CRYPTO_KEY);
     if (!jobId) continue;
     const job = await env.CONTROL_DB.prepare(
-      "SELECT id FROM crawl_jobs WHERE id = ? AND provider_tag = ?",
+      `SELECT job.id
+       FROM crawl_jobs job
+       JOIN tracked_queries query ON query.id = job.tracked_query_id
+       WHERE job.id = ? AND job.provider_tag = ?
+         AND job.status != 'cancelled' AND query.deleted_at IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM prompt_purge_jobs purge
+           WHERE purge.tracked_query_id = query.id
+         )`,
     )
       .bind(jobId, task.tag)
       .first<{ id: string }>();
@@ -255,13 +275,21 @@ export async function collectReadyTasks(env: Env): Promise<number> {
       httpMetadata: { contentType: "application/json" },
       customMetadata: { jobId, taskId: task.id, recovery: "tasks_ready" },
     });
-    await env.CONTROL_DB.prepare(
+    const update = await env.CONTROL_DB.prepare(
       `UPDATE crawl_jobs SET
-        status = 'normalizing', dataforseo_task_id = ?, updated_at = ?
-       WHERE id = ?`,
+        status = 'normalizing', dataforseo_task_id = ?, raw_r2_key = ?, updated_at = ?
+       WHERE id = ? AND status != 'cancelled'
+         AND NOT EXISTS (
+           SELECT 1 FROM prompt_purge_jobs purge
+           WHERE purge.tracked_query_id = crawl_jobs.tracked_query_id
+         )`,
     )
-      .bind(task.id, nowIso(), jobId)
+      .bind(task.id, rawKey, nowIso(), jobId)
       .run();
+    if (update.meta.changes === 0) {
+      await env.EVIDENCE_BUCKET.delete(rawKey);
+      continue;
+    }
     await env.NORMALIZE_QUEUE.send({
       jobId,
       taskId: task.id,
