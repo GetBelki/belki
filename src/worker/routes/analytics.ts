@@ -564,21 +564,37 @@ analyticsRoutes.get(
     );
     const dates = billingDateRange(input.period);
     const rows = await c.env.CONTROL_DB.prepare(
-      `SELECT
-        substr(COALESCE(submitted_at, created_at), 1, 10) AS metric_date,
-        COUNT(*) AS charged_runs,
-        COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
-       FROM crawl_jobs
-       WHERE project_id = ?
-         AND workspace_id = ?
-         AND request_cost_usd IS NOT NULL
-         AND request_cost_usd > 0
-         AND COALESCE(submitted_at, created_at) >= ?
-         AND COALESCE(submitted_at, created_at) < ?
+      `SELECT metric_date, SUM(charged_runs) AS charged_runs,
+        SUM(provider_cost_usd) AS provider_cost_usd
+       FROM (
+         SELECT
+           substr(COALESCE(submitted_at, created_at), 1, 10) AS metric_date,
+           COUNT(*) AS charged_runs,
+           COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
+         FROM crawl_jobs
+         WHERE project_id = ?
+           AND workspace_id = ?
+           AND request_cost_usd IS NOT NULL
+           AND request_cost_usd > 0
+           AND COALESCE(submitted_at, created_at) >= ?
+           AND COALESCE(submitted_at, created_at) < ?
+         GROUP BY metric_date
+         UNION ALL
+         SELECT usage_date AS metric_date, charged_runs, provider_cost_usd
+         FROM deleted_prompt_usage_daily
+         WHERE project_id = ? AND workspace_id = ?
+           AND usage_date >= substr(?, 1, 10)
+           AND usage_date < substr(?, 1, 10)
+           AND charged_runs > 0
+       ) usage
        GROUP BY metric_date
        ORDER BY metric_date`,
     )
       .bind(
+        input.projectId,
+        principal.workspaceId,
+        dates.startTimestamp,
+        dates.endExclusiveTimestamp,
         input.projectId,
         principal.workspaceId,
         dates.startTimestamp,

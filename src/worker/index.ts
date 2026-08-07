@@ -4,6 +4,7 @@ import type {
   JobQueueMessage,
   NormalizeQueueMessage,
   NotificationQueueMessage,
+  PromptPurgeQueueMessage,
   RollupQueueMessage,
 } from "../shared/contracts";
 import { automationRoutes } from "./routes/automation";
@@ -29,6 +30,10 @@ import {
 import { exportBatch } from "./automation/exports";
 import { notificationBatch } from "./automation/notifications";
 import { backfillAnalyticsReadModel } from "./ingestion/analytics-backfill";
+import {
+  promptPurgeBatch,
+  reconcilePromptPurges,
+} from "./automation/prompt-purges";
 
 const app = new Hono<AppEnv>();
 
@@ -73,7 +78,15 @@ app.post("/api/webhooks/dataforseo/chatgpt", async (c) => {
   const jobId = await verifySignedJobTag(tag, c.env.APP_CRYPTO_KEY);
   if (!jobId) return c.text("unauthorized", 401);
   const job = await c.env.CONTROL_DB.prepare(
-    "SELECT id FROM crawl_jobs WHERE id = ? AND provider_tag = ?",
+    `SELECT job.id
+     FROM crawl_jobs job
+     JOIN tracked_queries query ON query.id = job.tracked_query_id
+     WHERE job.id = ? AND job.provider_tag = ?
+       AND query.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM prompt_purge_jobs purge
+         WHERE purge.tracked_query_id = query.id
+       )`,
   )
     .bind(jobId, tag)
     .first<{ id: string }>();
@@ -95,19 +108,28 @@ app.post("/api/webhooks/dataforseo/chatgpt", async (c) => {
     },
     customMetadata: { jobId, taskId, source: "postback" },
   });
-  await c.env.CONTROL_DB.batch([
-    c.env.CONTROL_DB.prepare(
-      `UPDATE crawl_jobs SET
-        status = 'normalizing', dataforseo_task_id = COALESCE(dataforseo_task_id, ?),
-        updated_at = ?
-       WHERE id = ?`,
-    ).bind(taskId, nowIso(), jobId),
-    c.env.CONTROL_DB.prepare(
-      `INSERT INTO ingest_events (
-        id, crawl_job_id, dataforseo_task_id, event_type, status, r2_key, received_at
-      ) VALUES (?, ?, ?, 'postback', 'accepted', ?, ?)`,
-    ).bind(crypto.randomUUID(), jobId, taskId, rawKey, nowIso()),
-  ]);
+  try {
+    await c.env.CONTROL_DB.batch([
+      c.env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs SET
+          status = 'normalizing', dataforseo_task_id = COALESCE(dataforseo_task_id, ?),
+          raw_r2_key = ?, updated_at = ?
+         WHERE id = ? AND status != 'cancelled'
+           AND NOT EXISTS (
+             SELECT 1 FROM prompt_purge_jobs purge
+             WHERE purge.tracked_query_id = crawl_jobs.tracked_query_id
+           )`,
+      ).bind(taskId, rawKey, nowIso(), jobId),
+      c.env.CONTROL_DB.prepare(
+        `INSERT INTO ingest_events (
+          id, crawl_job_id, dataforseo_task_id, event_type, status, r2_key, received_at
+        ) VALUES (?, ?, ?, 'postback', 'accepted', ?, ?)`,
+      ).bind(crypto.randomUUID(), jobId, taskId, rawKey, nowIso()),
+    ]);
+  } catch (error) {
+    await c.env.EVIDENCE_BUCKET.delete(rawKey);
+    throw error;
+  }
   await c.env.NORMALIZE_QUEUE.send({
     jobId,
     taskId,
@@ -162,6 +184,9 @@ async function queue(
     case "ai-tracker-notification":
       await notificationBatch(env, batch as MessageBatch<NotificationQueueMessage>);
       return;
+    case "ai-tracker-prompt-purge":
+      await promptPurgeBatch(env, batch as MessageBatch<PromptPurgeQueueMessage>);
+      return;
     default:
       batch.ackAll();
   }
@@ -177,6 +202,7 @@ async function scheduled(
     metrics.reconciledJobs = await reconcileJobs(env);
   } else if (event.cron === "* * * * *") {
     metrics.recoveredPostbacks = await collectReadyTasks(env);
+    metrics.reconciledPromptPurges = await reconcilePromptPurges(env);
     const backfill = await backfillAnalyticsReadModel(env);
     metrics.analyticsBackfillProjects = backfill.projects;
     metrics.analyticsBackfillSnapshots = backfill.snapshots;

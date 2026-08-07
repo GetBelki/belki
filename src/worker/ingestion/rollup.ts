@@ -3,6 +3,7 @@ import { nowIso } from "../lib/http";
 import { getShard } from "../lib/shards";
 import { evaluateSnapshotAlerts } from "../automation/alerts";
 import { syncAnalyticsReadModel } from "./analytics-read-model";
+import { promptPurgeRequested } from "../lib/prompt-purges";
 
 interface DomainMetric {
   citedSnapshotCount: number;
@@ -39,6 +40,7 @@ export async function applyRollup(
     .first<{ payload_json: string; delivered_at: string | null }>();
   if (!outbox || outbox.delivered_at) return;
   const payload = JSON.parse(outbox.payload_json) as MetricPayload;
+  if (await promptPurgeRequested(env.CONTROL_DB, payload.trackedQueryId)) return;
 
   const insert = await env.CONTROL_DB.prepare(
     `INSERT OR IGNORE INTO metric_contributions (
@@ -129,6 +131,8 @@ export async function applyRollup(
     }
     await env.CONTROL_DB.batch(statements);
   }
+
+  if (await promptPurgeRequested(env.CONTROL_DB, payload.trackedQueryId)) return;
 
   await syncAnalyticsReadModel(env, message.shardId, {
     snapshotId: payload.snapshotId,

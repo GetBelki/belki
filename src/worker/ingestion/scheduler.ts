@@ -32,6 +32,11 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
         SELECT COUNT(*) FROM crawl_jobs j
         WHERE j.workspace_id = p.workspace_id
           AND j.created_at >= strftime('%Y-%m-01T00:00:00.000Z', 'now')
+      ) + (
+        SELECT COALESCE(SUM(usage.requested_runs), 0)
+        FROM deleted_prompt_usage_daily usage
+        WHERE usage.workspace_id = p.workspace_id
+          AND usage.usage_date >= strftime('%Y-%m-01', 'now')
       ) < (
         SELECT monthly_run_cap FROM workspaces w WHERE w.id = p.workspace_id
       )
@@ -94,15 +99,23 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
 
 export async function reconcileJobs(env: Env): Promise<number> {
   const stale = await env.CONTROL_DB.prepare(
-    `SELECT id, delivery_method FROM crawl_jobs
-     WHERE (
-       status = 'queued' AND julianday(updated_at) < julianday('now', '-5 minutes')
-     ) OR (
-       status = 'submission_unknown'
-       AND julianday(updated_at) < julianday('now', '-60 minutes')
-       AND submit_attempts < 2
-     )
-     ORDER BY updated_at
+    `SELECT job.id, job.delivery_method FROM crawl_jobs job
+     JOIN tracked_queries query ON query.id = job.tracked_query_id
+     WHERE query.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM prompt_purge_jobs purge
+         WHERE purge.tracked_query_id = query.id
+       ) AND (
+         (
+           job.status = 'queued'
+           AND julianday(job.updated_at) < julianday('now', '-5 minutes')
+         ) OR (
+           job.status = 'submission_unknown'
+           AND julianday(job.updated_at) < julianday('now', '-60 minutes')
+           AND job.submit_attempts < 2
+         )
+       )
+     ORDER BY job.updated_at
      LIMIT 500`,
   ).all<{ id: string; delivery_method: string }>();
   for (const job of stale.results) {

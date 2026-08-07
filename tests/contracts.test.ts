@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BulkQueryInputSchema,
+  PromptPurgeInputSchema,
   ProjectInputSchema,
   ProjectUpdateSchema,
   QueryInputSchema,
@@ -49,6 +50,29 @@ describe("API contracts", () => {
       schedule: { cadence: "daily", time: "09:00", timezone: "UTC" },
     });
     expect(result.success).toBe(false);
+  });
+
+  it("accepts up to 50 unique prompt ids for permanent purge", () => {
+    const first = "00000000-0000-4000-8000-000000000001";
+    const second = "00000000-0000-4000-8000-000000000002";
+    expect(
+      PromptPurgeInputSchema.parse({ queryIds: [first, second, first] }),
+    ).toEqual({ queryIds: [first, second] });
+  });
+
+  it("rejects empty, malformed, and oversized prompt purge requests", () => {
+    expect(PromptPurgeInputSchema.safeParse({ queryIds: [] }).success).toBe(false);
+    expect(
+      PromptPurgeInputSchema.safeParse({ queryIds: ["not-a-uuid"] }).success,
+    ).toBe(false);
+    expect(
+      PromptPurgeInputSchema.safeParse({
+        queryIds: Array.from(
+          { length: 51 },
+          (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`,
+        ),
+      }).success,
+    ).toBe(false);
   });
 
   it("accepts bulk prompts with individual tags", () => {

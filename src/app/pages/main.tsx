@@ -10,6 +10,7 @@ import {
   Search,
   ShoppingBag,
   Sparkles,
+  Trash2,
 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
@@ -448,6 +449,12 @@ interface CreatePromptsResult {
   skippedCount?: number;
 }
 
+interface PurgePromptsResult {
+  acceptedCount: number;
+  queryIds: string[];
+  status: "queued";
+}
+
 export function PromptsPage() {
   const { projectId, session } = useApp();
   const canEdit = session.user.role !== "viewer";
@@ -462,6 +469,9 @@ export function PromptsPage() {
   } | null>(null);
   const [error, setError] = useState("");
   const [tagError, setTagError] = useState("");
+  const [deleteError, setDeleteError] = useState("");
+  const [deleteTargets, setDeleteTargets] = useState<QueryRow[]>([]);
+  const [deleteNotice, setDeleteNotice] = useState(0);
   const [createTags, setCreateTags] = useState<string[]>([]);
   const [promptSelection, setPromptSelection] = useState<{
     scope: string;
@@ -618,6 +628,21 @@ export function PromptsPage() {
       ]);
     },
     onError: (value: Error) => setTagError(value.message),
+  });
+  const purgePrompts = useMutation({
+    mutationFn: (queryIds: string[]) =>
+      post<PurgePromptsResult>(`/projects/${projectId}/queries/purge`, {
+        queryIds,
+      }),
+    onMutate: () => setDeleteError(""),
+    onSuccess: async (result) => {
+      setDeleteNotice(result.acceptedCount);
+      setDeleteTargets([]);
+      setSelectedPromptIds(new Set());
+      setPromptPagination({ scope: pageScope, cursors: [] });
+      await queryClient.invalidateQueries();
+    },
+    onError: (value: Error) => setDeleteError(value.message),
   });
   if (!projectId) return <NoProject />;
   const openPromptDialog = () => {
@@ -794,6 +819,12 @@ export function PromptsPage() {
           ) : null}
         </div>
       ) : null}
+      {deleteNotice ? (
+        <div className="bulk-upload-result" role="status">
+          <strong>{pluralize(deleteNotice, "prompt")} deleted</strong>
+          <span>Associated captures and evidence are being permanently purged.</span>
+        </div>
+      ) : null}
       <Card className="prompts-table-card">
         <CardHeader title={queries.isPending ? "Prompts" : pluralize(totalPrompts, "prompt")} description="Latest capture metrics with a rolling 30-day owned-brand mention rate." />
         {visibleSelectedIds.length ? (
@@ -835,6 +866,16 @@ export function PromptsPage() {
                 ).values(),
               ]}
             />
+            <Button
+              disabled={purgePrompts.isPending}
+              onClick={() => {
+                setDeleteError("");
+                setDeleteTargets(selectedRows);
+              }}
+              variant="danger"
+            >
+              <Trash2 size={14} /> Delete selected
+            </Button>
             <button
               className="plain-button prompt-selection-clear"
               onClick={() => setSelectedPromptIds(new Set())}
@@ -978,6 +1019,19 @@ export function PromptsPage() {
                     <RefreshCw size={13} />
                     {isStarting ? "Queued…" : runStatusLabel(query.latestRunStatus)}
                   </Button>
+                  {canEdit ? (
+                    <Button
+                      className="prompt-action-button"
+                      disabled={purgePrompts.isPending}
+                      onClick={() => {
+                        setDeleteError("");
+                        setDeleteTargets([query]);
+                      }}
+                      variant="danger"
+                    >
+                      <Trash2 size={13} /> Delete
+                    </Button>
+                  ) : null}
                 </div>,
               };
               })}
@@ -1021,6 +1075,57 @@ export function PromptsPage() {
           </>
         ) : <EmptyState title="No prompts found" description="Add the prompts your audience asks ChatGPT or adjust the filters." action={<Button onClick={openPromptDialog}><Plus size={15} /> Add prompt</Button>} />}
       </Card>
+      <Dialog
+        open={deleteTargets.length > 0}
+        onOpenChange={(open) => {
+          if (!open && !purgePrompts.isPending) {
+            setDeleteTargets([]);
+            setDeleteError("");
+          }
+        }}
+        title={
+          deleteTargets.length === 1
+            ? "Delete prompt?"
+            : `Delete ${deleteTargets.length} prompts?`
+        }
+        description="This action cannot be undone."
+      >
+        <div className="form-stack">
+          {deleteTargets.length === 1 ? (
+            <p className="prompt-delete-preview">{deleteTargets[0]?.queryText}</p>
+          ) : null}
+          <p>
+            This permanently deletes the selected prompt
+            {deleteTargets.length === 1 ? "" : "s"}, every capture, source record,
+            alert, evidence file, and affected stored export. Anonymous provider usage
+            totals remain for accurate billing and quotas.
+          </p>
+          {deleteError ? <p className="prompt-tag-error" role="alert">{deleteError}</p> : null}
+          <div className="dialog-actions">
+            <Button
+              disabled={purgePrompts.isPending}
+              onClick={() => setDeleteTargets([])}
+              type="button"
+              variant="ghost"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={purgePrompts.isPending}
+              onClick={() => purgePrompts.mutate(deleteTargets.map((query) => query.id))}
+              type="button"
+              variant="danger"
+            >
+              <Trash2 size={15} />
+              {purgePrompts.isPending
+                ? "Deleting…"
+                : deleteTargets.length === 1
+                  ? "Delete prompt"
+                  : `Delete ${deleteTargets.length} prompts`}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
       <Dialog
         open={dialogOpen}
         onOpenChange={handleDialogOpenChange}
