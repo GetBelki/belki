@@ -3,8 +3,6 @@ import {
   ArrowDown,
   ArrowUp,
   ExternalLink,
-  Pause,
-  Play,
   Plus,
   RefreshCw,
   Search,
@@ -31,6 +29,7 @@ import {
   CompletedRunsIcon,
   SourcesIcon,
 } from "../components/navigation-icons";
+import { PromptRowActions } from "../components/prompt-row-actions";
 import {
   TagChip,
   TagPicker,
@@ -995,44 +994,32 @@ export function PromptsPage() {
                       {query.mentionChange > 0 ? <ArrowUp size={13} /> : query.mentionChange < 0 ? <ArrowDown size={13} /> : null}
                       {query.mentionChange > 0 ? `+${query.mentionChange}` : query.mentionChange}
                     </span>,
-                actions: <div className="table-actions">
-                  <Button
-                    className="prompt-action-button"
-                    variant="secondary"
-                    disabled={isToggling}
-                    onClick={() =>
+                actions: (
+                  <PromptRowActions
+                    canDelete={canEdit}
+                    deleteDisabled={purgePrompts.isPending}
+                    isActive={query.isActive}
+                    onDelete={() => {
+                      setDeleteError("");
+                      setDeleteTargets([query]);
+                    }}
+                    onRun={() => manualRun.mutate(query.id)}
+                    onToggle={() =>
                       toggle.mutate({
                         id: query.id,
                         isActive: !query.isActive,
                       })
                     }
-                  >
-                    {query.isActive ? <Pause size={13} /> : <Play size={13} />}
-                    {isToggling ? "Saving…" : query.isActive ? "Pause" : "Resume"}
-                  </Button>
-                  <Button
-                    className="prompt-action-button"
-                    variant="secondary"
-                    disabled={isStarting || runInProgress}
-                    onClick={() => manualRun.mutate(query.id)}
-                  >
-                    <RefreshCw size={13} />
-                    {isStarting ? "Queued…" : runStatusLabel(query.latestRunStatus)}
-                  </Button>
-                  {canEdit ? (
-                    <Button
-                      className="prompt-action-button"
-                      disabled={purgePrompts.isPending}
-                      onClick={() => {
-                        setDeleteError("");
-                        setDeleteTargets([query]);
-                      }}
-                      variant="danger"
-                    >
-                      <Trash2 size={13} /> Delete
-                    </Button>
-                  ) : null}
-                </div>,
+                    promptName={query.queryText}
+                    runDisabled={isStarting || runInProgress}
+                    runLabel={
+                      isStarting
+                        ? "Queued…"
+                        : runStatusLabel(query.latestRunStatus)
+                    }
+                    toggleDisabled={isToggling}
+                  />
+                ),
               };
               })}
             />
