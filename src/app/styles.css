@@ -2458,6 +2458,71 @@ a.evidence-source:hover strong {
   padding: 4px 8px;
 }
 
+.prompt-row-actions {
+  align-items: center;
+  display: flex;
+  gap: 5px;
+  justify-content: flex-end;
+  white-space: nowrap;
+}
+
+.prompt-action-primary {
+  min-width: 82px;
+}
+
+.prompt-actions-menu-trigger {
+  min-height: 28px;
+  padding: 4px 6px;
+  width: 30px;
+}
+
+.prompt-actions-menu {
+  background: #ffffff;
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  box-shadow: 0 10px 24px rgba(24, 24, 27, .12);
+  min-width: 164px;
+  padding: 5px;
+  z-index: 100;
+}
+
+.prompt-actions-menu-item {
+  align-items: center;
+  border-radius: 4px;
+  color: #27272a;
+  cursor: pointer;
+  display: flex;
+  font-size: 11px;
+  font-weight: 550;
+  gap: 8px;
+  min-height: 32px;
+  outline: 0;
+  padding: 6px 8px;
+}
+
+.prompt-actions-menu-item[data-highlighted] {
+  background: #f4f4f5;
+}
+
+.prompt-actions-menu-item[data-disabled] {
+  cursor: not-allowed;
+  opacity: .45;
+}
+
+.prompt-actions-menu-separator {
+  background: #e4e4e7;
+  height: 1px;
+  margin: 4px;
+}
+
+.prompt-actions-menu-danger {
+  color: #b91c1c;
+}
+
+.prompt-actions-menu-danger[data-highlighted] {
+  background: #fef2f2;
+}
+
 .prompt-delete-preview {
   background: #fafafa;
   border: 1px solid #e4e4e7;
