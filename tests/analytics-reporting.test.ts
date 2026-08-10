@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   billingDateRange,
   buildBillingReport,
+  mergeBillingReports,
   productAnalyticsDateRange,
   productIdentity,
   productIdentityFromKey,
@@ -175,6 +176,50 @@ describe("billing reporting", () => {
       chargedRuns: 3,
       highestDailyCost: 0.0048,
       averageCost: 0.0024,
+    });
+  });
+
+  it("keeps aggregate billing totals and category costs aligned", () => {
+    const dates = {
+      from: "2026-08-09",
+      to: "2026-08-10",
+      startTimestamp: "2026-08-09T00:00:00.000Z",
+      endExclusiveTimestamp: "2026-08-11T00:00:00.000Z",
+    };
+    const prompt = buildBillingReport(
+      [{ metric_date: "2026-08-09", charged_runs: 2, provider_cost_usd: 0.2 }],
+      dates,
+    );
+    const enrichment = buildBillingReport(
+      [{ metric_date: "2026-08-10", charged_runs: 1, provider_cost_usd: 0.1 }],
+      dates,
+    );
+
+    expect(mergeBillingReports(prompt, enrichment)).toMatchObject({
+      summary: {
+        totalCost: 0.3,
+        chargedTasks: 3,
+        averageCost: 0.1,
+        highestDailyCost: 0.2,
+        byCategory: {
+          promptTracking: { totalCost: 0.2, chargedTasks: 2 },
+          productEnrichment: { totalCost: 0.1, chargedTasks: 1 },
+        },
+      },
+      series: [
+        {
+          date: "2026-08-09",
+          totalCost: 0.2,
+          promptTrackingCost: 0.2,
+          productEnrichmentCost: 0,
+        },
+        {
+          date: "2026-08-10",
+          totalCost: 0.1,
+          promptTrackingCost: 0,
+          productEnrichmentCost: 0.1,
+        },
+      ],
     });
   });
 });

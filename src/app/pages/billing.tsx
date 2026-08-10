@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   CalendarDays,
   CircleDollarSign,
   Gauge,
@@ -30,15 +31,37 @@ interface BillingReport {
   range: { from: string; to: string };
   summary: {
     totalCost: number;
+    chargedTasks: number;
     chargedRuns: number;
     averageCost: number;
     highestDailyCost: number;
+    byCategory: {
+      promptTracking: BillingCategory;
+      productEnrichment: BillingCategory;
+    };
   };
   series: Array<{
     date: string;
-    runs: number;
-    cost: number;
+    totalCost: number;
+    promptTrackingCost: number;
+    productEnrichmentCost: number;
+    totalTasks: number;
+    promptTrackingTasks: number;
+    productEnrichmentTasks: number;
   }>;
+  enrichmentWarning: {
+    workspaceMonthToDateTasks: number;
+    workspaceMonthToDateCost: number;
+    threshold: number;
+    exceeded: boolean;
+  };
+}
+
+interface BillingCategory {
+  chargedTasks: number;
+  totalCost: number;
+  averageCost: number;
+  sharePercent: number;
 }
 
 function shortDate(value: string): string {
@@ -106,7 +129,7 @@ export default function BillingPage() {
       <PageHeader
         eyebrow="Provider usage"
         title="Billing"
-        description="Track the original provider charges for monitored prompt runs."
+        description="Track provider charges across prompt monitoring and product enrichment."
         action={
           <div className="billing-period-toggle" aria-label="Billing period">
             <button
@@ -129,6 +152,19 @@ export default function BillingPage() {
         }
       />
 
+      {report.data?.enrichmentWarning.exceeded ? (
+        <div className="billing-warning" role="status">
+          <AlertTriangle size={17} />
+          <div>
+            <strong>Product enrichment cost warning</strong>
+            <span>
+              Workspace enrichment spend is {formatProviderCost(report.data.enrichmentWarning.workspaceMonthToDateCost)} this month,
+              above the {formatProviderCost(report.data.enrichmentWarning.threshold)} warning level.
+            </span>
+          </div>
+        </div>
+      ) : null}
+
       {report.isPending ? (
         <div className="billing-summary-grid">
           {Array.from({ length: 4 }, (_, index) => (
@@ -144,9 +180,9 @@ export default function BillingPage() {
             icon={<CircleDollarSign size={18} />}
           />
           <BillingMetric
-            label="Charged runs"
-            value={compact(summary?.chargedRuns ?? 0)}
-            detail="Submitted tasks with a provider charge"
+            label="Charged tasks"
+            value={compact(summary?.chargedTasks ?? 0)}
+            detail="Prompt tracking and product enrichment"
             icon={<ReceiptText size={18} />}
           />
           <BillingMetric
@@ -164,10 +200,37 @@ export default function BillingPage() {
         </div>
       )}
 
+      {summary ? (
+        <div className="billing-breakdown-grid">
+          <Card className="billing-breakdown-card">
+            <span className="billing-category-swatch prompt" />
+            <div>
+              <strong>Prompt tracking</strong>
+              <span>{compact(summary.byCategory.promptTracking.chargedTasks)} charged tasks</span>
+            </div>
+            <div>
+              <strong>{formatProviderCost(summary.byCategory.promptTracking.totalCost)}</strong>
+              <span>{summary.byCategory.promptTracking.sharePercent.toFixed(1)}% of total · {formatProviderCost(summary.byCategory.promptTracking.averageCost)} avg.</span>
+            </div>
+          </Card>
+          <Card className="billing-breakdown-card">
+            <span className="billing-category-swatch enrichment" />
+            <div>
+              <strong>Product enrichment</strong>
+              <span>{compact(summary.byCategory.productEnrichment.chargedTasks)} charged tasks</span>
+            </div>
+            <div>
+              <strong>{formatProviderCost(summary.byCategory.productEnrichment.totalCost)}</strong>
+              <span>{summary.byCategory.productEnrichment.sharePercent.toFixed(1)}% of total · {formatProviderCost(summary.byCategory.productEnrichment.averageCost)} avg.</span>
+            </div>
+          </Card>
+        </div>
+      ) : null}
+
       <Card className="billing-chart-card">
         <CardHeader
           title="Daily provider cost"
-          description={`${periodLabel} · charges grouped by submission date`}
+          description={`${periodLabel} · stacked by provider workload`}
         />
         <div className="billing-chart">
           {report.isPending ? (
@@ -177,7 +240,7 @@ export default function BillingPage() {
               title="Billing data could not be loaded"
               description="Refresh the page to try the report again."
             />
-          ) : (summary?.chargedRuns ?? 0) === 0 ? (
+          ) : (summary?.chargedTasks ?? 0) === 0 ? (
             <EmptyState
               title="No provider charges in this period"
               description="Charges will appear after a monitored prompt is submitted."
@@ -215,9 +278,9 @@ export default function BillingPage() {
                     borderRadius: 6,
                     boxShadow: "none",
                   }}
-                  formatter={(value) => [
+                  formatter={(value, name) => [
                     formatProviderCost(Number(value)),
-                    "Provider cost",
+                    name === "Prompt tracking" ? "Prompt tracking" : "Product enrichment",
                   ]}
                   labelFormatter={(value) => {
                     const date =
@@ -233,10 +296,19 @@ export default function BillingPage() {
                   }}
                 />
                 <Bar
-                  dataKey="cost"
+                  dataKey="promptTrackingCost"
                   fill="#18181b"
                   maxBarSize={30}
-                  name="Provider cost"
+                  name="Prompt tracking"
+                  stackId="provider-cost"
+                  radius={[0, 0, 2, 2]}
+                />
+                <Bar
+                  dataKey="productEnrichmentCost"
+                  fill="#7c3aed"
+                  maxBarSize={30}
+                  name="Product enrichment"
+                  stackId="provider-cost"
                   radius={[2, 2, 0, 0]}
                 />
               </BarChart>

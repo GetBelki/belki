@@ -133,3 +133,24 @@ export async function verifySignedJobTag(
   const expected = await createSignedJobTag(match[1], secret);
   return (await timingSafeTextEqual(tag, expected)) ? match[1] : null;
 }
+
+export async function createScopedSignedJobTag(
+  scope: string,
+  jobId: string,
+  secret: string,
+): Promise<string> {
+  const value = `${scope}:${jobId}`;
+  const signature = await hmac(value, secret);
+  return `ait:${scope}:${jobId}:${signature.slice(0, 24)}`;
+}
+
+export async function verifyScopedSignedJobTag(
+  tag: string,
+  scope: string,
+  secret: string,
+): Promise<string | null> {
+  const match = /^ait:([a-z][a-z0-9-]{0,20}):([0-9a-f-]{36}):([A-Za-z0-9_-]{24})$/u.exec(tag);
+  if (!match?.[1] || !match[2] || !match[3] || match[1] !== scope) return null;
+  const expected = await createScopedSignedJobTag(scope, match[2], secret);
+  return (await timingSafeTextEqual(tag, expected)) ? match[2] : null;
+}

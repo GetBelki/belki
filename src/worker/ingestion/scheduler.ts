@@ -236,4 +236,9 @@ export async function runRetention(env: Env): Promise<void> {
      WHERE julianday(created_at) < julianday('now', '-12 months')
        AND status IN ('completed', 'failed', 'cancelled')`,
   ).run();
+  await env.CONTROL_DB.prepare(
+    `DELETE FROM product_enrichment_jobs
+     WHERE julianday(created_at) < julianday('now', '-12 months')
+       AND status IN ('completed', 'failed', 'cancelled')`,
+  ).run();
 }

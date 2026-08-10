@@ -19,7 +19,7 @@ import {
   UserPlus,
   Webhook,
 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import {
   Link,
   useNavigate,
@@ -63,7 +63,7 @@ import {
 import { useApp } from "../context";
 import { api, apiPage, patch, post, type Project } from "../lib/api";
 import { LOCATION_OPTIONS } from "../lib/locale-catalog";
-import { formatPrice, productDestination } from "../lib/snapshot-evidence";
+import { formatPrice, formatProviderCost, productDestination } from "../lib/snapshot-evidence";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 
 function useProjectAnalytics<T>(name: string) {
@@ -1099,6 +1099,93 @@ interface ProductAnalyticsDetail {
     ratingMaximum: number | null;
     reviews: number | null;
   }>;
+  market: {
+    locales: Array<{
+      locationCode: number;
+      languageCode: string;
+      status: string;
+    }>;
+    selectedLocale: {
+      locationCode: number;
+      languageCode: string;
+    } | null;
+    policy: {
+      workspaceEnabled: boolean;
+      automaticRefreshEnabled: boolean;
+      monthlyWarningUsd: number;
+    };
+    refresh: {
+      targetId: string | null;
+      status: string;
+      pending: boolean;
+      lastCompletedAt: string | null;
+      nextEligibleAt: string | null;
+      lastError: string | null;
+    };
+    profile: {
+      title: string | null;
+      description: string | null;
+      tags: string[];
+      images: string[];
+      features: string[];
+      specifications: Array<Record<string, unknown>>;
+      variations: Array<Record<string, unknown>>;
+      productUrl: string | null;
+      sourceDomain: string | null;
+      capturedAt: string;
+      rating: {
+        value: number | null;
+        maximum: number | null;
+        reviews: number | null;
+      };
+    } | null;
+    summary: {
+      sellerCount: number;
+      inStockCount: number;
+      prices: Array<{
+        currency: string | null;
+        minimum: number;
+        median: number;
+        maximum: number;
+      }>;
+      ownedOffer: {
+        seller: string | null;
+        price: number | null;
+        currency: string | null;
+        differenceFromLowest: number | null;
+      } | null;
+    } | null;
+    priceTrend: Array<{
+      date: string;
+      currency: string | null;
+      minimum: number;
+      median: number;
+      maximum: number;
+    }>;
+    offerTrend: Array<{
+      date: string;
+      sellers: number;
+      inStock: number;
+    }>;
+    offers: Array<{
+      id: string;
+      seller: string | null;
+      url: string | null;
+      domain: string | null;
+      rating: number | null;
+      ratingMaximum: number | null;
+      reviews: number | null;
+      price: number | null;
+      regularPrice: number | null;
+      maximumPrice: number | null;
+      currency: string | null;
+      isPriceRange: boolean;
+      displayedPrice: string | null;
+      delivery: string | null;
+      availability: string | null;
+      owned: boolean;
+    }>;
+  };
 }
 
 function signedCompact(value: number | null): string {
@@ -1131,10 +1218,195 @@ function priceRangeLabel(
     .join(" · ");
 }
 
+type ProductMarket = ProductAnalyticsDetail["market"];
+
+function productMarketLocaleLabel(locationCode: number, languageCode: string) {
+  const location = LOCATION_OPTIONS.find(
+    (option) => option.value === String(locationCode),
+  )?.label;
+  return `${location ?? `Location ${locationCode}`} · ${languageCode.toUpperCase()}`;
+}
+
+function ProductMarketSection({
+  market,
+  productTitle,
+  canEdit,
+  refreshPending,
+  policyPending,
+  onLocaleChange,
+  onRefresh,
+  onPolicyChange,
+}: {
+  market: ProductMarket;
+  productTitle: string | null;
+  canEdit: boolean;
+  refreshPending: boolean;
+  policyPending: boolean;
+  onLocaleChange: (value: string) => void;
+  onRefresh: () => void;
+  onPolicyChange: (enabled: boolean) => void;
+}) {
+  const currency = market.summary?.prices[0]?.currency ?? null;
+  const priceTrend = currency
+    ? market.priceTrend.filter((point) => point.currency === currency)
+    : [];
+  const locale = market.selectedLocale
+    ? productMarketLocaleLabel(
+        market.selectedLocale.locationCode,
+        market.selectedLocale.languageCode,
+      )
+    : "selected market";
+  return (
+    <>
+      <Card className="product-market-control">
+        <div className="product-market-control-copy">
+          <div className="product-section-heading">
+            <span>Google Shopping market data</span>
+            <Badge
+              tone={market.refresh.status === "available" ? "success" : market.refresh.status === "failed" ? "danger" : market.refresh.pending ? "warning" : "neutral"}
+            >
+              {market.refresh.pending ? "Refreshing" : market.refresh.status === "available" ? "Current" : market.refresh.status}
+            </Badge>
+          </div>
+          <p>Product specifications, seller offers, availability, and market pricing for one Google Shopping locale.</p>
+          <span>
+            {market.refresh.lastCompletedAt
+              ? `Updated ${dateTime(market.refresh.lastCompletedAt)}${market.refresh.nextEligibleAt ? ` · Next automatic refresh ${dateTime(market.refresh.nextEligibleAt)}` : ""}`
+              : "The first enrichment is queued when this product is viewed."}
+          </span>
+          {market.refresh.lastError ? <span className="product-market-error">{market.refresh.lastError}</span> : null}
+        </div>
+        <div className="product-market-controls">
+          <Select
+            value={market.selectedLocale ? `${market.selectedLocale.locationCode}:${market.selectedLocale.languageCode}` : ""}
+            onValueChange={onLocaleChange}
+            options={market.locales.map((item) => ({
+              value: `${item.locationCode}:${item.languageCode}`,
+              label: productMarketLocaleLabel(item.locationCode, item.languageCode),
+            }))}
+          />
+          <Button
+            variant="secondary"
+            disabled={!canEdit || !market.policy.workspaceEnabled || !market.selectedLocale || refreshPending}
+            onClick={onRefresh}
+          >
+            <RefreshCw size={14} /> {refreshPending ? "Queueing…" : "Refresh now"}
+          </Button>
+          {canEdit ? (
+            <label className="product-market-auto">
+              <input
+                checked={market.policy.automaticRefreshEnabled}
+                disabled={policyPending}
+                onChange={(event) => onPolicyChange(event.target.checked)}
+                type="checkbox"
+              />
+              Weekly auto-refresh
+            </label>
+          ) : null}
+        </div>
+        {!market.policy.workspaceEnabled ? (
+          <div className="product-market-paused"><AlertTriangle size={14} /> Product enrichment is paused for this workspace in Settings.</div>
+        ) : null}
+      </Card>
+
+      {market.profile && market.summary ? (
+        <>
+          <div className="product-market-summary-grid">
+            <Card className="source-summary-card">
+              <span>Market price</span>
+              <strong>{market.summary.prices[0] ? observedPrice(market.summary.prices[0].median, market.summary.prices[0].currency) : "—"}</strong>
+              <small>{market.summary.prices[0] ? `${observedPrice(market.summary.prices[0].minimum, market.summary.prices[0].currency)}–${observedPrice(market.summary.prices[0].maximum, market.summary.prices[0].currency)} across offers` : "No comparable offer prices"}</small>
+            </Card>
+            <Card className="source-summary-card">
+              <span>Sellers</span><strong>{compact(market.summary.sellerCount)}</strong><small>{compact(market.summary.inStockCount)} reporting in stock</small>
+            </Card>
+            <Card className="source-summary-card">
+              <span>Google product rating</span>
+              <strong>{market.profile.rating.value ?? "—"}{market.profile.rating.maximum ? `/${market.profile.rating.maximum}` : ""}</strong>
+              <small>{market.profile.rating.reviews === null ? "Review count unavailable" : `${compact(market.profile.rating.reviews)} ratings`}</small>
+            </Card>
+            <Card className="source-summary-card">
+              <span>Owned seller position</span>
+              <strong>{market.summary.ownedOffer?.price !== null && market.summary.ownedOffer ? observedPrice(market.summary.ownedOffer.price, market.summary.ownedOffer.currency) : "Not found"}</strong>
+              <small>{!market.summary.ownedOffer || market.summary.ownedOffer.differenceFromLowest === null ? "No owned offer comparison" : market.summary.ownedOffer.differenceFromLowest === 0 ? "Matches the lowest offer" : `${observedPrice(market.summary.ownedOffer.differenceFromLowest, market.summary.ownedOffer.currency)} above the lowest offer`}</small>
+            </Card>
+          </div>
+
+          <div className="product-market-grid">
+            <Card className="product-market-profile">
+              <CardHeader
+                title="Product profile"
+                description={`Provider snapshot from ${dateTime(market.profile.capturedAt)}`}
+                action={market.profile.productUrl ? <Button asChild variant="secondary"><a href={market.profile.productUrl} target="_blank" rel="noreferrer">Google listing <ExternalLink size={13} /></a></Button> : null}
+              />
+              <CardContent>
+                <div className="product-market-profile-body">
+                  {market.profile.images.length ? <div className="product-market-images">{market.profile.images.slice(0, 6).map((image) => <img alt="" key={image} loading="lazy" src={image} />)}</div> : null}
+                  <div className="product-market-profile-copy">
+                    <strong>{market.profile.title ?? productTitle}</strong>
+                    {market.profile.description ? <p>{market.profile.description}</p> : null}
+                    {market.profile.tags.length ? <div className="product-market-tags">{market.profile.tags.map((tag) => <Badge key={tag}>{tag}</Badge>)}</div> : null}
+                    {market.profile.features.length ? <ul>{market.profile.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
+                  </div>
+                </div>
+                {market.profile.specifications.length || market.profile.variations.length ? (
+                  <details className="product-market-details"><summary>Specifications and variations</summary><pre>{JSON.stringify({ specifications: market.profile.specifications, variations: market.profile.variations }, null, 2)}</pre></details>
+                ) : null}
+              </CardContent>
+            </Card>
+            <Card className="product-chart-card">
+              <CardHeader title="Market price range" description={currency ? `Offer minimum, median, and maximum in ${currency}.` : "Comparable offer prices over time."} />
+              <div className="product-chart">
+                {priceTrend.length ? (
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                    <LineChart data={priceTrend} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+                      <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+                      <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
+                      <YAxis axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} width={45} />
+                      <Tooltip formatter={(value, name) => [observedPrice(Number(value), currency), String(name)]} />
+                      <Line dataKey="minimum" dot={{ r: 2 }} name="Minimum" stroke="#a1a1aa" type="monotone" />
+                      <Line dataKey="median" dot={{ r: 2 }} name="Median" stroke="#7c3aed" strokeWidth={2} type="monotone" />
+                      <Line dataKey="maximum" dot={{ r: 2 }} name="Maximum" stroke="#18181b" type="monotone" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                ) : <EmptyState title="No market history yet" description="The first completed enrichment will establish the price baseline." />}
+              </div>
+            </Card>
+          </div>
+
+          <Card className="product-detail-table product-market-offers">
+            <CardHeader title="Seller offers" description={`Current seller, price, delivery, and availability in ${locale}.`} action={<span className="table-total">{pluralize(market.offers.length, "offer")}</span>} />
+            {market.offers.length ? (
+              <DataTable
+                columns={[{ key: "seller", label: "Seller" }, { key: "price", label: "Price" }, { key: "availability", label: "Availability" }, { key: "delivery", label: "Delivery" }, { key: "rating", label: "Seller rating" }, { key: "open", label: "" }]}
+                rows={market.offers.map((offer) => ({
+                  id: offer.id,
+                  seller: <div className="primary-cell"><strong>{offer.seller ?? offer.domain ?? "Unknown seller"}</strong>{offer.owned ? <Badge tone="info">Owned</Badge> : null}</div>,
+                  price: offer.displayedPrice ?? observedPrice(offer.price, offer.currency) ?? "—",
+                  availability: <Badge tone={offer.availability === "in_stock" ? "success" : "neutral"}>{offer.availability?.replaceAll("_", " ") ?? "Unknown"}</Badge>,
+                  delivery: offer.delivery ?? "—",
+                  rating: offer.rating === null ? "—" : `${offer.rating}${offer.ratingMaximum ? `/${offer.ratingMaximum}` : ""}${offer.reviews ? ` · ${compact(offer.reviews)}` : ""}`,
+                  open: offer.url ? <Button asChild variant="secondary"><a href={offer.url} target="_blank" rel="noreferrer">Visit <ExternalLink size={12} /></a></Button> : null,
+                }))}
+              />
+            ) : <EmptyState title="No seller offers" description="Google did not return offers for this market snapshot." />}
+          </Card>
+        </>
+      ) : (
+        <Card className="product-market-empty"><EmptyState title={market.refresh.pending ? "Product details are being enriched" : "No Google Shopping profile yet"} description={market.refresh.pending ? "This page updates after the provider result is normalized." : "Open or refresh this product to queue its first market snapshot."} /></Card>
+      )}
+
+      <div className="product-observed-heading"><strong>AI answer observations</strong><span>Visibility, prices, and reviews captured in monitored answers.</span></div>
+    </>
+  );
+}
+
 export function ProductAnalyticsPage() {
-  const { projectId } = useApp();
+  const { projectId, session } = useApp();
+  const queryClient = useQueryClient();
   const { productKey: routeProductKey = "" } = useParams();
   const productKey = routeProductKey.trim();
+  const [marketLocale, setMarketLocale] = useState("");
   const [period, setPeriod] =
     useState<"7d" | "30d" | "90d" | "365d">("7d");
   const pageSize = 10;
@@ -1160,6 +1432,7 @@ export function ProductAnalyticsPage() {
       productKey,
       period,
       occurrenceCursor ?? "",
+      marketLocale,
     ],
     queryFn: () =>
       apiPage<ProductAnalyticsDetail>(
@@ -1167,10 +1440,52 @@ export function ProductAnalyticsPage() {
           occurrenceCursor
             ? `&cursor=${encodeURIComponent(occurrenceCursor)}`
             : ""
-        }`,
+        }${marketLocale ? `&marketLocationCode=${marketLocale.split(":")[0]}&marketLanguageCode=${encodeURIComponent(marketLocale.split(":")[1] ?? "")}` : ""}`,
       ),
     enabled: Boolean(projectId && productKey),
+    refetchInterval: (result) =>
+      result.state.data?.data.market.refresh.pending ? 5_000 : false,
   });
+  const touchMarket = useMutation({
+    mutationFn: (locale: { locationCode: number; languageCode: string }) =>
+      post(`/analytics/shopping/${encodeURIComponent(productKey)}/enrichment/touch`, {
+        projectId,
+        ...locale,
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["shopping-product", projectId, productKey],
+      }),
+  });
+  const refreshMarket = useMutation({
+    mutationFn: (locale: { locationCode: number; languageCode: string }) =>
+      post(`/analytics/shopping/${encodeURIComponent(productKey)}/enrichment/refresh`, {
+        projectId,
+        ...locale,
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["shopping-product", projectId, productKey],
+      }),
+  });
+  const updateMarketPolicy = useMutation({
+    mutationFn: (automaticRefreshEnabled: boolean) =>
+      patch(`/analytics/shopping/${encodeURIComponent(productKey)}/enrichment`, {
+        projectId,
+        automaticRefreshEnabled,
+      }),
+    onSuccess: () =>
+      queryClient.invalidateQueries({
+        queryKey: ["shopping-product", projectId, productKey],
+      }),
+  });
+  const selectedMarketLocale = query.data?.data.market.selectedLocale;
+  useEffect(() => {
+    if (!projectId || !productKey || !selectedMarketLocale) return;
+    touchMarket.mutate(selectedMarketLocale);
+    // The backend deduplicates a view-triggered refresh per product and locale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [projectId, productKey, selectedMarketLocale?.locationCode, selectedMarketLocale?.languageCode]);
   if (!projectId) return <NoProject />;
   const detail = query.data?.data;
   const occurrenceTotal = query.data?.page.total ?? 0;
@@ -1198,6 +1513,8 @@ export function ProductAnalyticsPage() {
     ? productDestination(detail.product)
     : undefined;
   const productImage = detail?.product.images[0];
+  const market = detail?.market;
+  const canEditEnrichment = session.user.role !== "viewer";
   const updateSectionOffset = (
     key: "promptOffset" | "merchantOffset",
     value: number,
@@ -1282,6 +1599,20 @@ export function ProductAnalyticsPage() {
         </>
       ) : detail ? (
         <>
+          {market ? (
+            <ProductMarketSection
+              canEdit={canEditEnrichment}
+              market={market}
+              onLocaleChange={setMarketLocale}
+              onPolicyChange={(enabled) => updateMarketPolicy.mutate(enabled)}
+              onRefresh={() => {
+                if (market.selectedLocale) refreshMarket.mutate(market.selectedLocale);
+              }}
+              policyPending={updateMarketPolicy.isPending}
+              productTitle={detail.product.title}
+              refreshPending={refreshMarket.isPending}
+            />
+          ) : null}
           <div className="source-summary-grid">
             <Card className="source-summary-card">
               <span>Appearance rate</span>
@@ -1700,7 +2031,30 @@ export function SettingsPage() {
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [webhookOpen, setWebhookOpen] = useState(false);
   const [webhookSecret, setWebhookSecret] = useState("");
-  const health = useQuery({ queryKey: ["health"], queryFn: () => api<Record<string, unknown>>("/settings/health"), enabled: session.user.role === "owner" || session.user.role === "admin" });
+  const canAdmin = session.user.role === "owner" || session.user.role === "admin";
+  const health = useQuery({ queryKey: ["health"], queryFn: () => api<Record<string, unknown>>("/settings/health"), enabled: canAdmin });
+  const enrichmentSettings = useQuery({
+    queryKey: ["product-enrichment-settings"],
+    queryFn: () => api<{
+      enabled: boolean;
+      monthlyWarningUsd: number;
+      monthToDateTasks: number;
+      monthToDateCost: number;
+      warningExceeded: boolean;
+    }>("/settings/product-enrichment"),
+    enabled: canAdmin,
+  });
+  const updateEnrichmentSettings = useMutation({
+    mutationFn: (body: { enabled?: boolean; monthlyWarningUsd?: number }) =>
+      patch("/settings/product-enrichment", body),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["product-enrichment-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["billing"] }),
+        queryClient.invalidateQueries({ queryKey: ["shopping-product"] }),
+      ]);
+    },
+  });
   const createProject = useMutation({
     mutationFn: (body: Record<string, unknown>) => post("/projects", body),
     onSuccess: async () => { setProjectOpen(false); await queryClient.invalidateQueries({ queryKey: ["projects"] }); },
@@ -1746,6 +2100,13 @@ export function SettingsPage() {
   const webhookSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const data = new FormData(event.currentTarget);
     createWebhook.mutate({ name: formText(data, "name"), url: formText(data, "url") });
+  };
+  const enrichmentWarningSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    updateEnrichmentSettings.mutate({
+      monthlyWarningUsd: Number(data.get("monthlyWarningUsd")),
+    });
   };
   return (
     <div className="page">
@@ -1799,6 +2160,62 @@ export function SettingsPage() {
             />
           )}
         </Card>
+        {canAdmin ? (
+          <Card>
+            <CardHeader
+              title="Product enrichment"
+              description="Weekly Google Shopping product and seller snapshots for newly observed products."
+              action={enrichmentSettings.data ? (
+                <Badge tone={enrichmentSettings.data.enabled ? "success" : "warning"}>
+                  {enrichmentSettings.data.enabled ? "Active" : "Paused"}
+                </Badge>
+              ) : null}
+            />
+            <CardContent className="product-enrichment-settings">
+              {enrichmentSettings.isPending ? (
+                <Skeleton className="settings-enrichment-skeleton" />
+              ) : enrichmentSettings.data ? (
+                <>
+                  <label className="checkbox-row evidence-checkbox">
+                    <input
+                      checked={enrichmentSettings.data.enabled}
+                      disabled={updateEnrichmentSettings.isPending}
+                      onChange={(event) => updateEnrichmentSettings.mutate({ enabled: event.target.checked })}
+                      type="checkbox"
+                    />
+                    <span>
+                      <strong>Enable automatic enrichment</strong>
+                      <small>New observations refresh at most once every seven days per product and locale.</small>
+                    </span>
+                  </label>
+                  <div className="settings-enrichment-usage">
+                    <div><strong>{formatProviderCost(enrichmentSettings.data.monthToDateCost)}</strong><span>Month-to-date cost</span></div>
+                    <div><strong>{compact(enrichmentSettings.data.monthToDateTasks)}</strong><span>Charged tasks</span></div>
+                  </div>
+                  {enrichmentSettings.data.warningExceeded ? (
+                    <div className="settings-enrichment-warning"><AlertTriangle size={14} /> The monthly warning level has been reached.</div>
+                  ) : null}
+                  <form className="settings-enrichment-threshold" onSubmit={enrichmentWarningSubmit}>
+                    <div>
+                      <Label hint="Warning only; enrichment keeps running">Monthly cost warning (USD)</Label>
+                      <Input
+                        defaultValue={enrichmentSettings.data.monthlyWarningUsd}
+                        min="0"
+                        name="monthlyWarningUsd"
+                        step="0.01"
+                        type="number"
+                      />
+                    </div>
+                    <Button disabled={updateEnrichmentSettings.isPending} type="submit" variant="secondary">Save warning</Button>
+                  </form>
+                  <p className="muted product-enrichment-footnote">Changes apply to future work. Existing market snapshots remain available and no historical bulk backfill is started.</p>
+                </>
+              ) : (
+                <p className="muted">Product enrichment settings could not be loaded.</p>
+              )}
+            </CardContent>
+          </Card>
+        ) : null}
         <Card><CardHeader title="Provider & infrastructure" description="Health checks from the last 24 hours." />{health.isPending ? <CardContent><p className="muted">Checking infrastructure…</p></CardContent> : health.data ? <div className="health-panel"><div><CheckCircle2/><span><strong>Control database</strong>Connected</span></div><div><ServerCog/><span><strong>Snapshot shards</strong>32 shards configured</span></div><div><KeyRound/><span><strong>Runtime configuration</strong>Bindings available</span></div></div> : <CardContent><p className="muted">Administrator access is required to view health checks.</p></CardContent>}</Card>
         <Card><CardHeader title="Webhook delivery" description="Send signed alerts to external systems." action={<Button variant="secondary" onClick={() => {setWebhookSecret("");setWebhookOpen(true);}}><Webhook size={14}/> Add</Button>} /><CardContent className="settings-note"><p className="muted">Alert payloads include an event ID, timestamp, and HMAC-SHA256 signature.</p></CardContent></Card>
         <Card><CardHeader title="Response retention" description="Private storage lifecycle." /><div className="retention-grid"><div><strong>730 days</strong><span>Raw results</span></div><div><strong>90 days</strong><span>Original page HTML</span></div><div><strong>7 days</strong><span>Exports</span></div></div></Card>
