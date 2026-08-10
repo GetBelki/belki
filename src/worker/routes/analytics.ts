@@ -8,6 +8,7 @@ import {
   sanitizeCapturedHtmlResponse,
 } from "../lib/dataforseo-html";
 import { requireRole } from "../lib/auth";
+import { writeAudit } from "../lib/audit";
 import { decodeCursor, encodeCursor } from "../lib/cursor";
 import { matchedBrandTerms, normalizeHostname } from "../lib/domain";
 import { evidenceResponseHeaders } from "../lib/evidence";
@@ -16,6 +17,7 @@ import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
 import {
   billingDateRange,
   buildBillingReport,
+  mergeBillingReports,
   productAnalyticsDateRange,
   productIdentity,
   productIdentityFromKey,
@@ -23,6 +25,15 @@ import {
   summarizeProductPrices,
   type BillingDailyRow,
 } from "../lib/reporting";
+import { summarizeMarketPrices } from "../lib/product-enrichment";
+import {
+  ensureProductEnrichmentTarget,
+  requestTargetRefresh,
+} from "../automation/product-enrichment";
+import {
+  ProductEnrichmentPreferenceSchema,
+  ProductEnrichmentRequestSchema,
+} from "../../shared/contracts";
 
 const DateRangeSchema = z.object({
   projectId: z.string().uuid(),
@@ -80,6 +91,8 @@ const ShoppingProductDetailSchema = z.object({
   cursor: z.string().max(4096).optional(),
   offset: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(10),
+  marketLocationCode: z.coerce.number().int().optional(),
+  marketLanguageCode: z.string().trim().min(1).max(20).optional(),
 });
 
 function chunks<T>(values: T[], size = 75): T[][] {
@@ -428,6 +441,301 @@ function serializedShoppingProduct(
   };
 }
 
+interface MarketTargetRow {
+  id: string;
+  location_code: number;
+  language_code: string;
+  status: string;
+  current_job_id: string | null;
+  latest_snapshot_id: string | null;
+  last_success_at: string | null;
+  next_refresh_at: string | null;
+  last_error: string | null;
+}
+
+interface MarketSnapshotRow {
+  id: string;
+  captured_at: string;
+  se_domain: string | null;
+  check_url: string | null;
+  product_url: string | null;
+  title: string | null;
+  description: string | null;
+  tags_json: string;
+  images_json: string;
+  features_json: string;
+  specifications_json: string;
+  variations_json: string;
+  rating_value: number | null;
+  rating_votes_count: number | null;
+  rating_max: number | null;
+  seller_reviews_count: number | null;
+  seller_count: number;
+  in_stock_count: number;
+}
+
+interface MarketOfferRow {
+  id: string;
+  snapshot_id: string;
+  ordinal: number;
+  seller_name: string | null;
+  seller_url: string | null;
+  seller_domain: string | null;
+  seller_rating_value: number | null;
+  seller_rating_votes_count: number | null;
+  seller_rating_max: number | null;
+  seller_reviews_count: number | null;
+  price_current: number | null;
+  price_regular: number | null;
+  price_max: number | null;
+  currency: string | null;
+  is_price_range: number;
+  displayed_price: string | null;
+  delivery_message: string | null;
+  availability: string | null;
+  is_owned: number;
+}
+
+async function loadProductMarket(
+  env: Env,
+  workspaceId: string,
+  projectId: string,
+  identity: string,
+  dates: ReturnType<typeof productAnalyticsDateRange>,
+  occurrences: ShoppingProductOccurrence[],
+  requestedLocale?: { locationCode?: number; languageCode?: string },
+) {
+  const [workspace, preference, targets] = await Promise.all([
+    env.CONTROL_DB.prepare(
+      `SELECT product_enrichment_enabled, product_enrichment_warning_usd
+       FROM workspaces WHERE id = ?`,
+    )
+      .bind(workspaceId)
+      .first<{
+        product_enrichment_enabled: number;
+        product_enrichment_warning_usd: number;
+      }>(),
+    env.CONTROL_DB.prepare(
+      `SELECT automatic_refresh_enabled FROM product_enrichment_preferences
+       WHERE project_id = ? AND product_identity = ?`,
+    )
+      .bind(projectId, identity)
+      .first<{ automatic_refresh_enabled: number }>(),
+    env.CONTROL_DB.prepare(
+      `SELECT id, location_code, language_code, status, current_job_id,
+        latest_snapshot_id, last_success_at, next_refresh_at, last_error
+       FROM product_enrichment_targets
+       WHERE project_id = ? AND product_identity = ?
+       ORDER BY last_seen_at DESC, updated_at DESC`,
+    )
+      .bind(projectId, identity)
+      .all<MarketTargetRow>(),
+  ]);
+  const localeMap = new Map<string, { locationCode: number; languageCode: string }>();
+  for (const occurrence of occurrences) {
+    localeMap.set(`${occurrence.location_code}:${occurrence.language_code}`, {
+      locationCode: occurrence.location_code,
+      languageCode: occurrence.language_code,
+    });
+  }
+  for (const target of targets.results) {
+    localeMap.set(`${target.location_code}:${target.language_code}`, {
+      locationCode: target.location_code,
+      languageCode: target.language_code,
+    });
+  }
+  const fallback = occurrences[0]
+    ? { locationCode: occurrences[0].location_code, languageCode: occurrences[0].language_code }
+    : [...localeMap.values()][0];
+  const requestedKey = requestedLocale?.locationCode !== undefined && requestedLocale.languageCode
+    ? `${requestedLocale.locationCode}:${requestedLocale.languageCode}`
+    : null;
+  const selectedLocale = (requestedKey && localeMap.get(requestedKey)) || fallback || null;
+  const target = selectedLocale
+    ? targets.results.find(
+        (candidate) =>
+          candidate.location_code === selectedLocale.locationCode &&
+          candidate.language_code === selectedLocale.languageCode,
+      ) ?? null
+    : null;
+  let latestSnapshot: MarketSnapshotRow | null = null;
+  let latestOffers: MarketOfferRow[] = [];
+  let history: MarketSnapshotRow[] = [];
+  let historyOffers: MarketOfferRow[] = [];
+  if (target) {
+    const [latestResult, historyResult] = await Promise.all([
+      target.latest_snapshot_id
+        ? env.CONTROL_DB.prepare("SELECT * FROM product_market_snapshots WHERE id = ?")
+            .bind(target.latest_snapshot_id)
+            .first<MarketSnapshotRow>()
+        : Promise.resolve(null),
+      env.CONTROL_DB.prepare(
+        `SELECT * FROM product_market_snapshots
+         WHERE target_id = ? AND captured_at >= ? AND captured_at < ?
+         ORDER BY captured_at`,
+      )
+        .bind(target.id, dates.startTimestamp, dates.endExclusiveTimestamp)
+        .all<MarketSnapshotRow>(),
+    ]);
+    latestSnapshot = latestResult;
+    history = historyResult.results;
+    const snapshotIds = [...new Set([
+      ...(latestSnapshot ? [latestSnapshot.id] : []),
+      ...history.map((snapshot) => snapshot.id),
+    ])];
+    if (snapshotIds.length) {
+      const offerResults = await Promise.all(
+        chunks(snapshotIds).map((ids) =>
+          env.CONTROL_DB.prepare(
+            `SELECT * FROM product_market_offers
+             WHERE snapshot_id IN (${ids.map(() => "?").join(",")})
+             ORDER BY ordinal`,
+          )
+            .bind(...ids)
+            .all<MarketOfferRow>(),
+        ),
+      );
+      historyOffers = offerResults.flatMap((result) => result.results);
+      latestOffers = latestSnapshot
+        ? historyOffers.filter((offer) => offer.snapshot_id === latestSnapshot?.id)
+        : [];
+    }
+  }
+  const latestPrices = summarizeMarketPrices(
+    latestOffers.map((offer) => ({ price: offer.price_current, currency: offer.currency })),
+  );
+  const priceTrend = history.flatMap((snapshot) =>
+    summarizeMarketPrices(
+      historyOffers
+        .filter((offer) => offer.snapshot_id === snapshot.id)
+        .map((offer) => ({ price: offer.price_current, currency: offer.currency })),
+    ).map((price) => ({ date: snapshot.captured_at.slice(0, 10), ...price })),
+  );
+  const ownedOffers = latestOffers
+    .filter((offer) => offer.is_owned === 1 && offer.price_current !== null)
+    .sort((left, right) => (left.price_current ?? 0) - (right.price_current ?? 0));
+  const ownedOffer = ownedOffers[0] ?? null;
+  const comparableLowest = ownedOffer
+    ? latestPrices.find((price) => price.currency === ownedOffer.currency)?.minimum ?? null
+    : null;
+  return {
+    locales: [...localeMap.values()].map((locale) => {
+      const localeTarget = targets.results.find(
+        (candidate) =>
+          candidate.location_code === locale.locationCode &&
+          candidate.language_code === locale.languageCode,
+      );
+      return { ...locale, status: localeTarget?.status ?? "idle" };
+    }),
+    selectedLocale,
+    policy: {
+      workspaceEnabled: workspace?.product_enrichment_enabled === 1,
+      automaticRefreshEnabled: preference?.automatic_refresh_enabled !== 0,
+      monthlyWarningUsd: Number(workspace?.product_enrichment_warning_usd ?? 10),
+    },
+    refresh: {
+      targetId: target?.id ?? null,
+      status: target?.status ?? "idle",
+      pending: Boolean(target?.current_job_id),
+      lastCompletedAt: target?.last_success_at ?? null,
+      nextEligibleAt: target?.next_refresh_at ?? null,
+      lastError: target?.last_error ?? null,
+    },
+    profile: latestSnapshot
+      ? {
+          title: latestSnapshot.title,
+          description: latestSnapshot.description,
+          tags: jsonParse<string[]>(latestSnapshot.tags_json, []),
+          images: jsonParse<string[]>(latestSnapshot.images_json, []),
+          features: jsonParse<string[]>(latestSnapshot.features_json, []),
+          specifications: jsonParse<unknown[]>(latestSnapshot.specifications_json, []),
+          variations: jsonParse<unknown[]>(latestSnapshot.variations_json, []),
+          productUrl: latestSnapshot.product_url ?? latestSnapshot.check_url,
+          sourceDomain: latestSnapshot.se_domain,
+          capturedAt: latestSnapshot.captured_at,
+          rating: {
+            value: latestSnapshot.rating_value,
+            maximum: latestSnapshot.rating_max,
+            reviews: latestSnapshot.rating_votes_count,
+          },
+        }
+      : null,
+    summary: latestSnapshot
+      ? {
+          sellerCount: latestSnapshot.seller_count,
+          inStockCount: latestSnapshot.in_stock_count,
+          prices: latestPrices,
+          ownedOffer: ownedOffer
+            ? {
+                seller: ownedOffer.seller_name,
+                price: ownedOffer.price_current,
+                currency: ownedOffer.currency,
+                differenceFromLowest:
+                  comparableLowest !== null && ownedOffer.price_current !== null
+                    ? ownedOffer.price_current - comparableLowest
+                    : null,
+              }
+            : null,
+        }
+      : null,
+    priceTrend,
+    offerTrend: history.map((snapshot) => ({
+      date: snapshot.captured_at.slice(0, 10),
+      sellers: snapshot.seller_count,
+      inStock: snapshot.in_stock_count,
+    })),
+    offers: latestOffers.map((offer) => ({
+      id: offer.id,
+      seller: offer.seller_name,
+      url: offer.seller_url,
+      domain: offer.seller_domain,
+      rating: offer.seller_rating_value,
+      ratingMaximum: offer.seller_rating_max,
+      reviews: offer.seller_reviews_count ?? offer.seller_rating_votes_count,
+      price: offer.price_current,
+      regularPrice: offer.price_regular,
+      maximumPrice: offer.price_max,
+      currency: offer.currency,
+      isPriceRange: offer.is_price_range === 1,
+      displayedPrice: offer.displayed_price,
+      delivery: offer.delivery_message,
+      availability: offer.availability,
+      owned: offer.is_owned === 1,
+    })),
+  };
+}
+
+async function latestEnrichmentOccurrence(
+  env: Env,
+  projectId: string,
+  identity: string,
+  locationCode: number,
+  languageCode: string,
+) {
+  return env.CONTROL_DB.prepare(
+    `SELECT project.workspace_id, product.project_id, product.product_identity,
+      product.product_key, product.product_ids_json, query.location_code,
+      query.language_code, product.captured_at
+     FROM analytics_product_occurrences product
+     JOIN tracked_queries query ON query.id = product.tracked_query_id
+     JOIN projects project ON project.id = product.project_id
+     WHERE product.project_id = ? AND product.product_identity = ?
+       AND query.location_code = ? AND query.language_code = ?
+     ORDER BY product.captured_at DESC LIMIT 1`,
+  )
+    .bind(projectId, identity, locationCode, languageCode)
+    .first<{
+      workspace_id: string;
+      project_id: string;
+      product_identity: string;
+      product_key: string;
+      product_ids_json: string;
+      location_code: number;
+      language_code: string;
+      captured_at: string;
+    }>();
+}
+
 function range(input: { from?: string; to?: string }): { from: string; to: string } {
   const to = input.to ?? new Date().toISOString().slice(0, 10);
   const from =
@@ -563,8 +871,9 @@ analyticsRoutes.get(
       c.get("timing"),
     );
     const dates = billingDateRange(input.period);
-    const rows = await c.env.CONTROL_DB.prepare(
-      `SELECT metric_date, SUM(charged_runs) AS charged_runs,
+    const [promptRows, enrichmentRows, workspaceEnrichment, workspaceSettings] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `SELECT metric_date, SUM(charged_runs) AS charged_runs,
         SUM(provider_cost_usd) AS provider_cost_usd
        FROM (
          SELECT
@@ -589,23 +898,67 @@ analyticsRoutes.get(
        ) usage
        GROUP BY metric_date
        ORDER BY metric_date`,
-    )
-      .bind(
-        input.projectId,
-        principal.workspaceId,
-        dates.startTimestamp,
-        dates.endExclusiveTimestamp,
-        input.projectId,
-        principal.workspaceId,
-        dates.startTimestamp,
-        dates.endExclusiveTimestamp,
       )
-      .all<BillingDailyRow>();
+        .bind(
+          input.projectId,
+          principal.workspaceId,
+          dates.startTimestamp,
+          dates.endExclusiveTimestamp,
+          input.projectId,
+          principal.workspaceId,
+          dates.startTimestamp,
+          dates.endExclusiveTimestamp,
+        )
+        .all<BillingDailyRow>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT substr(COALESCE(submitted_at, created_at), 1, 10) AS metric_date,
+          COUNT(*) AS charged_runs, COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
+         FROM product_enrichment_jobs
+         WHERE project_id = ? AND workspace_id = ?
+           AND request_cost_usd IS NOT NULL AND request_cost_usd > 0
+           AND COALESCE(submitted_at, created_at) >= ?
+           AND COALESCE(submitted_at, created_at) < ?
+         GROUP BY metric_date ORDER BY metric_date`,
+      )
+        .bind(
+          input.projectId,
+          principal.workspaceId,
+          dates.startTimestamp,
+          dates.endExclusiveTimestamp,
+        )
+        .all<BillingDailyRow>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS charged_runs, COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
+         FROM product_enrichment_jobs
+         WHERE workspace_id = ? AND request_cost_usd IS NOT NULL AND request_cost_usd > 0
+           AND COALESCE(submitted_at, created_at) >= strftime('%Y-%m-01T00:00:00.000Z', 'now')`,
+      )
+        .bind(principal.workspaceId)
+        .first<{ charged_runs: number; provider_cost_usd: number }>(),
+      c.env.CONTROL_DB.prepare(
+        "SELECT product_enrichment_warning_usd FROM workspaces WHERE id = ?",
+      )
+        .bind(principal.workspaceId)
+        .first<{ product_enrichment_warning_usd: number }>(),
+    ]);
+    const promptReport = buildBillingReport(promptRows.results, dates);
+    const enrichmentReport = buildBillingReport(enrichmentRows.results, dates);
+    const mergedReport = mergeBillingReports(promptReport, enrichmentReport);
+    const threshold = Number(workspaceSettings?.product_enrichment_warning_usd ?? 10);
+    const workspaceMonthToDateCost = Number(workspaceEnrichment?.provider_cost_usd ?? 0);
     return c.json({
       data: {
         period: input.period,
         currency: "USD",
-        ...buildBillingReport(rows.results, dates),
+        range: mergedReport.range,
+        summary: mergedReport.summary,
+        series: mergedReport.series,
+        enrichmentWarning: {
+          workspaceMonthToDateTasks: Number(workspaceEnrichment?.charged_runs ?? 0),
+          workspaceMonthToDateCost,
+          threshold,
+          exceeded: threshold > 0 && workspaceMonthToDateCost >= threshold,
+        },
       },
     });
   },
@@ -2322,6 +2675,18 @@ analyticsRoutes.get(
     );
     const occurrencePage = occurrenceCandidates.slice(0, input.limit);
     const lastOccurrence = occurrencePage.at(-1);
+    const market = await loadProductMarket(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      identity,
+      dates,
+      occurrences,
+      {
+        locationCode: input.marketLocationCode,
+        languageCode: input.marketLanguageCode,
+      },
+    );
     return c.json({
       data: {
         product: serializedShoppingProduct(latest),
@@ -2350,6 +2715,7 @@ analyticsRoutes.get(
         reviewTrend,
         prompts,
         merchants,
+        market,
         occurrences: occurrencePage.map((occurrence) => ({
           id: occurrence.id,
           snapshotId: occurrence.snapshot_id,
@@ -2382,6 +2748,155 @@ analyticsRoutes.get(
         total: occurrences.length,
       },
     });
+  },
+);
+
+analyticsRoutes.post(
+  "/analytics/shopping/:productKey/enrichment/touch",
+  zValidator("param", ShoppingProductParamSchema),
+  zValidator("json", ProductEnrichmentRequestSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const { productKey: routeProductKey } = c.req.valid("param");
+    const input = c.req.valid("json");
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId, c.get("timing"));
+    const identity = productIdentityFromKey(routeProductKey);
+    if (!identity) throw new ApiError(404, "product_not_found", "Product not found.");
+    const occurrence = await latestEnrichmentOccurrence(
+      c.env,
+      input.projectId,
+      identity,
+      input.locationCode,
+      input.languageCode,
+    );
+    if (!occurrence || occurrence.workspace_id !== principal.workspaceId) {
+      throw new ApiError(404, "product_not_found", "Product not found for this locale.");
+    }
+    const result = await ensureProductEnrichmentTarget(c.env, {
+      workspaceId: principal.workspaceId,
+      projectId: input.projectId,
+      productIdentity: identity,
+      productKey: occurrence.product_key,
+      locationCode: input.locationCode,
+      languageCode: input.languageCode,
+      productIds: jsonParse<unknown[]>(occurrence.product_ids_json, []),
+      activity: "view",
+    });
+    return c.json({ data: { targetId: result.target.id, jobId: result.jobId, status: result.status } }, 202);
+  },
+);
+
+analyticsRoutes.post(
+  "/analytics/shopping/:productKey/enrichment/refresh",
+  zValidator("param", ShoppingProductParamSchema),
+  zValidator("json", ProductEnrichmentRequestSchema),
+  async (c) => {
+    const principal = requireRole(c, "editor");
+    const { productKey: routeProductKey } = c.req.valid("param");
+    const input = c.req.valid("json");
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId, c.get("timing"));
+    const identity = productIdentityFromKey(routeProductKey);
+    if (!identity) throw new ApiError(404, "product_not_found", "Product not found.");
+    const occurrence = await latestEnrichmentOccurrence(
+      c.env,
+      input.projectId,
+      identity,
+      input.locationCode,
+      input.languageCode,
+    );
+    if (!occurrence || occurrence.workspace_id !== principal.workspaceId) {
+      throw new ApiError(404, "product_not_found", "Product not found for this locale.");
+    }
+    const ensured = await ensureProductEnrichmentTarget(c.env, {
+      workspaceId: principal.workspaceId,
+      projectId: input.projectId,
+      productIdentity: identity,
+      productKey: occurrence.product_key,
+      locationCode: input.locationCode,
+      languageCode: input.languageCode,
+      productIds: jsonParse<unknown[]>(occurrence.product_ids_json, []),
+      activity: "view",
+      queue: false,
+    });
+    const result = await requestTargetRefresh(c.env, ensured.target.id, true);
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "product_enrichment.manual_refresh_requested",
+      resourceType: "product",
+      resourceId: routeProductKey,
+    });
+    return c.json({ data: { targetId: ensured.target.id, ...result } }, 202);
+  },
+);
+
+analyticsRoutes.patch(
+  "/analytics/shopping/:productKey/enrichment",
+  zValidator("param", ShoppingProductParamSchema),
+  zValidator("json", ProductEnrichmentPreferenceSchema),
+  async (c) => {
+    const principal = requireRole(c, "editor");
+    const { productKey: routeProductKey } = c.req.valid("param");
+    const input = c.req.valid("json");
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId, c.get("timing"));
+    const identity = productIdentityFromKey(routeProductKey);
+    if (!identity) throw new ApiError(404, "product_not_found", "Product not found.");
+    const updatedAt = new Date().toISOString();
+    await c.env.CONTROL_DB.prepare(
+      `INSERT INTO product_enrichment_preferences (
+        project_id, product_identity, automatic_refresh_enabled, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?)
+      ON CONFLICT(project_id, product_identity) DO UPDATE SET
+        automatic_refresh_enabled = excluded.automatic_refresh_enabled,
+        updated_at = excluded.updated_at`,
+    )
+      .bind(
+        input.projectId,
+        identity,
+        input.automaticRefreshEnabled ? 1 : 0,
+        updatedAt,
+        updatedAt,
+      )
+      .run();
+    if (!input.automaticRefreshEnabled) {
+      await c.env.CONTROL_DB.batch([
+        c.env.CONTROL_DB.prepare(
+          `UPDATE product_enrichment_jobs SET status = 'cancelled', active_slot = NULL,
+            error_code = 'product_paused', error_message = 'Automatic enrichment is paused for this product.',
+            updated_at = ?
+           WHERE project_id = ? AND product_identity = ? AND reason != 'manual'
+             AND status IN ('queued', 'submission_unknown')`,
+        ).bind(updatedAt, input.projectId, identity),
+        c.env.CONTROL_DB.prepare(
+          `UPDATE product_enrichment_targets SET
+            status = CASE WHEN latest_snapshot_id IS NULL THEN 'paused' ELSE 'available' END,
+            current_job_id = CASE
+              WHEN current_job_id IN (
+                SELECT id FROM product_enrichment_jobs
+                WHERE project_id = ? AND product_identity = ? AND status = 'cancelled'
+              ) THEN NULL ELSE current_job_id END,
+            updated_at = ? WHERE project_id = ? AND product_identity = ?`,
+        ).bind(input.projectId, identity, updatedAt, input.projectId, identity),
+      ]);
+    } else {
+      const targets = await c.env.CONTROL_DB.prepare(
+        `SELECT id FROM product_enrichment_targets
+         WHERE project_id = ? AND product_identity = ?`,
+      )
+        .bind(input.projectId, identity)
+        .all<{ id: string }>();
+      for (const target of targets.results) await requestTargetRefresh(c.env, target.id, false);
+    }
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: input.automaticRefreshEnabled
+        ? "product_enrichment.resumed"
+        : "product_enrichment.paused",
+      resourceType: "product",
+      resourceId: routeProductKey,
+    });
+    return c.json({ data: { automaticRefreshEnabled: input.automaticRefreshEnabled } });
   },
 );
 

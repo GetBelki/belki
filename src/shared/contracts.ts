@@ -83,6 +83,22 @@ export const ProjectUpdateSchema = z.object({
   htmlCaptureEnabled: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
+export const ProductEnrichmentSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  monthlyWarningUsd: z.number().finite().min(0).max(1_000_000).optional(),
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+export const ProductEnrichmentPreferenceSchema = z.object({
+  projectId: z.string().uuid(),
+  automaticRefreshEnabled: z.boolean(),
+});
+
+export const ProductEnrichmentRequestSchema = z.object({
+  projectId: z.string().uuid(),
+  locationCode: z.number().int(),
+  languageCode: z.string().trim().min(1).max(20),
+});
+
 export const BrandInputSchema = z.object({
   kind: z.enum(["owned", "competitor"]),
   name: z.string().trim().min(1).max(120),
@@ -251,6 +267,16 @@ export interface NotificationQueueMessage {
 export interface PromptPurgeQueueMessage {
   purgeJobId: string;
 }
+
+export type ProductEnrichmentQueueMessage =
+  | { kind: "submit"; jobId: string }
+  | {
+      kind: "normalize";
+      jobId: string;
+      taskId: string;
+      rawR2Key: string;
+      contentEncoding: "gzip" | "identity";
+    };
 
 export interface ApiErrorShape {
   error: {

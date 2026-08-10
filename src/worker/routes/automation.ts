@@ -5,6 +5,7 @@ import {
   AlertRuleInputSchema,
   ExportInputSchema,
   WebhookDestinationInputSchema,
+  ProductEnrichmentSettingsSchema,
 } from "../../shared/contracts";
 import type { AppEnv } from "../lib/app";
 import { requireRole } from "../lib/auth";
@@ -246,6 +247,96 @@ automationRoutes.get("/settings/locales", async (c) => {
   ).all();
   return c.json({ data: rows.results });
 });
+
+automationRoutes.get("/settings/product-enrichment", async (c) => {
+  const principal = requireRole(c, "admin");
+  const workspace = await c.env.CONTROL_DB.prepare(
+    `SELECT product_enrichment_enabled, product_enrichment_warning_usd
+     FROM workspaces WHERE id = ?`,
+  )
+    .bind(principal.workspaceId)
+    .first<{
+      product_enrichment_enabled: number;
+      product_enrichment_warning_usd: number;
+    }>();
+  if (!workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
+  const usage = await c.env.CONTROL_DB.prepare(
+    `SELECT COUNT(*) AS tasks, COALESCE(SUM(request_cost_usd), 0) AS cost
+     FROM product_enrichment_jobs
+     WHERE workspace_id = ? AND request_cost_usd > 0
+       AND COALESCE(submitted_at, created_at) >= strftime('%Y-%m-01T00:00:00.000Z', 'now')`,
+  )
+    .bind(principal.workspaceId)
+    .first<{ tasks: number; cost: number }>();
+  const cost = Number(usage?.cost ?? 0);
+  const threshold = Number(workspace.product_enrichment_warning_usd);
+  return c.json({
+    data: {
+      enabled: workspace.product_enrichment_enabled === 1,
+      monthlyWarningUsd: threshold,
+      monthToDateTasks: Number(usage?.tasks ?? 0),
+      monthToDateCost: cost,
+      warningExceeded: threshold > 0 && cost >= threshold,
+    },
+  });
+});
+
+automationRoutes.patch(
+  "/settings/product-enrichment",
+  zValidator("json", ProductEnrichmentSettingsSchema),
+  async (c) => {
+    const principal = requireRole(c, "admin");
+    const input = c.req.valid("json");
+    const current = await c.env.CONTROL_DB.prepare(
+      `SELECT product_enrichment_enabled, product_enrichment_warning_usd
+       FROM workspaces WHERE id = ?`,
+    )
+      .bind(principal.workspaceId)
+      .first<{
+        product_enrichment_enabled: number;
+        product_enrichment_warning_usd: number;
+      }>();
+    if (!current) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
+    const enabled = input.enabled ?? (current.product_enrichment_enabled === 1);
+    const threshold = input.monthlyWarningUsd ?? current.product_enrichment_warning_usd;
+    const updatedAt = nowIso();
+    const statements: D1PreparedStatement[] = [
+      c.env.CONTROL_DB.prepare(
+        `UPDATE workspaces SET product_enrichment_enabled = ?,
+          product_enrichment_warning_usd = ?, updated_at = ? WHERE id = ?`,
+      ).bind(enabled ? 1 : 0, threshold, updatedAt, principal.workspaceId),
+    ];
+    if (!enabled) {
+      statements.push(
+        c.env.CONTROL_DB.prepare(
+          `UPDATE product_enrichment_jobs SET status = 'cancelled', active_slot = NULL,
+            error_code = 'workspace_paused', error_message = 'Workspace product enrichment is paused.',
+            updated_at = ?
+           WHERE workspace_id = ? AND status IN ('queued', 'submission_unknown')`,
+        ).bind(updatedAt, principal.workspaceId),
+        c.env.CONTROL_DB.prepare(
+          `UPDATE product_enrichment_targets SET
+            status = CASE WHEN latest_snapshot_id IS NULL THEN 'paused' ELSE 'available' END,
+            current_job_id = CASE
+              WHEN current_job_id IN (
+                SELECT id FROM product_enrichment_jobs
+                WHERE workspace_id = ? AND status = 'cancelled'
+              ) THEN NULL ELSE current_job_id END,
+            updated_at = ? WHERE workspace_id = ?`,
+        ).bind(principal.workspaceId, updatedAt, principal.workspaceId),
+      );
+    }
+    await c.env.CONTROL_DB.batch(statements);
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "product_enrichment.settings_updated",
+      resourceType: "workspace",
+      resourceId: principal.workspaceId,
+    });
+    return c.json({ data: { enabled, monthlyWarningUsd: threshold } });
+  },
+);
 
 automationRoutes.get("/settings/health", async (c) => {
   const principal = requireRole(c, "admin");

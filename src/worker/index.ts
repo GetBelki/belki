@@ -5,6 +5,7 @@ import type {
   NormalizeQueueMessage,
   NotificationQueueMessage,
   PromptPurgeQueueMessage,
+  ProductEnrichmentQueueMessage,
   RollupQueueMessage,
 } from "../shared/contracts";
 import { automationRoutes } from "./routes/automation";
@@ -34,6 +35,14 @@ import {
   promptPurgeBatch,
   reconcilePromptPurges,
 } from "./automation/prompt-purges";
+import {
+  acceptProductInfoPayload,
+  collectReadyProductInfoTasks,
+  enqueueDueProductEnrichments,
+  productEnrichmentBatch,
+  reconcileProductEnrichmentJobs,
+  verifyProductEnrichmentTag,
+} from "./automation/product-enrichment";
 
 const app = new Hono<AppEnv>();
 
@@ -139,6 +148,35 @@ app.post("/api/webhooks/dataforseo/chatgpt", async (c) => {
   return c.text("accepted", 202);
 });
 
+app.post("/api/webhooks/dataforseo/product-info", async (c) => {
+  const token = c.req.query("token");
+  const taskId = c.req.query("id");
+  const tag = c.req.query("tag");
+  if (
+    !token ||
+    !taskId ||
+    !tag ||
+    !(await timingSafeTextEqual(token, c.env.DATAFORSEO_WEBHOOK_TOKEN))
+  ) {
+    return c.text("unauthorized", 401);
+  }
+  const jobId = await verifyProductEnrichmentTag(tag, c.env);
+  if (!jobId) return c.text("unauthorized", 401);
+  const contentLength = Number(c.req.header("content-length") ?? "0");
+  if (contentLength > 20 * 1024 * 1024) return c.text("payload too large", 413);
+  if (!c.req.raw.body) return c.text("body required", 400);
+  const contentEncoding = c.req.header("content-encoding")?.toLowerCase().includes("gzip")
+    ? "gzip"
+    : "identity";
+  const accepted = await acceptProductInfoPayload(c.env, {
+    jobId,
+    taskId,
+    body: c.req.raw.body,
+    contentEncoding,
+  });
+  return accepted ? c.text("accepted", 202) : c.text("not found", 404);
+});
+
 app.use("/api/v1/*", authMiddleware);
 app.route("/api/v1", authRoutes);
 app.route("/api/v1", coreRoutes);
@@ -187,6 +225,12 @@ async function queue(
     case "ai-tracker-prompt-purge":
       await promptPurgeBatch(env, batch as MessageBatch<PromptPurgeQueueMessage>);
       return;
+    case "ai-tracker-product-enrichment":
+      await productEnrichmentBatch(
+        env,
+        batch as MessageBatch<ProductEnrichmentQueueMessage>,
+      );
+      return;
     default:
       batch.ackAll();
   }
@@ -200,8 +244,11 @@ async function scheduled(
   if (event.cron === "*/5 * * * *") {
     metrics.enqueued = await enqueueDueQueries(env);
     metrics.reconciledJobs = await reconcileJobs(env);
+    metrics.enqueuedProductEnrichments = await enqueueDueProductEnrichments(env);
+    metrics.reconciledProductEnrichmentJobs = await reconcileProductEnrichmentJobs(env);
   } else if (event.cron === "* * * * *") {
     metrics.recoveredPostbacks = await collectReadyTasks(env);
+    metrics.recoveredProductInfoPostbacks = await collectReadyProductInfoTasks(env);
     metrics.reconciledPromptPurges = await reconcilePromptPurges(env);
     const backfill = await backfillAnalyticsReadModel(env);
     metrics.analyticsBackfillProjects = backfill.projects;

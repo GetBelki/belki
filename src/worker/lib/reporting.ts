@@ -188,3 +188,58 @@ export function buildBillingReport(
     series,
   };
 }
+
+type BillingReport = ReturnType<typeof buildBillingReport>;
+
+export function mergeBillingReports(
+  promptTracking: BillingReport,
+  productEnrichment: BillingReport,
+) {
+  const totalCost = roundCost(
+    promptTracking.summary.totalCost + productEnrichment.summary.totalCost,
+  );
+  const chargedTasks =
+    promptTracking.summary.chargedRuns + productEnrichment.summary.chargedRuns;
+  const series = promptTracking.series.map((prompt, index) => {
+    const enrichment = productEnrichment.series[index] ?? {
+      date: prompt.date,
+      runs: 0,
+      cost: 0,
+    };
+    return {
+      date: prompt.date,
+      totalCost: roundCost(prompt.cost + enrichment.cost),
+      promptTrackingCost: prompt.cost,
+      productEnrichmentCost: enrichment.cost,
+      totalTasks: prompt.runs + enrichment.runs,
+      promptTrackingTasks: prompt.runs,
+      productEnrichmentTasks: enrichment.runs,
+    };
+  });
+  const category = (report: BillingReport) => ({
+    chargedTasks: report.summary.chargedRuns,
+    totalCost: report.summary.totalCost,
+    averageCost: report.summary.averageCost,
+    sharePercent: totalCost
+      ? (report.summary.totalCost / totalCost) * 100
+      : 0,
+  });
+  return {
+    range: promptTracking.range,
+    summary: {
+      totalCost,
+      chargedTasks,
+      chargedRuns: chargedTasks,
+      averageCost: chargedTasks ? roundCost(totalCost / chargedTasks) : 0,
+      highestDailyCost: Math.max(
+        ...series.map((point) => point.totalCost),
+        0,
+      ),
+      byCategory: {
+        promptTracking: category(promptTracking),
+        productEnrichment: category(productEnrichment),
+      },
+    },
+    series,
+  };
+}

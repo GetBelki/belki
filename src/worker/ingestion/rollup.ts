@@ -4,6 +4,7 @@ import { getShard } from "../lib/shards";
 import { evaluateSnapshotAlerts } from "../automation/alerts";
 import { syncAnalyticsReadModel } from "./analytics-read-model";
 import { promptPurgeRequested } from "../lib/prompt-purges";
+import { registerSnapshotProductsForEnrichment } from "../automation/product-enrichment";
 
 interface DomainMetric {
   citedSnapshotCount: number;
@@ -140,6 +141,16 @@ export async function applyRollup(
     trackedQueryId: payload.trackedQueryId,
     metricDate: payload.metricDate,
   });
+  try {
+    await registerSnapshotProductsForEnrichment(env, payload.snapshotId);
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: "error",
+      event: "product_enrichment_registration_failed",
+      snapshotId: payload.snapshotId,
+      error: String(error),
+    }));
+  }
 
   await shard
     .prepare(
