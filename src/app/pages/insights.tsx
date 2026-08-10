@@ -752,6 +752,27 @@ interface ShoppingRow {
   product_ids: unknown[];
   appearances: number;
   latestSeen: string;
+  enriched: boolean;
+}
+
+function EnrichedProductIcon({ size = 14 }: { size?: number }) {
+  return (
+    <svg
+      aria-hidden="true"
+      fill="none"
+      height={size}
+      stroke="currentColor"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      strokeWidth="1.5"
+      viewBox="0 0 24 24"
+      width={size}
+    >
+      <path d="M20.1765 12.5113C19.8261 9.50898 19.3142 7.25784 18.8394 5.65851C18.4501 4.34711 18.2554 3.69141 17.4572 3.0957C16.659 2.5 15.8431 2.5 14.2113 2.5H8.78876C7.15697 2.5 6.34107 2.5 5.54283 3.0957C4.74459 3.69141 4.54994 4.34711 4.16063 5.65851C3.68586 7.25784 3.1739 9.50898 2.82352 12.5113C2.41058 16.0497 2.20411 17.8189 3.39731 19.1594C4.59052 20.5 6.52422 20.5 10.3916 20.5H11.6084" />
+      <path d="M8.5 6.5C8.5 8.15685 9.84315 9.5 11.5 9.5C13.1569 9.5 14.5 8.15685 14.5 6.5" />
+      <path d="M14.5 19.5C14.5 19.5 15.5 19.5 16.5 21.5C16.5 21.5 18.6765 16.5 21.5 15.5" />
+    </svg>
+  );
 }
 
 export function ShoppingPage() {
@@ -760,12 +781,17 @@ export function ShoppingPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get("search") ?? "";
   const country = searchParams.get("country") ?? "";
+  const enrichmentParam = searchParams.get("enrichment");
+  const enrichment =
+    enrichmentParam === "enriched" || enrichmentParam === "not_enriched"
+      ? enrichmentParam
+      : "";
   const selectedTagIds = (searchParams.get("tags") ?? "")
     .split(",")
     .filter(Boolean);
   const tagKey = selectedTagIds.join(",");
   const pageSize = 10;
-  const pageScope = [projectId, search, country, tagKey].join("\u0000");
+  const pageScope = [projectId, search, country, tagKey, enrichment].join("\u0000");
   const [pagination, setPagination] = useState({
     scope: "",
     cursors: [] as string[],
@@ -789,8 +815,17 @@ export function ShoppingPage() {
   if (search) reportParams.set("search", search);
   if (country) reportParams.set("locationCode", country);
   if (selectedTagIds.length) reportParams.set("tagIds", tagKey);
+  if (enrichment) reportParams.set("enrichment", enrichment);
   const query = useQuery({
-    queryKey: ["shopping", projectId, search, country, tagKey, cursor ?? ""],
+    queryKey: [
+      "shopping",
+      projectId,
+      search,
+      country,
+      tagKey,
+      enrichment,
+      cursor ?? "",
+    ],
     queryFn: () =>
       apiPage<ShoppingRow[]>(
         `/analytics/shopping?${reportParams}`,
@@ -836,6 +871,24 @@ export function ShoppingPage() {
           options={[
             { value: "all", label: "All countries" },
             ...LOCATION_OPTIONS,
+          ]}
+        />
+        <Select
+          value={enrichment || "all"}
+          onValueChange={(value) => {
+            const next = new URLSearchParams(searchParams);
+            if (value === "all") next.delete("enrichment");
+            else next.set("enrichment", value);
+            setSearchParams(next, { replace: true });
+          }}
+          options={[
+            { value: "all", label: "All product data" },
+            {
+              value: "enriched",
+              label: "Enriched",
+              icon: <EnrichedProductIcon />,
+            },
+            { value: "not_enriched", label: "Not enriched" },
           ]}
         />
         <TagPicker
@@ -920,7 +973,17 @@ export function ShoppingPage() {
                           <ShoppingBag size={17} />
                         )}
                       </span>
-                      <strong>{product.title ?? "Untitled product"}</strong>
+                      <span className="shopping-table-product-title">
+                        <strong>{product.title ?? "Untitled product"}</strong>
+                        {product.enriched ? (
+                          <span
+                            className="enriched-product-icon"
+                            title="Enriched product data available"
+                          >
+                            <EnrichedProductIcon size={15} />
+                          </span>
+                        ) : null}
+                      </span>
                     </div>
                   ),
                   merchant: product.merchants ?? product.registrable_domain ?? "—",
@@ -982,12 +1045,12 @@ export function ShoppingPage() {
         ) : (
           <EmptyState
             title={
-              search || country || selectedTagIds.length
+              search || country || selectedTagIds.length || enrichment
                 ? "No matching products"
                 : "No shopping products"
             }
             description={
-              search || country || selectedTagIds.length
+              search || country || selectedTagIds.length || enrichment
                 ? "Try changing or clearing the product filters."
                 : "Products will appear when a captured answer contains a shopping block."
             }
@@ -1381,7 +1444,19 @@ function ProductMarketSection({
                 columns={[{ key: "seller", label: "Seller" }, { key: "price", label: "Price" }, { key: "availability", label: "Availability" }, { key: "delivery", label: "Delivery" }, { key: "rating", label: "Seller rating" }, { key: "open", label: "" }]}
                 rows={market.offers.map((offer) => ({
                   id: offer.id,
-                  seller: <div className="primary-cell"><strong>{offer.seller ?? offer.domain ?? "Unknown seller"}</strong>{offer.owned ? <Badge tone="info">Owned</Badge> : null}</div>,
+                  seller: (
+                    <div className="primary-cell seller-cell">
+                      <div className="seller-name-row">
+                        <strong>{offer.seller ?? offer.domain ?? "Unknown seller"}</strong>
+                        {offer.owned ? (
+                          <span className="owned-seller-badge" title="This seller belongs to your workspace">
+                            <CheckCircle2 aria-hidden="true" size={11} />
+                            Owned
+                          </span>
+                        ) : null}
+                      </div>
+                    </div>
+                  ),
                   price: offer.displayedPrice ?? observedPrice(offer.price, offer.currency) ?? "—",
                   availability: <Badge tone={offer.availability === "in_stock" ? "success" : "neutral"}>{offer.availability?.replaceAll("_", " ") ?? "Unknown"}</Badge>,
                   delivery: offer.delivery ?? "—",

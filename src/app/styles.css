@@ -292,6 +292,24 @@ tbody tr:hover { background: #fcfbfd; }
 .primary-cell { display: flex; flex-direction: column; max-width: 460px; }
 .primary-cell strong { color: #302a3b; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .primary-cell span { color: #9891a1; font-size: 9px; margin-top: 3px; }
+.seller-cell .seller-name-row { align-items: center; display: flex; gap: 7px; min-width: 0; }
+.seller-cell .seller-name-row > strong { min-width: 0; }
+.primary-cell .owned-seller-badge {
+  align-items: center;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 999px;
+  color: #166534;
+  display: inline-flex;
+  flex: 0 0 auto;
+  font-size: 9px;
+  font-weight: 650;
+  gap: 3px;
+  line-height: 1;
+  margin-top: 0;
+  padding: 3px 6px 3px 4px;
+  white-space: nowrap;
+}
 .metric-pair { display: flex; flex-direction: column; gap: 3px; }
 .metric-pair span { align-items: center; display: flex; font-size: 10px; gap: 3px; }
 .domain-cell { align-items: center; display: flex; gap: 9px; }
@@ -2872,6 +2890,26 @@ a.evidence-source:hover strong {
   min-width: 260px;
 }
 
+.shopping-table-product-title {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  min-width: 0;
+}
+
+.shopping-table-product-title > strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.enriched-product-icon {
+  align-items: center;
+  color: #166534;
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
 .shopping-table-image {
   align-items: center;
   background: #ffffff;
@@ -3612,7 +3650,7 @@ a.evidence-source:hover strong {
 }
 
 .report-filters.shopping-report-filters {
-  grid-template-columns: minmax(260px, 1fr) 220px 220px;
+  grid-template-columns: minmax(260px, 1fr) repeat(3, minmax(160px, 200px));
 }
 
 .shopping-report-filters > * {
