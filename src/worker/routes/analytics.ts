@@ -77,6 +77,7 @@ const ShoppingAnalyticsSchema = PaginatedDateRangeSchema.extend({
   search: z.string().trim().max(200).optional(),
   locationCode: z.coerce.number().int().optional(),
   tagIds: PromptTagIdsSchema.optional(),
+  enrichment: z.enum(["enriched", "not_enriched"]).optional(),
 });
 const BillingQuerySchema = z.object({
   projectId: z.string().uuid(),
@@ -430,7 +431,10 @@ async function loadReadModelCitationOccurrences(
 }
 
 function serializedShoppingProduct(
-  product: ShoppingProductOccurrence & { appearances?: number },
+  product: ShoppingProductOccurrence & {
+    appearances?: number;
+    enriched?: boolean;
+  },
 ) {
   return {
     ...product,
@@ -2214,8 +2218,34 @@ analyticsRoutes.get(
         products.set(key, { ...occurrence, appearances: 1 });
       }
     }
+    const enrichedRows = products.size
+      ? await c.env.CONTROL_DB.prepare(
+          `SELECT DISTINCT product_identity
+           FROM product_enrichment_targets
+           WHERE project_id = ? AND latest_snapshot_id IS NOT NULL`,
+        )
+          .bind(input.projectId)
+          .all<{ product_identity: string }>()
+      : { results: [] as Array<{ product_identity: string }> };
+    const enrichedIdentities = new Set(
+      enrichedRows.results.map((row) => row.product_identity),
+    );
     const sortedProducts = [...products.values()]
-      .map((product) => ({ ...product, identity: productIdentity(product) }))
+      .map((product) => {
+        const identity = productIdentity(product);
+        return {
+          ...product,
+          identity,
+          enriched: enrichedIdentities.has(identity),
+        };
+      })
+      .filter((product) =>
+        input.enrichment === "enriched"
+          ? product.enriched
+          : input.enrichment === "not_enriched"
+            ? !product.enriched
+            : true,
+      )
       .sort(
         (left, right) =>
           right.appearances - left.appearances ||
