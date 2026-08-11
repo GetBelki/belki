@@ -111,6 +111,72 @@ export interface CompletedRunsDailyRow {
   completed_runs: number;
 }
 
+export interface PromptSetAuditRow {
+  action: string;
+  metadata_json: string;
+  created_at: string;
+}
+
+export interface PromptSetEvent {
+  metric_date: string;
+  addedCount: number;
+  removedCount: number;
+}
+
+export function buildPromptSetEvents(
+  rows: PromptSetAuditRow[],
+  projectId: string,
+): PromptSetEvent[] {
+  const eventsByDate = new Map<string, PromptSetEvent>();
+
+  for (const row of rows) {
+    let metadata: unknown;
+    try {
+      metadata = JSON.parse(row.metadata_json);
+    } catch {
+      continue;
+    }
+    if (!metadata || typeof metadata !== "object") continue;
+    const values = metadata as Record<string, unknown>;
+    if (values.projectId !== projectId) continue;
+
+    const date = row.created_at.slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(date)) continue;
+    let addedCount = 0;
+    let removedCount = 0;
+    if (row.action === "query.created") {
+      addedCount = 1;
+    } else if (row.action === "query.bulk_created") {
+      const createdCount = values.createdCount;
+      if (
+        typeof createdCount !== "number" ||
+        !Number.isInteger(createdCount) ||
+        createdCount <= 0
+      ) {
+        continue;
+      }
+      addedCount = createdCount;
+    } else if (row.action === "query.purge_requested") {
+      removedCount = 1;
+    } else {
+      continue;
+    }
+
+    const event = eventsByDate.get(date) ?? {
+      metric_date: date,
+      addedCount: 0,
+      removedCount: 0,
+    };
+    event.addedCount += addedCount;
+    event.removedCount += removedCount;
+    eventsByDate.set(date, event);
+  }
+
+  return [...eventsByDate.values()].sort((left, right) =>
+    left.metric_date.localeCompare(right.metric_date),
+  );
+}
+
 export interface BrandMentionDailyRow {
   metric_date: string;
   brand_id: string;

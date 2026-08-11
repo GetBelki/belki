@@ -19,6 +19,7 @@ import {
   CartesianGrid,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -59,7 +60,12 @@ import {
   productAnalyticsKey,
   productDestination,
 } from "../lib/snapshot-evidence";
-import { hasOverviewProducts } from "../lib/overview";
+import {
+  alignPromptSetEvents,
+  hasOverviewProducts,
+  promptSetEventDescription,
+  type AlignedPromptSetEvent,
+} from "../lib/overview";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 import type { RunStatus } from "../../shared/contracts";
 
@@ -151,6 +157,11 @@ interface Overview {
       >;
     }>;
   };
+  promptSetEvents: Array<{
+    metric_date: string;
+    addedCount: number;
+    removedCount: number;
+  }>;
   topProducts: OverviewProduct[];
   recentProducts: OverviewProduct[];
 }
@@ -259,6 +270,80 @@ function percentagePoints(value: number | null | undefined): string {
   return `${value > 0 ? "+" : value < 0 ? "−" : ""}${formatted} pp`;
 }
 
+function PromptSetEventLabel({
+  event,
+  row,
+  align,
+  viewBox,
+}: {
+  event: AlignedPromptSetEvent;
+  row: number;
+  align: "start" | "middle" | "end";
+  viewBox?: { x?: number; y?: number };
+}) {
+  const x = viewBox?.x;
+  const y = viewBox?.y;
+  if (x === undefined || y === undefined) return null;
+  const width = Math.max(52, event.label.length * 5.6 + 14);
+  const left =
+    align === "start" ? x + 4 : align === "end" ? x - width - 4 : x - width / 2;
+  const top = y - 37 + row * 17;
+  const description = promptSetEventDescription(event);
+  return (
+    <g aria-label={description} role="img" style={{ pointerEvents: "all" }}>
+      <title>{description}</title>
+      <rect
+        fill="#ffffff"
+        height={14}
+        rx={4}
+        stroke="#a1a1aa"
+        strokeWidth={0.75}
+        width={width}
+        x={left}
+        y={top}
+      />
+      <text
+        fill="#52525b"
+        fontSize={9}
+        fontWeight={600}
+        textAnchor="middle"
+        x={left + width / 2}
+        y={top + 10}
+      >
+        {event.label}
+      </text>
+    </g>
+  );
+}
+
+function promptEventReferenceLines(
+  events: readonly AlignedPromptSetEvent[],
+  chartDates: readonly string[],
+) {
+  return events.map((event, index) => {
+    const dateIndex = chartDates.indexOf(event.chartDate);
+    const position = chartDates.length > 1 ? dateIndex / (chartDates.length - 1) : 0.5;
+    const align = position < 0.2 ? "start" : position > 0.8 ? "end" : "middle";
+    return (
+      <ReferenceLine
+        ifOverflow="visible"
+        key={`${event.chartDate}-${event.label}`}
+        label={(
+          <PromptSetEventLabel
+            align={align}
+            event={event}
+            row={index % 2}
+          />
+        )}
+        stroke="#a1a1aa"
+        strokeDasharray="3 3"
+        strokeWidth={1}
+        x={event.chartDate}
+      />
+    );
+  });
+}
+
 export function OverviewPage() {
   const { projectId, currentProject } = useApp();
   const [brandMetric, setBrandMetric] = useState<"visibility" | "shareOfVoice">(
@@ -294,6 +379,14 @@ export function OverviewPage() {
       ]),
     ),
   }));
+  const chartDates = (overview.data?.series ?? []).map(
+    (point) => point.metric_date,
+  );
+  const promptSetEvents = alignPromptSetEvents(
+    overview.data?.promptSetEvents ?? [],
+    chartDates,
+  );
+  const chartTopMargin = promptSetEvents.length ? 44 : 8;
   return (
     <div className="page">
       <PageHeader
@@ -389,9 +482,10 @@ export function OverviewPage() {
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <LineChart
                     data={brandComparisonSeries}
-                    margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+                    margin={{ top: chartTopMargin, right: 8, bottom: 0, left: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
+                    {promptEventReferenceLines(promptSetEvents, chartDates)}
                     <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                     <YAxis
                       width={42}
@@ -460,9 +554,10 @@ export function OverviewPage() {
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <LineChart
                     data={citationSourceSeries}
-                    margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+                    margin={{ top: chartTopMargin, right: 8, bottom: 0, left: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
+                    {promptEventReferenceLines(promptSetEvents, chartDates)}
                     <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                     <YAxis
                       width={42}
