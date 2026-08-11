@@ -47,8 +47,15 @@ export function AppLayout() {
     <div className="app-shell">
       <aside className={cn("sidebar", mobileOpen && "sidebar-open")}>
         <div className="sidebar-brand">
-          <span className="brand-mark"><AppIcon /></span>
-          <span>{APP_NAME}</span>
+          <NavLink
+            aria-label={`${APP_NAME} overview`}
+            className="brand-home"
+            onClick={() => setMobileOpen(false)}
+            to="/"
+          >
+            <span className="brand-mark"><AppIcon /></span>
+            <span>{APP_NAME}</span>
+          </NavLink>
           <button className="mobile-close" onClick={() => setMobileOpen(false)}>
             <X size={18} />
           </button>
@@ -124,7 +131,14 @@ export function AppLayout() {
           <button className="mobile-menu" onClick={() => setMobileOpen(true)}>
             <Menu size={19} />
           </button>
-          <strong>{APP_NAME}</strong>
+          <NavLink
+            aria-label={`${APP_NAME} overview`}
+            className="mobile-brand"
+            to="/"
+          >
+            <AppIcon size={25} />
+            <strong>{APP_NAME}</strong>
+          </NavLink>
         </header>
         <Outlet />
       </main>
