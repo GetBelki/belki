@@ -3171,43 +3171,86 @@ a.evidence-source:hover strong {
     stroke 120ms ease;
 }
 
-.prompt-set-event-tooltip {
-  opacity: 0;
-  pointer-events: none;
-  transition: opacity 120ms ease;
-}
-
-.prompt-set-event-tooltip rect {
-  fill: rgb(255 255 255 / 98%);
-  stroke: #d4d4d8;
-  stroke-width: 1px;
-}
-
-.prompt-set-event-tooltip-title {
-  fill: #18181b;
-  font-size: 10px;
-  font-weight: 650;
-}
-
-.prompt-set-event-tooltip-detail {
-  fill: #71717a;
-  font-size: 9px;
-}
-
-.prompt-set-event-marker:hover .prompt-set-event-tooltip,
-.prompt-set-event-marker:focus .prompt-set-event-tooltip {
-  opacity: 1;
-}
-
 .prompt-set-event-marker:hover .prompt-set-event-dot,
 .prompt-set-event-marker:focus-visible .prompt-set-event-dot {
   fill: #18181b;
   stroke: #18181b;
 }
 
+.overview-chart-tooltip {
+  background: rgb(255 255 255 / 98%);
+  border: 1px solid #d4d4d8;
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgb(24 24 27 / 8%);
+  color: #3f3f46;
+  font-size: 10px;
+  min-width: 132px;
+  padding: 9px 10px;
+}
+
+.overview-chart-tooltip > strong {
+  color: #18181b;
+  display: block;
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+
+.overview-chart-tooltip-event {
+  border-bottom: 1px solid #e4e4e7;
+  display: grid;
+  gap: 3px;
+  margin: 0 -2px 6px;
+  padding: 0 2px 7px;
+}
+
+.overview-chart-tooltip-event span {
+  align-items: center;
+  color: #52525b;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.overview-chart-tooltip-event b {
+  color: #18181b;
+}
+
+.overview-chart-tooltip-event small {
+  color: #71717a;
+  font-size: 9px;
+}
+
+.overview-chart-tooltip-series {
+  display: grid;
+  gap: 4px;
+}
+
+.overview-chart-tooltip-series > div {
+  align-items: center;
+  display: grid;
+  gap: 5px;
+  grid-template-columns: 6px 1fr auto;
+  white-space: nowrap;
+}
+
+.overview-chart-tooltip-series i {
+  border-radius: 50%;
+  height: 6px;
+  width: 6px;
+}
+
+.overview-chart-tooltip-series span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.overview-chart-tooltip-series b {
+  color: #18181b;
+  font-weight: 550;
+}
+
 @media (prefers-reduced-motion: reduce) {
-  .prompt-set-event-dot,
-  .prompt-set-event-tooltip {
+  .prompt-set-event-dot {
     transition: none;
   }
 }

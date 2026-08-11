@@ -22,6 +22,7 @@ import {
   ReferenceLine,
   ResponsiveContainer,
   Tooltip,
+  type TooltipPayload,
   XAxis,
   YAxis,
 } from "recharts";
@@ -280,33 +281,14 @@ const PROMPT_EVENT_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
 
 function PromptSetEventMarker({
   event,
-  align,
   viewBox,
 }: {
   event: AlignedPromptSetEvent;
-  align: "start" | "middle" | "end";
   viewBox?: { x?: number; y?: number };
 }) {
   const x = viewBox?.x;
   const y = viewBox?.y;
   if (x === undefined || y === undefined) return null;
-  const detailLines = event.sourceEvents.map((source) => {
-    const date = PROMPT_EVENT_DATE_FORMAT.format(
-      new Date(`${source.metric_date}T00:00:00.000Z`),
-    );
-    return `${date}: ${promptSetEventLabel(source)}`;
-  });
-  const width = Math.min(
-    220,
-    Math.max(
-      92,
-      ...[event.label, ...detailLines].map((line) => line.length * 5.4 + 18),
-    ),
-  );
-  const height = 23 + detailLines.length * 12;
-  const left =
-    align === "start" ? x + 6 : align === "end" ? x - width - 6 : x - width / 2;
-  const top = y + 9;
   const description = promptSetEventDescription(event);
   return (
     <g
@@ -318,47 +300,80 @@ function PromptSetEventMarker({
       <title>{description}</title>
       <circle className="prompt-set-event-hit-area" cx={x} cy={y + 3} r={9} />
       <circle className="prompt-set-event-dot" cx={x} cy={y + 3} r={3.25} />
-      <g className="prompt-set-event-tooltip">
-        <rect height={height} rx={5} width={width} x={left} y={top} />
-        <text className="prompt-set-event-tooltip-title" x={left + 9} y={top + 14}>
-          {event.label}
-        </text>
-        {detailLines.map((line, index) => (
-          <text
-            className="prompt-set-event-tooltip-detail"
-            key={`${event.chartDate}-${line}-${index}`}
-            x={left + 9}
-            y={top + 28 + index * 12}
-          >
-            {line}
-          </text>
-        ))}
-      </g>
     </g>
   );
 }
 
 function promptEventReferenceLines(
   events: readonly AlignedPromptSetEvent[],
-  chartDates: readonly string[],
 ) {
-  return events.map((event) => {
-    const dateIndex = chartDates.indexOf(event.chartDate);
-    const position = chartDates.length > 1 ? dateIndex / (chartDates.length - 1) : 0.5;
-    const align = position < 0.2 ? "start" : position > 0.8 ? "end" : "middle";
-    return (
-      <ReferenceLine
-        ifOverflow="visible"
-        key={`${event.chartDate}-${event.label}`}
-        label={<PromptSetEventMarker align={align} event={event} />}
-        stroke="#a1a1aa"
-        strokeDasharray="2 4"
-        strokeOpacity={0.7}
-        strokeWidth={1}
-        x={event.chartDate}
-      />
-    );
-  });
+  return events.map((event) => (
+    <ReferenceLine
+      ifOverflow="visible"
+      key={`${event.chartDate}-${event.label}`}
+      label={<PromptSetEventMarker event={event} />}
+      stroke="#a1a1aa"
+      strokeDasharray="2 4"
+      strokeOpacity={0.7}
+      strokeWidth={1}
+      x={event.chartDate}
+    />
+  ));
+}
+
+function OverviewChartTooltip({
+  active,
+  label,
+  payload,
+  promptEvents,
+}: {
+  active: boolean;
+  label?: string | number;
+  payload: TooltipPayload;
+  promptEvents: readonly AlignedPromptSetEvent[];
+}) {
+  if (!active || label === undefined) return null;
+  const chartDate = String(label);
+  const promptEvent = promptEvents.find(
+    (event) => event.chartDate === chartDate,
+  );
+  const showEventBreakdown =
+    promptEvent &&
+    (promptEvent.sourceEvents.length > 1 ||
+      promptEvent.sourceEvents.some(
+        (source) => source.metric_date !== chartDate,
+      ));
+  return (
+    <div className="overview-chart-tooltip">
+      <strong>{chartDate}</strong>
+      {promptEvent && (
+        <div className="overview-chart-tooltip-event">
+          <span>
+            Prompt changes <b>{promptEvent.label}</b>
+          </span>
+          {showEventBreakdown && promptEvent.sourceEvents.map((source, index) => (
+            <small key={`${source.metric_date}-${index}`}>
+              {PROMPT_EVENT_DATE_FORMAT.format(
+                new Date(`${source.metric_date}T00:00:00.000Z`),
+              )}
+              : {promptSetEventLabel(source)}
+            </small>
+          ))}
+        </div>
+      )}
+      <div className="overview-chart-tooltip-series">
+        {payload
+          .filter((entry) => entry.value !== undefined)
+          .map((entry, index) => (
+            <div key={`${String(entry.dataKey ?? entry.name)}-${index}`}>
+              <i style={{ background: entry.color ?? entry.stroke }} />
+              <span>{entry.name ?? String(entry.dataKey)}</span>
+              <b>{percent(Number(entry.value))}</b>
+            </div>
+          ))}
+      </div>
+    </div>
+  );
 }
 
 export function OverviewPage() {
@@ -512,8 +527,14 @@ export function OverviewPage() {
                       tick={{ fill: "#71717a", fontSize: 11 }}
                     />
                     <Tooltip
-                      formatter={(value) => percent(Number(value))}
-                      contentStyle={{ borderRadius: 6, border: "1px solid #d4d4d8", boxShadow: "none" }}
+                      content={(props) => (
+                        <OverviewChartTooltip
+                          active={props.active}
+                          label={props.label}
+                          payload={props.payload}
+                          promptEvents={promptSetEvents}
+                        />
+                      )}
                     />
                     {comparisonBrands.map((brand, index) => (
                       <Line
@@ -526,7 +547,7 @@ export function OverviewPage() {
                         type="monotone"
                       />
                     ))}
-                    {promptEventReferenceLines(promptSetEvents, chartDates)}
+                    {promptEventReferenceLines(promptSetEvents)}
                   </LineChart>
                 </ResponsiveContainer>
               ) : <EmptyState title="No trend data yet" description="Your first completed tracking run will appear here." />}
@@ -584,8 +605,14 @@ export function OverviewPage() {
                       tick={{ fill: "#71717a", fontSize: 11 }}
                     />
                     <Tooltip
-                      formatter={(value) => percent(Number(value))}
-                      contentStyle={{ borderRadius: 6, border: "1px solid #d4d4d8", boxShadow: "none" }}
+                      content={(props) => (
+                        <OverviewChartTooltip
+                          active={props.active}
+                          label={props.label}
+                          payload={props.payload}
+                          promptEvents={promptSetEvents}
+                        />
+                      )}
                     />
                     {citationSources.map((source, index) => (
                       <Line
@@ -605,7 +632,7 @@ export function OverviewPage() {
                         type="monotone"
                       />
                     ))}
-                    {promptEventReferenceLines(promptSetEvents, chartDates)}
+                    {promptEventReferenceLines(promptSetEvents)}
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
