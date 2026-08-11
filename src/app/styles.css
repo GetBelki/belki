@@ -32,7 +32,7 @@ button { border: 0; }
   justify-content: center;
   min-height: 100vh;
 }
-.loader-brand { align-items: center; display: flex; font-size: 18px; font-weight: 700; gap: 8px; line-height: 1; margin-bottom: 12px; }
+.loader-brand { align-items: center; display: flex; font-size: 22px; font-weight: 700; gap: 8px; line-height: 1; margin-bottom: 12px; }
 .loader-line { height: 10px; width: 240px; }
 .loader-line.short { width: 160px; }
 .brand-mark {
@@ -116,8 +116,8 @@ button { border: 0; }
 }
 .mobile-topbar strong {
   color: #18181b;
-  font-size: 17px;
-  font-weight: 650;
+  font-size: 20px;
+  font-weight: 700;
   line-height: 1;
 }
 .mobile-brand {
@@ -523,8 +523,8 @@ body {
 
 .sidebar-brand {
   color: #09090b;
-  font-size: 18px;
-  font-weight: 650;
+  font-size: 22px;
+  font-weight: 700;
   line-height: 1;
   margin: 0 8px 22px;
 }
