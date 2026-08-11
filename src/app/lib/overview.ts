@@ -80,6 +80,61 @@ export function alignPromptSetEvents(
   return [...alignedByDate.values()];
 }
 
+export function clusterPromptSetEvents(
+  events: readonly AlignedPromptSetEvent[],
+  chartDates: readonly string[],
+  maximumIndexSpan = 1,
+): AlignedPromptSetEvent[] {
+  const dateIndexes = new Map(
+    [...new Set(chartDates)].map((date, index) => [date, index]),
+  );
+  const positioned = events
+    .map((event) => ({ event, index: dateIndexes.get(event.chartDate) }))
+    .filter(
+      (value): value is { event: AlignedPromptSetEvent; index: number } =>
+        value.index !== undefined,
+    )
+    .sort((left, right) => left.index - right.index);
+  const clusters: Array<{
+    firstIndex: number;
+    event: AlignedPromptSetEvent;
+  }> = [];
+
+  for (const positionedEvent of positioned) {
+    const current = clusters.at(-1);
+    if (
+      current &&
+      positionedEvent.index - current.firstIndex <= maximumIndexSpan
+    ) {
+      const addedCount =
+        current.event.addedCount + positionedEvent.event.addedCount;
+      const removedCount =
+        current.event.removedCount + positionedEvent.event.removedCount;
+      current.event = {
+        metric_date: current.event.metric_date,
+        chartDate: positionedEvent.event.chartDate,
+        addedCount,
+        removedCount,
+        label: promptSetEventLabel({ addedCount, removedCount }),
+        sourceEvents: [
+          ...current.event.sourceEvents,
+          ...positionedEvent.event.sourceEvents,
+        ],
+      };
+      continue;
+    }
+    clusters.push({
+      firstIndex: positionedEvent.index,
+      event: {
+        ...positionedEvent.event,
+        sourceEvents: [...positionedEvent.event.sourceEvents],
+      },
+    });
+  }
+
+  return clusters.map((cluster) => cluster.event);
+}
+
 export function promptSetEventDescription(
   event: AlignedPromptSetEvent,
 ): string {

@@ -3152,6 +3152,66 @@ a.evidence-source:hover strong {
   width: 100%;
 }
 
+.prompt-set-event-marker {
+  cursor: help;
+  outline: none;
+  pointer-events: all;
+}
+
+.prompt-set-event-hit-area {
+  fill: transparent;
+}
+
+.prompt-set-event-dot {
+  fill: #fff;
+  stroke: #71717a;
+  stroke-width: 1.25px;
+  transition:
+    fill 120ms ease,
+    stroke 120ms ease;
+}
+
+.prompt-set-event-tooltip {
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 120ms ease;
+}
+
+.prompt-set-event-tooltip rect {
+  fill: rgb(255 255 255 / 98%);
+  stroke: #d4d4d8;
+  stroke-width: 1px;
+}
+
+.prompt-set-event-tooltip-title {
+  fill: #18181b;
+  font-size: 10px;
+  font-weight: 650;
+}
+
+.prompt-set-event-tooltip-detail {
+  fill: #71717a;
+  font-size: 9px;
+}
+
+.prompt-set-event-marker:hover .prompt-set-event-tooltip,
+.prompt-set-event-marker:focus .prompt-set-event-tooltip {
+  opacity: 1;
+}
+
+.prompt-set-event-marker:hover .prompt-set-event-dot,
+.prompt-set-event-marker:focus-visible .prompt-set-event-dot {
+  fill: #18181b;
+  stroke: #18181b;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .prompt-set-event-dot,
+  .prompt-set-event-tooltip {
+    transition: none;
+  }
+}
+
 .source-comparison-legend {
   display: flex;
   flex-wrap: wrap;
