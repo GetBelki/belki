@@ -13,6 +13,7 @@ import {
 } from "../src/worker/lib/reporting";
 import {
   alignPromptSetEvents,
+  clusterPromptSetEvents,
   hasOverviewProducts,
   promptSetEventDescription,
   promptSetEventLabel,
@@ -591,5 +592,46 @@ describe("prompt-set chart annotations", () => {
     expect(promptSetEventDescription(annotations[1]!)).toContain(
       "next available chart point on 2026-08-10",
     );
+  });
+
+  it("clusters adjacent markers without combining wider chart changes", () => {
+    const chartDates = [
+      "2026-07-29",
+      "2026-07-30",
+      "2026-07-31",
+      "2026-08-01",
+      "2026-08-02",
+      "2026-08-03",
+      "2026-08-04",
+      "2026-08-05",
+      "2026-08-06",
+      "2026-08-07",
+    ];
+    const aligned = alignPromptSetEvents(
+      [
+        { metric_date: "2026-07-29", addedCount: 7, removedCount: 0 },
+        { metric_date: "2026-07-30", addedCount: 107, removedCount: 0 },
+        { metric_date: "2026-08-07", addedCount: 2, removedCount: 1 },
+      ],
+      chartDates,
+    );
+
+    const clustered = clusterPromptSetEvents(aligned, chartDates);
+
+    expect(clustered).toHaveLength(2);
+    expect(clustered[0]).toMatchObject({
+      chartDate: "2026-07-30",
+      addedCount: 114,
+      removedCount: 0,
+      label: "+114 prompts",
+    });
+    expect(clustered[0]?.sourceEvents.map((event) => event.metric_date)).toEqual([
+      "2026-07-29",
+      "2026-07-30",
+    ]);
+    expect(clustered[1]).toMatchObject({
+      chartDate: "2026-08-07",
+      label: "+2 / −1",
+    });
   });
 });

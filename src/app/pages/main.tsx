@@ -62,8 +62,10 @@ import {
 } from "../lib/snapshot-evidence";
 import {
   alignPromptSetEvents,
+  clusterPromptSetEvents,
   hasOverviewProducts,
   promptSetEventDescription,
+  promptSetEventLabel,
   type AlignedPromptSetEvent,
 } from "../lib/overview";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
@@ -270,48 +272,68 @@ function percentagePoints(value: number | null | undefined): string {
   return `${value > 0 ? "+" : value < 0 ? "−" : ""}${formatted} pp`;
 }
 
-function PromptSetEventLabel({
+const PROMPT_EVENT_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+  day: "numeric",
+  month: "short",
+  timeZone: "UTC",
+});
+
+function PromptSetEventMarker({
   event,
-  row,
   align,
   viewBox,
 }: {
   event: AlignedPromptSetEvent;
-  row: number;
   align: "start" | "middle" | "end";
   viewBox?: { x?: number; y?: number };
 }) {
   const x = viewBox?.x;
   const y = viewBox?.y;
   if (x === undefined || y === undefined) return null;
-  const width = Math.max(52, event.label.length * 5.6 + 14);
+  const detailLines = event.sourceEvents.map((source) => {
+    const date = PROMPT_EVENT_DATE_FORMAT.format(
+      new Date(`${source.metric_date}T00:00:00.000Z`),
+    );
+    return `${date}: ${promptSetEventLabel(source)}`;
+  });
+  const width = Math.min(
+    220,
+    Math.max(
+      92,
+      ...[event.label, ...detailLines].map((line) => line.length * 5.4 + 18),
+    ),
+  );
+  const height = 23 + detailLines.length * 12;
   const left =
-    align === "start" ? x + 4 : align === "end" ? x - width - 4 : x - width / 2;
-  const top = y - 37 + row * 17;
+    align === "start" ? x + 6 : align === "end" ? x - width - 6 : x - width / 2;
+  const top = y + 9;
   const description = promptSetEventDescription(event);
   return (
-    <g aria-label={description} role="img" style={{ pointerEvents: "all" }}>
+    <g
+      aria-label={description}
+      className="prompt-set-event-marker"
+      role="img"
+      tabIndex={0}
+    >
       <title>{description}</title>
-      <rect
-        fill="#ffffff"
-        height={14}
-        rx={4}
-        stroke="#a1a1aa"
-        strokeWidth={0.75}
-        width={width}
-        x={left}
-        y={top}
-      />
-      <text
-        fill="#52525b"
-        fontSize={9}
-        fontWeight={600}
-        textAnchor="middle"
-        x={left + width / 2}
-        y={top + 10}
-      >
-        {event.label}
-      </text>
+      <circle className="prompt-set-event-hit-area" cx={x} cy={y + 3} r={9} />
+      <circle className="prompt-set-event-dot" cx={x} cy={y + 3} r={3.25} />
+      <g className="prompt-set-event-tooltip">
+        <rect height={height} rx={5} width={width} x={left} y={top} />
+        <text className="prompt-set-event-tooltip-title" x={left + 9} y={top + 14}>
+          {event.label}
+        </text>
+        {detailLines.map((line, index) => (
+          <text
+            className="prompt-set-event-tooltip-detail"
+            key={`${event.chartDate}-${line}-${index}`}
+            x={left + 9}
+            y={top + 28 + index * 12}
+          >
+            {line}
+          </text>
+        ))}
+      </g>
     </g>
   );
 }
@@ -320,7 +342,7 @@ function promptEventReferenceLines(
   events: readonly AlignedPromptSetEvent[],
   chartDates: readonly string[],
 ) {
-  return events.map((event, index) => {
+  return events.map((event) => {
     const dateIndex = chartDates.indexOf(event.chartDate);
     const position = chartDates.length > 1 ? dateIndex / (chartDates.length - 1) : 0.5;
     const align = position < 0.2 ? "start" : position > 0.8 ? "end" : "middle";
@@ -328,15 +350,10 @@ function promptEventReferenceLines(
       <ReferenceLine
         ifOverflow="visible"
         key={`${event.chartDate}-${event.label}`}
-        label={(
-          <PromptSetEventLabel
-            align={align}
-            event={event}
-            row={index % 2}
-          />
-        )}
+        label={<PromptSetEventMarker align={align} event={event} />}
         stroke="#a1a1aa"
-        strokeDasharray="3 3"
+        strokeDasharray="2 4"
+        strokeOpacity={0.7}
         strokeWidth={1}
         x={event.chartDate}
       />
@@ -382,11 +399,10 @@ export function OverviewPage() {
   const chartDates = (overview.data?.series ?? []).map(
     (point) => point.metric_date,
   );
-  const promptSetEvents = alignPromptSetEvents(
-    overview.data?.promptSetEvents ?? [],
+  const promptSetEvents = clusterPromptSetEvents(
+    alignPromptSetEvents(overview.data?.promptSetEvents ?? [], chartDates),
     chartDates,
   );
-  const chartTopMargin = promptSetEvents.length ? 44 : 8;
   return (
     <div className="page">
       <PageHeader
@@ -482,10 +498,9 @@ export function OverviewPage() {
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <LineChart
                     data={brandComparisonSeries}
-                    margin={{ top: chartTopMargin, right: 8, bottom: 0, left: 0 }}
+                    margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
-                    {promptEventReferenceLines(promptSetEvents, chartDates)}
                     <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                     <YAxis
                       width={42}
@@ -511,6 +526,7 @@ export function OverviewPage() {
                         type="monotone"
                       />
                     ))}
+                    {promptEventReferenceLines(promptSetEvents, chartDates)}
                   </LineChart>
                 </ResponsiveContainer>
               ) : <EmptyState title="No trend data yet" description="Your first completed tracking run will appear here." />}
@@ -554,10 +570,9 @@ export function OverviewPage() {
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <LineChart
                     data={citationSourceSeries}
-                    margin={{ top: chartTopMargin, right: 8, bottom: 0, left: 0 }}
+                    margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
                   >
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
-                    {promptEventReferenceLines(promptSetEvents, chartDates)}
                     <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                     <YAxis
                       width={42}
@@ -590,6 +605,7 @@ export function OverviewPage() {
                         type="monotone"
                       />
                     ))}
+                    {promptEventReferenceLines(promptSetEvents, chartDates)}
                   </LineChart>
                 </ResponsiveContainer>
               ) : (
