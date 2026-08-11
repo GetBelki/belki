@@ -116,9 +116,19 @@ button { border: 0; }
 }
 .mobile-topbar strong {
   color: #18181b;
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 650;
-  margin-left: 10px;
+}
+.mobile-brand {
+  align-items: center;
+  color: #18181b;
+  display: flex;
+  gap: 8px;
+  margin-left: 12px;
+  text-decoration: none;
+}
+.mobile-brand svg {
+  flex: none;
 }
 .eyebrow { color: #8d839d; font-size: 9px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
 .status-dot { background: #55c989; border-radius: 50%; box-shadow: 0 0 0 3px #55c98920; display: inline-block; height: 6px; width: 6px; }
@@ -488,16 +498,18 @@ body {
 }
 
 .brand-mark {
-  background: #18181b;
-  border-radius: 6px;
+  background: transparent;
+  border-radius: 0;
   box-shadow: none;
-  height: 28px;
-  width: 28px;
+  color: #18181b;
+  flex: none;
+  height: 34px;
+  width: 34px;
 }
 
 .brand-mark svg {
-  height: 20px;
-  width: 20px;
+  height: 32px;
+  width: 32px;
 }
 
 .sidebar {
@@ -510,9 +522,18 @@ body {
 
 .sidebar-brand {
   color: #09090b;
-  font-size: 15px;
+  font-size: 16px;
   font-weight: 650;
   margin: 0 8px 22px;
+}
+
+.brand-home {
+  align-items: center;
+  color: inherit;
+  display: flex;
+  gap: 9px;
+  min-width: 0;
+  text-decoration: none;
 }
 
 .mobile-close {
@@ -1233,8 +1254,8 @@ tbody tr:hover {
 }
 
 .auth-story .brand-mark {
-  background: #ffffff;
-  color: #09090b;
+  background: transparent;
+  color: #ffffff;
 }
 
 .story-content > p,
