@@ -194,26 +194,41 @@ type BillingReport = ReturnType<typeof buildBillingReport>;
 export function mergeBillingReports(
   promptTracking: BillingReport,
   productEnrichment: BillingReport,
+  entityExtraction?: BillingReport,
 ) {
+  const extraction = entityExtraction ?? {
+    range: promptTracking.range,
+    summary: { totalCost: 0, chargedRuns: 0, highestDailyCost: 0, averageCost: 0 },
+    series: promptTracking.series.map((point) => ({ date: point.date, runs: 0, cost: 0 })),
+  };
   const totalCost = roundCost(
-    promptTracking.summary.totalCost + productEnrichment.summary.totalCost,
+    promptTracking.summary.totalCost + productEnrichment.summary.totalCost +
+      extraction.summary.totalCost,
   );
   const chargedTasks =
-    promptTracking.summary.chargedRuns + productEnrichment.summary.chargedRuns;
+    promptTracking.summary.chargedRuns + productEnrichment.summary.chargedRuns +
+      extraction.summary.chargedRuns;
   const series = promptTracking.series.map((prompt, index) => {
     const enrichment = productEnrichment.series[index] ?? {
       date: prompt.date,
       runs: 0,
       cost: 0,
     };
+    const entity = extraction.series[index] ?? {
+      date: prompt.date,
+      runs: 0,
+      cost: 0,
+    };
     return {
       date: prompt.date,
-      totalCost: roundCost(prompt.cost + enrichment.cost),
+      totalCost: roundCost(prompt.cost + enrichment.cost + entity.cost),
       promptTrackingCost: prompt.cost,
       productEnrichmentCost: enrichment.cost,
-      totalTasks: prompt.runs + enrichment.runs,
+      entityExtractionCost: entity.cost,
+      totalTasks: prompt.runs + enrichment.runs + entity.runs,
       promptTrackingTasks: prompt.runs,
       productEnrichmentTasks: enrichment.runs,
+      entityExtractionTasks: entity.runs,
     };
   });
   const category = (report: BillingReport) => ({
@@ -238,6 +253,7 @@ export function mergeBillingReports(
       byCategory: {
         promptTracking: category(promptTracking),
         productEnrichment: category(productEnrichment),
+        entityExtraction: category(extraction),
       },
     },
     series,

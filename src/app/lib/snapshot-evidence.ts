@@ -7,6 +7,7 @@ export interface SnapshotIndex {
   cited_domains_count: number;
   retrieved_domains_count: number;
   brand_entities_count: number;
+  detected_entities_count: number;
   products_count: number;
   check_url: string | null;
 }
@@ -74,6 +75,20 @@ export interface SnapshotDetail {
     kind: "owned" | "competitor";
     name: string;
     matchedTerms: string[];
+  }>;
+  detectedEntities: Array<{
+    id: string;
+    entity_id: string;
+    canonical_name: string;
+    surface_text: string;
+    occurrence_count: number;
+    entity_type: string;
+    relationship: "owned" | "competitor" | "mentioned" | "unknown";
+    confidence: number;
+    status: string;
+    tracked_brand_id: string | null;
+    evidence: string[];
+    sources: string[];
   }>;
 }
 

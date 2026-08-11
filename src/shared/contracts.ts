@@ -88,6 +88,19 @@ export const ProductEnrichmentSettingsSchema = z.object({
   monthlyWarningUsd: z.number().finite().min(0).max(1_000_000).optional(),
 }).refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
+export const EntityExtractionSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  autoTrackEnabled: z.boolean().optional(),
+  monthlyWarningUsd: z.number().finite().min(0).max(1_000_000).optional(),
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+export const EntityActionSchema = z.discriminatedUnion("action", [
+  z.object({ action: z.literal("track") }),
+  z.object({ action: z.literal("ignore") }),
+  z.object({ action: z.literal("restore") }),
+  z.object({ action: z.literal("merge"), targetEntityId: z.string().uuid() }),
+]);
+
 export const ProductEnrichmentPreferenceSchema = z.object({
   projectId: z.string().uuid(),
   automaticRefreshEnabled: z.boolean(),
@@ -266,6 +279,10 @@ export interface NotificationQueueMessage {
 
 export interface PromptPurgeQueueMessage {
   purgeJobId: string;
+}
+
+export interface EntityExtractionQueueMessage {
+  jobId: string;
 }
 
 export type ProductEnrichmentQueueMessage =

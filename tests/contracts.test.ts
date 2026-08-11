@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   BulkQueryInputSchema,
+  EntityExtractionSettingsSchema,
   PromptPurgeInputSchema,
   ProjectInputSchema,
   ProjectUpdateSchema,
@@ -123,6 +124,15 @@ describe("API contracts", () => {
     expect(
       ProjectUpdateSchema.parse({ htmlCaptureEnabled: true }),
     ).toEqual({ htmlCaptureEnabled: true });
+  });
+
+  it("accepts independent entity extraction and auto-track settings", () => {
+    expect(EntityExtractionSettingsSchema.parse({
+      enabled: true,
+      autoTrackEnabled: false,
+      monthlyWarningUsd: 5,
+    })).toEqual({ enabled: true, autoTrackEnabled: false, monthlyWarningUsd: 5 });
+    expect(EntityExtractionSettingsSchema.safeParse({}).success).toBe(false);
   });
 
   it("normalizes and de-duplicates prompt tags without changing their display case", () => {

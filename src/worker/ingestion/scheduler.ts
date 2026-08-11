@@ -231,6 +231,36 @@ export async function runRetention(env: Env): Promise<void> {
   await env.CONTROL_DB.prepare(
     "DELETE FROM snapshot_index WHERE julianday(captured_at) < julianday('now', '-12 months')",
   ).run();
+  await env.CONTROL_DB.batch([
+    env.CONTROL_DB.prepare(
+      `DELETE FROM project_entities
+       WHERE tracked_brand_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM entity_mentions mention
+           WHERE mention.entity_id = project_entities.id
+         )`,
+    ),
+    env.CONTROL_DB.prepare(
+      `UPDATE project_entities SET
+        snapshot_count = (
+          SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
+          WHERE mention.entity_id = project_entities.id
+        ),
+        prompt_count = (
+          SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
+          WHERE mention.entity_id = project_entities.id
+        ),
+        competitor_snapshot_count = (
+          SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
+          WHERE mention.entity_id = project_entities.id AND mention.relationship = 'competitor'
+        ),
+        competitor_prompt_count = (
+          SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
+          WHERE mention.entity_id = project_entities.id AND mention.relationship = 'competitor'
+        ),
+        updated_at = ?`,
+    ).bind(now),
+  ]);
   await env.CONTROL_DB.prepare(
     `DELETE FROM crawl_jobs
      WHERE julianday(created_at) < julianday('now', '-12 months')

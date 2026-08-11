@@ -673,35 +673,95 @@ export function CitationSourceDetailPage() {
 }
 
 export function BrandsPage() {
-  const { projectId } = useApp();
+  const { projectId, session } = useApp();
+  const queryClient = useQueryClient();
+  const [view, setView] = useState<"tracked" | "discovered">("tracked");
+  const canEdit = session.user.role !== "viewer";
   const query = useProjectAnalytics<Array<Record<string, string | number>>>("brands");
+  const discovered = useProjectAnalytics<Array<{
+    id: string;
+    canonical_name: string;
+    entity_type: string;
+    relationship: string;
+    status: "candidate" | "auto_tracked" | "tracked" | "ignored";
+    period_snapshot_count: number;
+    period_prompt_count: number;
+    confidence: number | null;
+    provider_corroborated: number;
+    domain_corroborated: number;
+    latestEvidence: string[];
+  }>>("entities");
+  const updateEntity = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: "track" | "ignore" | "restore" }) =>
+      patch(`/entities/${id}`, { action }),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["brands", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["entities", projectId] }),
+      ]);
+    },
+  });
   if (!projectId) return <NoProject />;
+  const candidates = discovered.data?.filter(
+    (entity) => entity.status === "candidate" || entity.status === "ignored",
+  ) ?? [];
   return (
     <div className="page">
       <PageHeader
-        title="Brand visibility"
-        description="Tracked brand names and aliases detected in captured answers, ignoring letter case."
+        title="Entities"
+        description="Track owned brands and competitors, and review entities discovered contextually in captured answers."
         action={
           <Button
             variant="secondary"
-            disabled={query.isFetching}
-            onClick={() => void query.refetch()}
+            disabled={query.isFetching || discovered.isFetching}
+            onClick={() => void Promise.all([query.refetch(), discovered.refetch()])}
           >
             <RefreshCw size={14} />
-            {query.isFetching ? "Refreshing…" : "Refresh"}
+            {query.isFetching || discovered.isFetching ? "Refreshing…" : "Refresh"}
           </Button>
         }
       />
-      <div className="brand-grid">
-        {query.isPending ? Array.from({ length: 3 }, (_, index) => (
-          <Skeleton className="brand-card-skeleton" key={index} />
-        )) : query.data?.length ? query.data.map((brand) => (
-          <Card className="brand-card" key={String(brand.id)}>
-            <div className="brand-avatar">{String(brand.name).slice(0, 1).toUpperCase()}</div>
-            <div><Badge tone={brand.kind === "owned" ? "info" : "neutral"}>{brand.kind}</Badge><h3>{brand.name}</h3><strong>{compact(Number(brand.mentioned_snapshot_count))}</strong><span>mentioning snapshots</span></div>
-          </Card>
-        )) : <Card><EmptyState title="No brand metrics" description="Configure brand aliases and complete a tracking run." /></Card>}
+      <div className="entity-tabs" role="tablist" aria-label="Entity views">
+        <button aria-selected={view === "tracked"} className={view === "tracked" ? "active" : undefined} onClick={() => setView("tracked")} role="tab" type="button">Tracked <span>{query.data?.length ?? 0}</span></button>
+        <button aria-selected={view === "discovered"} className={view === "discovered" ? "active" : undefined} onClick={() => setView("discovered")} role="tab" type="button">Discovered <span>{candidates.length}</span></button>
       </div>
+      {view === "tracked" ? (
+        <div className="brand-grid">
+          {query.isPending ? Array.from({ length: 3 }, (_, index) => (
+            <Skeleton className="brand-card-skeleton" key={index} />
+          )) : query.data?.length ? query.data.map((brand) => (
+            <Card className="brand-card" key={String(brand.id)}>
+              <div className="brand-avatar">{String(brand.name).slice(0, 1).toUpperCase()}</div>
+              <div><Badge tone={brand.kind === "owned" ? "info" : "neutral"}>{brand.kind}</Badge><h3>{brand.name}</h3><strong>{compact(Number(brand.mentioned_snapshot_count))}</strong><span>mentioning snapshots</span></div>
+            </Card>
+          )) : <Card><EmptyState title="No tracked entities" description="Configure an owned brand or track a discovered competitor." /></Card>}
+        </div>
+      ) : (
+        <Card className="entity-discovery-card">
+          <CardHeader title="Discovered entities" description="Contextual extraction from responses across every project type. High-confidence competitors can be tracked automatically." />
+          {discovered.isPending ? <TableSkeleton rows={5} /> : candidates.length ? (
+            <div className="entity-discovery-list">
+              {candidates.map((entity) => (
+                <div className={entity.status === "ignored" ? "ignored" : undefined} key={entity.id}>
+                  <div className="entity-discovery-avatar">{entity.canonical_name.slice(0, 1).toUpperCase()}</div>
+                  <div className="entity-discovery-copy">
+                    <div><strong>{entity.canonical_name}</strong><Badge>{entity.entity_type}</Badge><Badge tone={entity.relationship === "competitor" ? "warning" : "neutral"}>{entity.relationship}</Badge>{entity.provider_corroborated || entity.domain_corroborated ? <Badge tone="success">Corroborated</Badge> : null}</div>
+                    <span>{compact(entity.period_snapshot_count)} responses · {compact(entity.period_prompt_count)} prompts{entity.confidence !== null ? ` · ${Math.round(entity.confidence * 100)}% confidence` : ""}</span>
+                    {entity.latestEvidence[0] ? <p>“{entity.latestEvidence[0]}”</p> : null}
+                  </div>
+                  {canEdit ? <div className="entity-discovery-actions">
+                    {entity.status === "ignored" ? (
+                      <Button disabled={updateEntity.isPending} onClick={() => updateEntity.mutate({ id: entity.id, action: "restore" })} variant="secondary">Restore</Button>
+                    ) : (
+                      <><Button disabled={updateEntity.isPending || !["brand", "company", "organization"].includes(entity.entity_type)} onClick={() => updateEntity.mutate({ id: entity.id, action: "track" })}>Track competitor</Button><Button disabled={updateEntity.isPending} onClick={() => updateEntity.mutate({ id: entity.id, action: "ignore" })} variant="ghost">Ignore</Button></>
+                    )}
+                  </div> : null}
+                </div>
+              ))}
+            </div>
+          ) : <EmptyState title="No discovered entities yet" description="Entity extraction runs asynchronously after captured responses are normalized." />}
+        </Card>
+      )}
     </div>
   );
 }
@@ -2119,6 +2179,19 @@ export function SettingsPage() {
     }>("/settings/product-enrichment"),
     enabled: canAdmin,
   });
+  const entitySettings = useQuery({
+    queryKey: ["entity-extraction-settings"],
+    queryFn: () => api<{
+      enabled: boolean;
+      autoTrackEnabled: boolean;
+      monthlyWarningUsd: number;
+      monthToDateTasks: number;
+      monthToDateCost: number;
+      warningExceeded: boolean;
+      costIsEstimated: true;
+    }>("/settings/entity-extraction"),
+    enabled: canAdmin,
+  });
   const updateEnrichmentSettings = useMutation({
     mutationFn: (body: { enabled?: boolean; monthlyWarningUsd?: number }) =>
       patch("/settings/product-enrichment", body),
@@ -2127,6 +2200,18 @@ export function SettingsPage() {
         queryClient.invalidateQueries({ queryKey: ["product-enrichment-settings"] }),
         queryClient.invalidateQueries({ queryKey: ["billing"] }),
         queryClient.invalidateQueries({ queryKey: ["shopping-product"] }),
+      ]);
+    },
+  });
+  const updateEntitySettings = useMutation({
+    mutationFn: (body: { enabled?: boolean; autoTrackEnabled?: boolean; monthlyWarningUsd?: number }) =>
+      patch("/settings/entity-extraction", body),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["entity-extraction-settings"] }),
+        queryClient.invalidateQueries({ queryKey: ["billing"] }),
+        queryClient.invalidateQueries({ queryKey: ["entities"] }),
+        queryClient.invalidateQueries({ queryKey: ["brands"] }),
       ]);
     },
   });
@@ -2180,6 +2265,13 @@ export function SettingsPage() {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     updateEnrichmentSettings.mutate({
+      monthlyWarningUsd: Number(data.get("monthlyWarningUsd")),
+    });
+  };
+  const entityWarningSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    updateEntitySettings.mutate({
       monthlyWarningUsd: Number(data.get("monthlyWarningUsd")),
     });
   };
@@ -2288,6 +2380,45 @@ export function SettingsPage() {
               ) : (
                 <p className="muted">Product enrichment settings could not be loaded.</p>
               )}
+            </CardContent>
+          </Card>
+        ) : null}
+        {canAdmin ? (
+          <Card>
+            <CardHeader
+              title="Entity extraction"
+              description="Cross-industry named entity discovery for every captured response."
+              action={entitySettings.data ? (
+                <Badge tone={entitySettings.data.enabled ? "success" : "warning"}>
+                  {entitySettings.data.enabled ? "Active" : "Paused"}
+                </Badge>
+              ) : null}
+            />
+            <CardContent className="product-enrichment-settings">
+              {entitySettings.isPending ? (
+                <Skeleton className="settings-enrichment-skeleton" />
+              ) : entitySettings.data ? (
+                <>
+                  <label className="checkbox-row evidence-checkbox">
+                    <input checked={entitySettings.data.enabled} disabled={updateEntitySettings.isPending} onChange={(event) => updateEntitySettings.mutate({ enabled: event.target.checked })} type="checkbox" />
+                    <span><strong>Extract named entities</strong><small>Runs asynchronously after normalization and also backfills retained responses.</small></span>
+                  </label>
+                  <label className="checkbox-row evidence-checkbox">
+                    <input checked={entitySettings.data.autoTrackEnabled} disabled={!entitySettings.data.enabled || updateEntitySettings.isPending} onChange={(event) => updateEntitySettings.mutate({ autoTrackEnabled: event.target.checked })} type="checkbox" />
+                    <span><strong>Auto-track high-confidence competitors</strong><small>Requires repeated evidence across prompts plus provider/domain corroboration or a stronger observation threshold.</small></span>
+                  </label>
+                  <div className="settings-enrichment-usage">
+                    <div><strong>{formatProviderCost(entitySettings.data.monthToDateCost)}</strong><span>Estimated month-to-date</span></div>
+                    <div><strong>{compact(entitySettings.data.monthToDateTasks)}</strong><span>Inference calls</span></div>
+                  </div>
+                  {entitySettings.data.warningExceeded ? <div className="settings-enrichment-warning"><AlertTriangle size={14} /> The estimated monthly warning level has been reached.</div> : null}
+                  <form className="settings-enrichment-threshold" onSubmit={entityWarningSubmit}>
+                    <div><Label hint="Estimated list price before shared free allocation">Monthly cost warning (USD)</Label><Input defaultValue={entitySettings.data.monthlyWarningUsd} min="0" name="monthlyWarningUsd" step="0.01" type="number" /></div>
+                    <Button disabled={updateEntitySettings.isPending} type="submit" variant="secondary">Save warning</Button>
+                  </form>
+                  <p className="muted product-enrichment-footnote">Inference costs are estimates derived from model token usage and the stored pricing snapshot; Cloudflare account-level free allocation is not apportioned to projects.</p>
+                </>
+              ) : <p className="muted">Entity extraction settings could not be loaded.</p>}
             </CardContent>
           </Card>
         ) : null}

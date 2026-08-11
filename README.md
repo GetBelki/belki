@@ -4,7 +4,7 @@
 
 Self-hosted ChatGPT web visibility tracking on Cloudflare. AI Visibility Tracker schedules
 DataForSEO LLM Scraper runs, stores normalized evidence, and reports citations,
-retrieved domains, brand mentions, shopping results, and visibility changes.
+retrieved domains, contextual entities, shopping results, and visibility changes.
 
 The implementation is designed for multi-user installations and at least one
 million runs per month. It uses a control D1 database plus 32 snapshot D1
@@ -24,6 +24,10 @@ shards, queue-backed ingestion, and R2 for raw evidence and exports.
 - Recovery through `tasks_ready`, signed provider tags, idempotent ingestion,
   queue retries, and dead-letter queues
 - Normalized D1 analytics and streamed gzip evidence/export storage in R2
+- Cross-industry named entity extraction with exact-answer validation,
+  competitor discovery, evidence, confidence, and guarded automatic tracking
+- Separate estimated Workers AI inference reporting, usage warnings, pause
+  controls, and preserved billing totals when prompts are deleted
 - Permanent single and bulk prompt deletion with asynchronous D1/R2 cleanup,
   export invalidation, and anonymous billing-total preservation
 - In-app alerts and HMAC-signed HTTPS webhooks
@@ -44,6 +48,9 @@ flowchart LR
   Hook --> NQ[Normalize queue]
   NQ --> Shards[(32 snapshot D1 shards)]
   NQ --> Control[(Control D1)]
+  NQ --> EQ[Entity extraction queue]
+  EQ --> WAI[Workers AI]
+  EQ --> Control
   Shards --> RQ[Rollup queue]
   RQ --> Control
   Control --> Alerts[Alerts / webhook queue]
@@ -157,7 +164,7 @@ pnpm wrangler secret put BOOTSTRAP_TOKEN
 | Schedule | Responsibility |
 |---|---|
 | Every 5 minutes | Enqueue due queries and recover stale submissions |
-| Every minute | Collect failed/missed postbacks, reconcile prompt purges, and advance analytics backfills |
+| Every minute | Collect failed/missed postbacks, reconcile prompt purges and entity extraction, and advance analytics backfills |
 | Daily 03:00 UTC | Expire sessions, tokens, jobs, indexes, and hot snapshots |
 | Sunday 04:00 UTC | Refresh locale catalog and reconcile metric outboxes |
 
@@ -180,9 +187,9 @@ pnpm build
 pnpm deploy:dry
 ```
 
-The unit tests cover validation, URL/domain normalization, DST-aware schedules,
-and date-bound utilities. CI runs the full verification sequence on every pull
-request.
+The unit tests cover validation, entity hallucination rejection and
+corroboration, URL/domain normalization, DST-aware schedules, and date-bound
+utilities. CI runs the full verification sequence on every pull request.
 
 ## Repository map
 
