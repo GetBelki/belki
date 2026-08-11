@@ -11,7 +11,7 @@
     "run_worker_first": ["/api/*"]
   },
   "vars": {
-    "APP_NAME": "AI Visibility Tracker",
+    "APP_NAME": "Belki",
     "APP_ENV": "production",
     "SHARD_COUNT": "32",
     "DEFAULT_MONTHLY_RUN_CAP": "1000000",
