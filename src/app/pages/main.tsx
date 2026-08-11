@@ -2,9 +2,12 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowDown,
   ArrowUp,
+  ChartPie,
+  Eye,
   ExternalLink,
   Plus,
   RefreshCw,
+  Scale,
   Search,
   ShoppingBag,
   Sparkles,
@@ -13,8 +16,6 @@ import {
 import { useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
-  Area,
-  AreaChart,
   CartesianGrid,
   Line,
   LineChart,
@@ -25,10 +26,7 @@ import {
 } from "recharts";
 import { NoProject, PageHeader } from "../components/layout";
 import { CountryFlag } from "../components/country-flag";
-import {
-  CompletedRunsIcon,
-  SourcesIcon,
-} from "../components/navigation-icons";
+import { CompletedRunsIcon } from "../components/navigation-icons";
 import { PromptRowActions } from "../components/prompt-row-actions";
 import {
   TagChip,
@@ -61,6 +59,7 @@ import {
   productAnalyticsKey,
   productDestination,
 } from "../lib/snapshot-evidence";
+import { hasOverviewProducts } from "../lib/overview";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 import type { RunStatus } from "../../shared/contracts";
 
@@ -110,6 +109,46 @@ interface Overview {
     series: Array<{
       metric_date: string;
       rates: Record<string, number>;
+    }>;
+  };
+  brandComparison: {
+    summary: {
+      ownedMentionedResponses: number;
+      ownedAppearances: number;
+      ownedVisibility: number;
+      ownedShareOfVoice: number | null;
+      totalBrandAppearances: number;
+      trackedCompetitorCount: number;
+      competitiveGap: {
+        competitorId: string;
+        competitorName: string;
+        competitorVisibility: number;
+        differencePercentagePoints: number;
+      } | null;
+    };
+    brands: Array<{
+      key: string;
+      id: string | null;
+      name: string;
+      kind: "owned" | "competitor";
+      mentionedResponses: number;
+      appearances: number;
+      visibility: number;
+      shareOfVoice: number | null;
+    }>;
+    series: Array<{
+      metric_date: string;
+      completedRuns: number;
+      totalBrandAppearances: number;
+      metrics: Record<
+        string,
+        {
+          mentionedResponses: number;
+          appearances: number;
+          visibility: number;
+          shareOfVoice: number | null;
+        }
+      >;
     }>;
   };
   topProducts: OverviewProduct[];
@@ -204,22 +243,44 @@ const SOURCE_TREND_COLORS = [
   "#18181b",
 ];
 
+const BRAND_TREND_COLORS = [
+  "#18181b",
+  "#2563eb",
+  "#16a34a",
+  "#d97706",
+  "#9333ea",
+];
+
+function percentagePoints(value: number | null | undefined): string {
+  if (value === null || value === undefined) return "—";
+  const formatted = new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 1,
+  }).format(Math.abs(value));
+  return `${value > 0 ? "+" : value < 0 ? "−" : ""}${formatted} pp`;
+}
+
 export function OverviewPage() {
   const { projectId, currentProject } = useApp();
+  const [brandMetric, setBrandMetric] = useState<"visibility" | "shareOfVoice">(
+    "visibility",
+  );
   const overview = useQuery({
     queryKey: ["overview", projectId],
     queryFn: () => api<Overview>(`/analytics/overview?projectId=${projectId}`),
     enabled: Boolean(projectId),
   });
   if (!projectId) return <NoProject />;
-  const visibilitySeries = (overview.data?.series ?? []).map((point) => ({
-    ...point,
-    citationRate: point.completed_runs
-      ? (point.cited_runs / point.completed_runs) * 100
-      : 0,
-    brandMentionRate: point.completed_runs
-      ? (point.brand_mentioned_runs / point.completed_runs) * 100
-      : 0,
+  const brandComparison = overview.data?.brandComparison;
+  const comparisonSummary = brandComparison?.summary;
+  const comparisonBrands = brandComparison?.brands ?? [];
+  const brandComparisonSeries = (brandComparison?.series ?? []).map((point) => ({
+    metric_date: point.metric_date,
+    ...Object.fromEntries(
+      comparisonBrands.map((brand) => [
+        brand.key,
+        point.metrics[brand.key]?.[brandMetric] ?? null,
+      ]),
+    ),
   }));
   const citationSources = overview.data?.citationSourceTrends.sources ?? [];
   const citationSourceSeries = (
@@ -245,13 +306,28 @@ export function OverviewPage() {
         <div className="kpi-grid">{Array.from({ length: 4 }, (_, i) => <Skeleton className="kpi-skeleton" key={i} />)}</div>
       ) : (
         <div className="kpi-grid">
-          <KpiCard label="Citation rate" value={percent(overview.data?.summary.citationRate ?? 0)} detail={pluralize(overview.data?.summary.cited_runs ?? 0, "cited run")} icon={<SourcesIcon size={19} />} />
-          <KpiCard label="Brand mention rate" value={percent(overview.data?.summary.brandMentionRate ?? 0)} detail={pluralize(overview.data?.summary.brand_mentioned_runs ?? 0, "mention")} icon={<Sparkles size={19} />} tone="blue" />
           <KpiCard
-            label="Product prompt coverage"
-            value={percent(overview.data?.summary.productPromptCoverage ?? 0)}
-            detail={`${overview.data?.summary.productPromptCount ?? 0} of ${overview.data?.summary.trackedPromptCount ?? 0} tracked prompts`}
-            icon={<ShoppingBag size={19} />}
+            label="Visibility"
+            value={percent(comparisonSummary?.ownedVisibility ?? 0)}
+            detail={`${comparisonSummary?.ownedMentionedResponses ?? 0} of ${overview.data?.summary.completed_runs ?? 0} responses`}
+            icon={<Eye size={19} />}
+          />
+          <KpiCard
+            label="Share of Voice"
+            value={comparisonSummary?.ownedShareOfVoice === null || comparisonSummary?.ownedShareOfVoice === undefined ? "—" : percent(comparisonSummary.ownedShareOfVoice)}
+            detail={comparisonSummary?.trackedCompetitorCount
+              ? `${comparisonSummary.ownedAppearances} of ${comparisonSummary.totalBrandAppearances} brand appearances`
+              : "Track a competitor to compare"}
+            icon={<ChartPie size={19} />}
+            tone="blue"
+          />
+          <KpiCard
+            label="Competitive gap"
+            value={percentagePoints(comparisonSummary?.competitiveGap?.differencePercentagePoints)}
+            detail={comparisonSummary?.competitiveGap
+              ? `vs ${comparisonSummary.competitiveGap.competitorName}`
+              : "Track a competitor to compare"}
+            icon={<Scale size={19} />}
             tone="green"
           />
           <KpiCard label="Completed runs" value={compact(overview.data?.summary.completed_runs ?? 0)} detail={`${pluralize(overview.data?.summary.total_citations ?? 0, "citation")} captured`} icon={<CompletedRunsIcon size={19} />} tone="amber" />
@@ -259,20 +335,62 @@ export function OverviewPage() {
       )}
       <div className="overview-dashboard">
         <div className="overview-charts-row">
-          <Card className="chart-card">
-            <CardHeader title="Visibility trend" description="Daily citation and brand-mention rates" />
-            <div className="chart">
+          <Card className="chart-card brand-comparison-card">
+            <CardHeader
+              title="Brand visibility vs competitors"
+              description={brandMetric === "visibility"
+                ? "Daily share of completed responses mentioning each brand"
+                : "Daily share of appearances across all tracked brands"}
+              action={(
+                <div className="metric-toggle" aria-label="Comparison metric">
+                  <button
+                    className={brandMetric === "visibility" ? "is-active" : undefined}
+                    onClick={() => setBrandMetric("visibility")}
+                    type="button"
+                  >
+                    Visibility
+                  </button>
+                  <button
+                    className={brandMetric === "shareOfVoice" ? "is-active" : undefined}
+                    onClick={() => setBrandMetric("shareOfVoice")}
+                    type="button"
+                  >
+                    Share of Voice
+                  </button>
+                </div>
+              )}
+            />
+            {comparisonSummary?.trackedCompetitorCount ? (
+              <>
+                <div className="brand-comparison-legend">
+                  {comparisonBrands.map((brand, index) => (
+                    <span key={brand.key}>
+                      <i style={{ background: BRAND_TREND_COLORS[index] }} />
+                      {brand.name}
+                      {brand.kind === "owned" && <small>Your brand</small>}
+                    </span>
+                  ))}
+                </div>
+                <p className="brand-comparison-note">
+                  Share of Voice includes all {comparisonSummary.trackedCompetitorCount} tracked {comparisonSummary.trackedCompetitorCount === 1 ? "competitor" : "competitors"}{comparisonSummary.trackedCompetitorCount > 4 ? "; the chart shows the top four." : "."}
+                </p>
+              </>
+            ) : null}
+            <div className="chart brand-comparison-chart">
               {overview.isPending ? (
                 <Skeleton className="chart-skeleton" />
-              ) : visibilitySeries.length > 0 ? (
+              ) : !comparisonSummary?.trackedCompetitorCount ? (
+                <EmptyState
+                  title="No competitors tracked yet"
+                  description="Track competitors from Entities to compare visibility and Share of Voice."
+                  action={<Button asChild variant="secondary"><Link to="/entities">Manage competitors</Link></Button>}
+                />
+              ) : brandComparisonSeries.length > 0 ? (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <AreaChart
-                    data={visibilitySeries}
+                  <LineChart
+                    data={brandComparisonSeries}
                     margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
                   >
-                    <defs>
-                      <linearGradient id="citation" x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor="#18181b" stopOpacity={0.12}/><stop offset="95%" stopColor="#18181b" stopOpacity={0}/></linearGradient>
-                    </defs>
                     <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
                     <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                     <YAxis
@@ -288,9 +406,18 @@ export function OverviewPage() {
                       formatter={(value) => percent(Number(value))}
                       contentStyle={{ borderRadius: 6, border: "1px solid #d4d4d8", boxShadow: "none" }}
                     />
-                    <Area type="monotone" dataKey="citationRate" name="Citation rate" stroke="#18181b" strokeWidth={2} fill="url(#citation)" />
-                    <Area type="monotone" dataKey="brandMentionRate" name="Brand mention rate" stroke="#71717a" strokeWidth={2} fill="transparent" />
-                  </AreaChart>
+                    {comparisonBrands.map((brand, index) => (
+                      <Line
+                        dataKey={brand.key}
+                        dot={{ r: 2 }}
+                        key={brand.key}
+                        name={brand.name}
+                        stroke={BRAND_TREND_COLORS[index]}
+                        strokeWidth={brand.kind === "owned" ? 2.5 : 2}
+                        type="monotone"
+                      />
+                    ))}
+                  </LineChart>
                 </ResponsiveContainer>
               ) : <EmptyState title="No trend data yet" description="Your first completed tracking run will appear here." />}
             </div>
@@ -380,7 +507,7 @@ export function OverviewPage() {
           </Card>
         </div>
 
-        <div className="overview-products-row">
+        {(overview.isPending || hasOverviewProducts(overview.data)) && <div className="overview-products-row">
           <Card className="recent-products-card">
             <CardHeader
               title="Top products"
@@ -417,7 +544,7 @@ export function OverviewPage() {
               />
             )}
           </Card>
-        </div>
+        </div>}
       </div>
     </div>
   );

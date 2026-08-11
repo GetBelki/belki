@@ -17,6 +17,7 @@ import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
 import {
   billingDateRange,
   buildBillingReport,
+  buildBrandComparison,
   mergeBillingReports,
   productAnalyticsDateRange,
   productIdentity,
@@ -24,6 +25,8 @@ import {
   productKey,
   summarizeProductPrices,
   type BillingDailyRow,
+  type BrandMentionDailyRow,
+  type TrackedBrandReportRow,
 } from "../lib/reporting";
 import { summarizeMarketPrices } from "../lib/product-enrichment";
 import {
@@ -1063,6 +1066,8 @@ analyticsRoutes.get(
       topCitationSources,
       project,
       verifiedBrandMentions,
+      trackedBrands,
+      brandMentionDays,
     ] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT
@@ -1177,6 +1182,91 @@ analyticsRoutes.get(
                 dates.to,
               ),
             ),
+      c.env.CONTROL_DB.prepare(
+        `SELECT id, name, kind
+         FROM tracked_brands
+         WHERE project_id = ?
+         ORDER BY kind DESC, name, id`,
+      )
+        .bind(input.projectId)
+        .all<TrackedBrandReportRow>(),
+      c.env.CONTROL_DB.prepare(
+        `WITH mention_candidates AS (
+          SELECT
+            contribution.metric_date,
+            contribution.snapshot_id,
+            CAST(brand_value.value AS TEXT) AS brand_id,
+            1 AS deterministic_match,
+            0 AS extracted_match
+          FROM metric_contributions AS contribution
+          CROSS JOIN json_each(contribution.brands_json) AS brand_value
+          JOIN tracked_brands AS brand
+            ON brand.id = CAST(brand_value.value AS TEXT)
+           AND brand.project_id = contribution.project_id
+          WHERE contribution.project_id = ?
+            AND contribution.metric_date BETWEEN ? AND ?
+
+          UNION ALL
+
+          SELECT
+            substr(mention.captured_at, 1, 10) AS metric_date,
+            mention.snapshot_id,
+            entity.tracked_brand_id AS brand_id,
+            0 AS deterministic_match,
+            1 AS extracted_match
+          FROM entity_mentions AS mention
+          JOIN project_entities AS entity ON entity.id = mention.entity_id
+          JOIN tracked_brands AS brand
+            ON brand.id = entity.tracked_brand_id
+           AND brand.project_id = mention.project_id
+          WHERE mention.project_id = ?
+            AND mention.captured_at >= ?
+            AND mention.captured_at < ?
+            AND entity.tracked_brand_id IS NOT NULL
+        ), combined_pairs AS (
+          SELECT
+            metric_date,
+            snapshot_id,
+            brand_id,
+            MAX(deterministic_match) AS deterministic_match,
+            MAX(extracted_match) AS extracted_match
+          FROM mention_candidates
+          GROUP BY metric_date, snapshot_id, brand_id
+        ), owned_daily AS (
+          SELECT
+            pair.metric_date,
+            COUNT(DISTINCT pair.snapshot_id) AS owned_mentioned_responses
+          FROM combined_pairs AS pair
+          JOIN tracked_brands AS brand ON brand.id = pair.brand_id
+          WHERE brand.kind = 'owned'
+          GROUP BY pair.metric_date
+        )
+        SELECT
+          pair.metric_date,
+          pair.brand_id,
+          SUM(pair.deterministic_match) AS deterministic_responses,
+          SUM(pair.extracted_match) AS extracted_responses,
+          SUM(
+            CASE
+              WHEN pair.deterministic_match = 1 AND pair.extracted_match = 1
+              THEN 1 ELSE 0
+            END
+          ) AS overlap_responses,
+          COALESCE(owned.owned_mentioned_responses, 0) AS owned_mentioned_responses
+        FROM combined_pairs AS pair
+        LEFT JOIN owned_daily AS owned ON owned.metric_date = pair.metric_date
+        GROUP BY pair.metric_date, pair.brand_id
+        ORDER BY pair.metric_date, pair.brand_id`,
+      )
+        .bind(
+          input.projectId,
+          dates.from,
+          dates.to,
+          input.projectId,
+          `${dates.from}T00:00:00.000Z`,
+          exclusiveDateEnd(dates.to),
+        )
+        .all<BrandMentionDailyRow>(),
     ]);
     const projectDomain = normalizeHostname(project?.primary_domain)
       .registrableDomain;
@@ -1265,6 +1355,11 @@ analyticsRoutes.get(
     }
     const completed = summary?.completed_runs ?? 0;
     const trackedPrompts = productCoverage?.tracked_prompt_count ?? 0;
+    const brandComparison = buildBrandComparison(
+      trackedBrands.results,
+      series.results,
+      brandMentionDays.results,
+    );
     return c.json({
       data: {
         summary: {
@@ -1312,6 +1407,7 @@ analyticsRoutes.get(
             };
           }),
         },
+        brandComparison,
         topProducts: [...topProducts.values()]
           .sort(
             (left, right) =>
