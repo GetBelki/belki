@@ -3,6 +3,7 @@ import {
   billingDateRange,
   buildBillingReport,
   buildBrandComparison,
+  buildPromptSetEvents,
   mergeBillingReports,
   productAnalyticsDateRange,
   productIdentity,
@@ -10,7 +11,12 @@ import {
   productKey,
   summarizeProductPrices,
 } from "../src/worker/lib/reporting";
-import { hasOverviewProducts } from "../src/app/lib/overview";
+import {
+  alignPromptSetEvents,
+  hasOverviewProducts,
+  promptSetEventDescription,
+  promptSetEventLabel,
+} from "../src/app/lib/overview";
 
 const base = {
   provider_product_id: null,
@@ -460,6 +466,130 @@ describe("overview product visibility", () => {
     );
     expect(hasOverviewProducts({ topProducts: [], recentProducts: [{}] })).toBe(
       true,
+    );
+  });
+});
+
+describe("prompt-set event reporting", () => {
+  it("aggregates prompt additions and removals by project and day", () => {
+    const report = buildPromptSetEvents(
+      [
+        {
+          action: "query.created",
+          metadata_json: JSON.stringify({ projectId: "project-a" }),
+          created_at: "2026-08-08T09:00:00.000Z",
+        },
+        {
+          action: "query.bulk_created",
+          metadata_json: JSON.stringify({
+            projectId: "project-a",
+            createdCount: 99,
+          }),
+          created_at: "2026-08-08T10:00:00.000Z",
+        },
+        {
+          action: "query.purge_requested",
+          metadata_json: JSON.stringify({ projectId: "project-a" }),
+          created_at: "2026-08-08T11:00:00.000Z",
+        },
+        {
+          action: "query.created",
+          metadata_json: JSON.stringify({ projectId: "project-b" }),
+          created_at: "2026-08-08T12:00:00.000Z",
+        },
+        {
+          action: "query.created",
+          metadata_json: JSON.stringify({ projectId: "project-a" }),
+          created_at: "2026-08-10T09:00:00.000Z",
+        },
+      ],
+      "project-a",
+    );
+
+    expect(report).toEqual([
+      { metric_date: "2026-08-08", addedCount: 100, removedCount: 1 },
+      { metric_date: "2026-08-10", addedCount: 1, removedCount: 0 },
+    ]);
+  });
+
+  it("ignores malformed, zero, unsupported, and undated audit rows", () => {
+    expect(
+      buildPromptSetEvents(
+        [
+          {
+            action: "query.bulk_created",
+            metadata_json: "not-json",
+            created_at: "2026-08-08T09:00:00.000Z",
+          },
+          {
+            action: "query.bulk_created",
+            metadata_json: JSON.stringify({
+              projectId: "project-a",
+              createdCount: 0,
+            }),
+            created_at: "2026-08-08T09:00:00.000Z",
+          },
+          {
+            action: "query.updated",
+            metadata_json: JSON.stringify({ projectId: "project-a" }),
+            created_at: "2026-08-08T09:00:00.000Z",
+          },
+          {
+            action: "query.created",
+            metadata_json: JSON.stringify({ projectId: "project-a" }),
+            created_at: "invalid",
+          },
+        ],
+        "project-a",
+      ),
+    ).toEqual([]);
+  });
+});
+
+describe("prompt-set chart annotations", () => {
+  it("labels additions, removals, and mixed changes", () => {
+    expect(promptSetEventLabel({ addedCount: 1, removedCount: 0 })).toBe(
+      "+1 prompt",
+    );
+    expect(promptSetEventLabel({ addedCount: 0, removedCount: 10 })).toBe(
+      "−10 prompts",
+    );
+    expect(promptSetEventLabel({ addedCount: 100, removedCount: 10 })).toBe(
+      "+100 / −10",
+    );
+  });
+
+  it("anchors missing dates to the next point and combines shared anchors", () => {
+    const annotations = alignPromptSetEvents(
+      [
+        { metric_date: "2026-08-08", addedCount: 1, removedCount: 0 },
+        { metric_date: "2026-08-09", addedCount: 2, removedCount: 0 },
+        { metric_date: "2026-08-10", addedCount: 0, removedCount: 1 },
+        { metric_date: "2026-08-12", addedCount: 20, removedCount: 0 },
+      ],
+      ["2026-08-08", "2026-08-10", "2026-08-11"],
+    );
+
+    expect(annotations).toHaveLength(2);
+    expect(annotations[0]).toMatchObject({
+      chartDate: "2026-08-08",
+      label: "+1 prompt",
+    });
+    expect(annotations[1]).toMatchObject({
+      chartDate: "2026-08-10",
+      addedCount: 2,
+      removedCount: 1,
+      label: "+2 / −1",
+    });
+    expect(annotations[1]?.sourceEvents.map((event) => event.metric_date)).toEqual([
+      "2026-08-09",
+      "2026-08-10",
+    ]);
+    expect(promptSetEventDescription(annotations[1]!)).toContain(
+      "2 prompts added on 2026-08-09",
+    );
+    expect(promptSetEventDescription(annotations[1]!)).toContain(
+      "next available chart point on 2026-08-10",
     );
   });
 });

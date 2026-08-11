@@ -18,6 +18,7 @@ import {
   billingDateRange,
   buildBillingReport,
   buildBrandComparison,
+  buildPromptSetEvents,
   mergeBillingReports,
   productAnalyticsDateRange,
   productIdentity,
@@ -26,6 +27,7 @@ import {
   summarizeProductPrices,
   type BillingDailyRow,
   type BrandMentionDailyRow,
+  type PromptSetAuditRow,
   type TrackedBrandReportRow,
 } from "../lib/reporting";
 import { summarizeMarketPrices } from "../lib/product-enrichment";
@@ -1068,6 +1070,7 @@ analyticsRoutes.get(
       verifiedBrandMentions,
       trackedBrands,
       brandMentionDays,
+      promptSetAuditRows,
     ] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT
@@ -1267,6 +1270,25 @@ analyticsRoutes.get(
           exclusiveDateEnd(dates.to),
         )
         .all<BrandMentionDailyRow>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT action, metadata_json, created_at
+         FROM audit_log
+         WHERE workspace_id = ?
+           AND action IN (
+             'query.created',
+             'query.bulk_created',
+             'query.purge_requested'
+           )
+           AND created_at >= ?
+           AND created_at < ?
+         ORDER BY created_at`,
+      )
+        .bind(
+          principal.workspaceId,
+          `${dates.from}T00:00:00.000Z`,
+          exclusiveDateEnd(dates.to),
+        )
+        .all<PromptSetAuditRow>(),
     ]);
     const projectDomain = normalizeHostname(project?.primary_domain)
       .registrableDomain;
@@ -1408,6 +1430,10 @@ analyticsRoutes.get(
           }),
         },
         brandComparison,
+        promptSetEvents: buildPromptSetEvents(
+          promptSetAuditRows.results,
+          input.projectId,
+        ),
         topProducts: [...topProducts.values()]
           .sort(
             (left, right) =>
