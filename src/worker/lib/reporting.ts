@@ -100,6 +100,215 @@ export function summarizeProductPrices(
   };
 }
 
+export interface TrackedBrandReportRow {
+  id: string;
+  name: string;
+  kind: "owned" | "competitor";
+}
+
+export interface CompletedRunsDailyRow {
+  metric_date: string;
+  completed_runs: number;
+}
+
+export interface BrandMentionDailyRow {
+  metric_date: string;
+  brand_id: string;
+  deterministic_responses: number;
+  extracted_responses: number;
+  overlap_responses: number;
+  owned_mentioned_responses: number;
+}
+
+interface BrandMetric {
+  mentionedResponses: number;
+  appearances: number;
+  visibility: number;
+  shareOfVoice: number | null;
+}
+
+export interface BrandComparisonBrand extends BrandMetric {
+  key: string;
+  id: string | null;
+  name: string;
+  kind: "owned" | "competitor";
+}
+
+function nonNegativeCount(value: number): number {
+  return Math.max(0, Number(value) || 0);
+}
+
+function rate(numerator: number, denominator: number): number {
+  return denominator ? (numerator / denominator) * 100 : 0;
+}
+
+function deduplicatedMentions(row: BrandMentionDailyRow): number {
+  return Math.max(
+    0,
+    nonNegativeCount(row.deterministic_responses) +
+      nonNegativeCount(row.extracted_responses) -
+      nonNegativeCount(row.overlap_responses),
+  );
+}
+
+export function buildBrandComparison(
+  trackedBrands: TrackedBrandReportRow[],
+  completedDays: CompletedRunsDailyRow[],
+  mentionDays: BrandMentionDailyRow[],
+) {
+  const ownedBrands = trackedBrands.filter((brand) => brand.kind === "owned");
+  const competitors = trackedBrands.filter(
+    (brand) => brand.kind === "competitor",
+  );
+  const trackedById = new Map(trackedBrands.map((brand) => [brand.id, brand]));
+  const countsByDate = new Map<string, Map<string, number>>();
+  const ownedMentionsByDate = new Map<string, number>();
+
+  for (const row of mentionDays) {
+    if (!trackedById.has(row.brand_id)) continue;
+    const values = countsByDate.get(row.metric_date) ?? new Map<string, number>();
+    values.set(
+      row.brand_id,
+      (values.get(row.brand_id) ?? 0) + deduplicatedMentions(row),
+    );
+    countsByDate.set(row.metric_date, values);
+    ownedMentionsByDate.set(
+      row.metric_date,
+      Math.max(
+        ownedMentionsByDate.get(row.metric_date) ?? 0,
+        nonNegativeCount(row.owned_mentioned_responses),
+      ),
+    );
+  }
+
+  const completedRuns = completedDays.reduce(
+    (total, day) => total + nonNegativeCount(day.completed_runs),
+    0,
+  );
+  const totalsByBrand = new Map(trackedBrands.map((brand) => [brand.id, 0]));
+  let ownedMentionedResponses = 0;
+  for (const day of completedDays) {
+    ownedMentionedResponses += ownedMentionsByDate.get(day.metric_date) ?? 0;
+    for (const [brandId, count] of countsByDate.get(day.metric_date) ?? []) {
+      totalsByBrand.set(brandId, (totalsByBrand.get(brandId) ?? 0) + count);
+    }
+  }
+
+  const ownedAppearances = ownedBrands.reduce(
+    (total, brand) => total + (totalsByBrand.get(brand.id) ?? 0),
+    0,
+  );
+  const totalBrandAppearances = [...totalsByBrand.values()].reduce(
+    (total, count) => total + count,
+    0,
+  );
+  const competitorMetrics = competitors
+    .map((brand) => {
+      const appearances = totalsByBrand.get(brand.id) ?? 0;
+      return {
+        key: `competitor_${brand.id}`,
+        id: brand.id,
+        name: brand.name,
+        kind: brand.kind,
+        mentionedResponses: appearances,
+        appearances,
+        visibility: rate(appearances, completedRuns),
+        shareOfVoice: totalBrandAppearances
+          ? rate(appearances, totalBrandAppearances)
+          : null,
+      } satisfies BrandComparisonBrand;
+    })
+    .sort(
+      (left, right) =>
+        right.appearances - left.appearances ||
+        left.name.localeCompare(right.name) ||
+        left.id.localeCompare(right.id),
+    );
+  const hasCompetitors = competitors.length > 0;
+  const ownedVisibility = rate(ownedMentionedResponses, completedRuns);
+  const ownedShareOfVoice =
+    hasCompetitors && totalBrandAppearances
+      ? rate(ownedAppearances, totalBrandAppearances)
+      : null;
+  const leadingCompetitor = competitorMetrics[0] ?? null;
+  const ownedSeriesName =
+    ownedBrands.length === 1 ? ownedBrands[0]!.name : "Your brands";
+  const displayedBrands: BrandComparisonBrand[] = [
+    {
+      key: "owned",
+      id: ownedBrands.length === 1 ? ownedBrands[0]!.id : null,
+      name: ownedSeriesName,
+      kind: "owned",
+      mentionedResponses: ownedMentionedResponses,
+      appearances: ownedAppearances,
+      visibility: ownedVisibility,
+      shareOfVoice: ownedShareOfVoice,
+    },
+    ...competitorMetrics.slice(0, 4),
+  ];
+
+  return {
+    summary: {
+      ownedMentionedResponses,
+      ownedAppearances,
+      ownedVisibility,
+      ownedShareOfVoice,
+      totalBrandAppearances,
+      trackedCompetitorCount: competitors.length,
+      competitiveGap: leadingCompetitor
+        ? {
+            competitorId: leadingCompetitor.id,
+            competitorName: leadingCompetitor.name,
+            competitorVisibility: leadingCompetitor.visibility,
+            differencePercentagePoints:
+              ownedVisibility - leadingCompetitor.visibility,
+          }
+        : null,
+    },
+    brands: displayedBrands,
+    series: completedDays.map((day) => {
+      const counts = countsByDate.get(day.metric_date) ?? new Map<string, number>();
+      const completed = nonNegativeCount(day.completed_runs);
+      const totalAppearances = [...counts.values()].reduce(
+        (total, count) => total + count,
+        0,
+      );
+      const ownedDailyAppearances = ownedBrands.reduce(
+        (total, brand) => total + (counts.get(brand.id) ?? 0),
+        0,
+      );
+      const ownedDailyMentions = ownedMentionsByDate.get(day.metric_date) ?? 0;
+      return {
+        metric_date: day.metric_date,
+        completedRuns: completed,
+        totalBrandAppearances: totalAppearances,
+        metrics: Object.fromEntries(
+          displayedBrands.map((brand) => {
+            const appearances =
+              brand.kind === "owned"
+                ? ownedDailyAppearances
+                : counts.get(brand.id ?? "") ?? 0;
+            const mentionedResponses =
+              brand.kind === "owned" ? ownedDailyMentions : appearances;
+            return [
+              brand.key,
+              {
+                mentionedResponses,
+                appearances,
+                visibility: rate(mentionedResponses, completed),
+                shareOfVoice:
+                  hasCompetitors && totalAppearances
+                    ? rate(appearances, totalAppearances)
+                    : null,
+              } satisfies BrandMetric,
+            ];
+          }),
+        ),
+      };
+    }),
+  };
+}
+
 export type BillingPeriod = "30d" | "month";
 
 export interface BillingDateRange {

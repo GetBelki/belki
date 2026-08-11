@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   billingDateRange,
   buildBillingReport,
+  buildBrandComparison,
   mergeBillingReports,
   productAnalyticsDateRange,
   productIdentity,
@@ -9,6 +10,7 @@ import {
   productKey,
   summarizeProductPrices,
 } from "../src/worker/lib/reporting";
+import { hasOverviewProducts } from "../src/app/lib/overview";
 
 const base = {
   provider_product_id: null,
@@ -228,5 +230,236 @@ describe("billing reporting", () => {
         },
       ],
     });
+  });
+});
+
+describe("competitive brand reporting", () => {
+  const owned = { id: "owned", name: "Acme", kind: "owned" as const };
+  const competitor = {
+    id: "competitor",
+    name: "Rival",
+    kind: "competitor" as const,
+  };
+  const day = [{ metric_date: "2026-08-10", completed_runs: 10 }];
+
+  it("deduplicates deterministic and extracted mentions of the same brand", () => {
+    const report = buildBrandComparison(
+      [owned, competitor],
+      day,
+      [
+        {
+          metric_date: "2026-08-10",
+          brand_id: owned.id,
+          deterministic_responses: 3,
+          extracted_responses: 2,
+          overlap_responses: 1,
+          owned_mentioned_responses: 4,
+        },
+      ],
+    );
+
+    expect(report.summary).toMatchObject({
+      ownedMentionedResponses: 4,
+      ownedAppearances: 4,
+      totalBrandAppearances: 4,
+    });
+  });
+
+  it("uses the owned response union for visibility and appearances for Share of Voice", () => {
+    const secondOwned = {
+      id: "owned-two",
+      name: "Acme Labs",
+      kind: "owned" as const,
+    };
+    const report = buildBrandComparison(
+      [owned, secondOwned, competitor],
+      day,
+      [
+        {
+          metric_date: "2026-08-10",
+          brand_id: owned.id,
+          deterministic_responses: 4,
+          extracted_responses: 0,
+          overlap_responses: 0,
+          owned_mentioned_responses: 5,
+        },
+        {
+          metric_date: "2026-08-10",
+          brand_id: secondOwned.id,
+          deterministic_responses: 3,
+          extracted_responses: 0,
+          overlap_responses: 0,
+          owned_mentioned_responses: 5,
+        },
+        {
+          metric_date: "2026-08-10",
+          brand_id: competitor.id,
+          deterministic_responses: 3,
+          extracted_responses: 0,
+          overlap_responses: 0,
+          owned_mentioned_responses: 5,
+        },
+      ],
+    );
+
+    expect(report.summary).toMatchObject({
+      ownedMentionedResponses: 5,
+      ownedAppearances: 7,
+      ownedVisibility: 50,
+      ownedShareOfVoice: 70,
+      totalBrandAppearances: 10,
+    });
+    expect(report.brands[0]?.name).toBe("Your brands");
+  });
+
+  it("ranks only four competitors while retaining every competitor in the denominator", () => {
+    const competitors = [
+      ["c1", "Able", 9],
+      ["c2", "Beta", 8],
+      ["c3", "Cyan", 7],
+      ["c4", "Delta", 6],
+      ["c5", "Echo", 5],
+    ] as const;
+    const rows = [
+      {
+        metric_date: "2026-08-10",
+        brand_id: owned.id,
+        deterministic_responses: 10,
+        extracted_responses: 0,
+        overlap_responses: 0,
+        owned_mentioned_responses: 10,
+      },
+      ...competitors.map(([id, , mentions]) => ({
+        metric_date: "2026-08-10",
+        brand_id: id,
+        deterministic_responses: mentions,
+        extracted_responses: 0,
+        overlap_responses: 0,
+        owned_mentioned_responses: 10,
+      })),
+    ];
+    const report = buildBrandComparison(
+      [
+        owned,
+        ...competitors.map(([id, name]) => ({
+          id,
+          name,
+          kind: "competitor" as const,
+        })),
+      ],
+      day,
+      rows,
+    );
+
+    expect(report.summary.totalBrandAppearances).toBe(45);
+    expect(report.summary.ownedShareOfVoice).toBeCloseTo((10 / 45) * 100);
+    expect(report.brands.map((brand) => brand.id)).toEqual([
+      owned.id,
+      "c1",
+      "c2",
+      "c3",
+      "c4",
+    ]);
+  });
+
+  it("uses brand name and id as deterministic ranking tie-breakers", () => {
+    const report = buildBrandComparison(
+      [
+        owned,
+        { id: "z", name: "Beta", kind: "competitor" },
+        { id: "b", name: "Alpha", kind: "competitor" },
+        { id: "a", name: "Alpha", kind: "competitor" },
+      ],
+      day,
+      ["z", "b", "a"].map((brandId) => ({
+        metric_date: "2026-08-10",
+        brand_id: brandId,
+        deterministic_responses: 2,
+        extracted_responses: 0,
+        overlap_responses: 0,
+        owned_mentioned_responses: 0,
+      })),
+    );
+
+    expect(report.brands.slice(1).map((brand) => brand.id)).toEqual([
+      "a",
+      "b",
+      "z",
+    ]);
+  });
+
+  it.each([
+    [8, 4, 40],
+    [4, 8, -40],
+    [4, 4, 0],
+  ])("calculates ahead, behind, and tied gaps", (ownedCount, competitorCount, gap) => {
+    const report = buildBrandComparison(
+      [owned, competitor],
+      day,
+      [
+        {
+          metric_date: "2026-08-10",
+          brand_id: owned.id,
+          deterministic_responses: ownedCount,
+          extracted_responses: 0,
+          overlap_responses: 0,
+          owned_mentioned_responses: ownedCount,
+        },
+        {
+          metric_date: "2026-08-10",
+          brand_id: competitor.id,
+          deterministic_responses: competitorCount,
+          extracted_responses: 0,
+          overlap_responses: 0,
+          owned_mentioned_responses: ownedCount,
+        },
+      ],
+    );
+
+    expect(
+      report.summary.competitiveGap?.differencePercentagePoints,
+    ).toBe(gap);
+  });
+
+  it("marks Share of Voice and the gap unavailable without competitors", () => {
+    const report = buildBrandComparison([owned], day, [
+      {
+        metric_date: "2026-08-10",
+        brand_id: owned.id,
+        deterministic_responses: 3,
+        extracted_responses: 0,
+        overlap_responses: 0,
+        owned_mentioned_responses: 3,
+      },
+    ]);
+
+    expect(report.summary.ownedShareOfVoice).toBeNull();
+    expect(report.summary.competitiveGap).toBeNull();
+    expect(report.series[0]?.metrics.owned?.shareOfVoice).toBeNull();
+  });
+
+  it("keeps daily Share of Voice null when no tracked brand appears", () => {
+    const report = buildBrandComparison([owned, competitor], day, []);
+
+    expect(report.summary.ownedShareOfVoice).toBeNull();
+    expect(report.series[0]?.metrics.owned?.shareOfVoice).toBeNull();
+    expect(
+      report.series[0]?.metrics[`competitor_${competitor.id}`]?.shareOfVoice,
+    ).toBeNull();
+  });
+});
+
+describe("overview product visibility", () => {
+  it("hides the product row only when both product collections are empty", () => {
+    expect(hasOverviewProducts(undefined)).toBe(false);
+    expect(hasOverviewProducts({ topProducts: [], recentProducts: [] })).toBe(
+      false,
+    );
+    expect(hasOverviewProducts({ topProducts: [{}], recentProducts: [] })).toBe(
+      true,
+    );
+    expect(hasOverviewProducts({ topProducts: [], recentProducts: [{}] })).toBe(
+      true,
+    );
   });
 });
