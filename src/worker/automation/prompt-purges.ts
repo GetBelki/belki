@@ -390,6 +390,60 @@ export async function processPromptPurge(env: Env, purgeJobId: string): Promise<
   const now = nowIso();
   const controlStatements: D1PreparedStatement[] = [
     env.CONTROL_DB.prepare(
+      `INSERT INTO deleted_entity_extraction_usage_daily (
+        workspace_id, project_id, usage_date, charged_tasks, input_tokens,
+        output_tokens, estimated_cost_usd, updated_at
+      )
+      SELECT job.workspace_id, job.project_id, substr(chunk.completed_at, 1, 10),
+        COUNT(*), COALESCE(SUM(chunk.input_tokens), 0),
+        COALESCE(SUM(chunk.output_tokens), 0),
+        COALESCE(SUM(chunk.estimated_cost_usd), 0), ?
+      FROM entity_extraction_chunks chunk
+      JOIN entity_extraction_jobs job ON job.id = chunk.job_id
+      WHERE job.tracked_query_id = ? AND chunk.status = 'completed'
+      GROUP BY job.workspace_id, job.project_id, substr(chunk.completed_at, 1, 10)
+      ON CONFLICT(project_id, usage_date) DO UPDATE SET
+        charged_tasks = charged_tasks + excluded.charged_tasks,
+        input_tokens = input_tokens + excluded.input_tokens,
+        output_tokens = output_tokens + excluded.output_tokens,
+        estimated_cost_usd = estimated_cost_usd + excluded.estimated_cost_usd,
+        updated_at = excluded.updated_at`,
+    ).bind(now, job.tracked_query_id),
+    env.CONTROL_DB.prepare(
+      "DELETE FROM entity_mentions WHERE tracked_query_id = ?",
+    ).bind(job.tracked_query_id),
+    env.CONTROL_DB.prepare(
+      "DELETE FROM entity_extraction_jobs WHERE tracked_query_id = ?",
+    ).bind(job.tracked_query_id),
+    env.CONTROL_DB.prepare(
+      `DELETE FROM project_entities
+       WHERE project_id = ? AND tracked_brand_id IS NULL
+         AND NOT EXISTS (
+           SELECT 1 FROM entity_mentions mention
+           WHERE mention.entity_id = project_entities.id
+         )`,
+    ).bind(job.project_id),
+    env.CONTROL_DB.prepare(
+      `UPDATE project_entities SET
+        snapshot_count = (
+          SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
+          WHERE mention.entity_id = project_entities.id
+        ),
+        prompt_count = (
+          SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
+          WHERE mention.entity_id = project_entities.id
+        ),
+        competitor_snapshot_count = (
+          SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
+          WHERE mention.entity_id = project_entities.id AND mention.relationship = 'competitor'
+        ),
+        competitor_prompt_count = (
+          SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
+          WHERE mention.entity_id = project_entities.id AND mention.relationship = 'competitor'
+        ),
+        updated_at = ? WHERE project_id = ?`,
+    ).bind(now, job.project_id),
+    env.CONTROL_DB.prepare(
       `INSERT INTO deleted_prompt_usage_daily (
         workspace_id, project_id, usage_date, requested_runs, charged_runs,
         provider_cost_usd, updated_at

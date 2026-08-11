@@ -1,6 +1,7 @@
 import { Hono } from "hono";
 import type {
   ExportQueueMessage,
+  EntityExtractionQueueMessage,
   JobQueueMessage,
   NormalizeQueueMessage,
   NotificationQueueMessage,
@@ -43,6 +44,10 @@ import {
   reconcileProductEnrichmentJobs,
   verifyProductEnrichmentTag,
 } from "./automation/product-enrichment";
+import {
+  entityExtractionBatch,
+  reconcileEntityExtractionJobs,
+} from "./automation/entity-extraction";
 
 const app = new Hono<AppEnv>();
 
@@ -231,6 +236,12 @@ async function queue(
         batch as MessageBatch<ProductEnrichmentQueueMessage>,
       );
       return;
+    case "ai-tracker-entity-extraction":
+      await entityExtractionBatch(
+        env,
+        batch as MessageBatch<EntityExtractionQueueMessage>,
+      );
+      return;
     default:
       batch.ackAll();
   }
@@ -250,6 +261,7 @@ async function scheduled(
     metrics.recoveredPostbacks = await collectReadyTasks(env);
     metrics.recoveredProductInfoPostbacks = await collectReadyProductInfoTasks(env);
     metrics.reconciledPromptPurges = await reconcilePromptPurges(env);
+    metrics.reconciledEntityExtractions = await reconcileEntityExtractionJobs(env);
     const backfill = await backfillAnalyticsReadModel(env);
     metrics.analyticsBackfillProjects = backfill.projects;
     metrics.analyticsBackfillSnapshots = backfill.snapshots;

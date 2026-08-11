@@ -4,6 +4,7 @@ import {
   LayoutDashboard,
   LogOut,
   Menu,
+  ScanSearch,
   ShoppingBag,
   Settings,
   Users,
@@ -24,6 +25,7 @@ const NAVIGATION = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/prompts", label: "Prompts", icon: PromptsIcon },
   { to: "/citations", label: "Citation Sources", icon: SourcesIcon },
+  { to: "/brands", label: "Entities", icon: ScanSearch },
   { to: "/shopping", label: "Shopping", icon: ShoppingBag },
 ] as const;
 

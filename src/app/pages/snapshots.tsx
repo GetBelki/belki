@@ -105,7 +105,7 @@ function SnapshotTable({
           ),
           entities: (
             <div className="metric-pair">
-              <span>{snapshot.brand_entities_count} brands</span>
+              <span>{snapshot.detected_entities_count} detected</span>
               <span>{snapshot.products_count} products</span>
             </div>
           ),
@@ -388,6 +388,7 @@ export function SnapshotDetailPage() {
     domains,
     items,
     brandMentions,
+    detectedEntities,
   } = detail.data;
   const fanOutQueries = snapshot.fan_out_queries.map(fanOutLabel).filter(Boolean) as string[];
   const backPath = "/prompts";
@@ -432,7 +433,7 @@ export function SnapshotDetailPage() {
         <div><span>Citations</span><strong>{sources.length}</strong></div>
         <div><span>Retrieved results</span><strong>{searchResults.length}</strong></div>
         <div><span>Fan-out queries</span><strong>{fanOutQueries.length}</strong></div>
-        <div><span>Brand mentions</span><strong>{brandMentions.length}</strong></div>
+        <div><span>Detected entities</span><strong>{detectedEntities.length}</strong></div>
         <div><span>Shopping products</span><strong>{products.length}</strong></div>
       </div>
 
@@ -518,6 +519,21 @@ export function SnapshotDetailPage() {
                   <div key={brand.id}>
                     <strong>{brand.name}</strong>
                     <span>{brand.kind} · matched {brand.matchedTerms.join(", ")}</span>
+                  </div>
+                ))}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {detectedEntities.length ? (
+            <Card className="evidence-section">
+              <CardHeader title="Detected entities" description="Contextual named entities extracted from the answer and validated against its exact text." />
+              <CardContent className="entity-list detected-entity-list">
+                {detectedEntities.map((entity) => (
+                  <div key={entity.id}>
+                    <strong>{entity.canonical_name}</strong>
+                    <span>{entity.entity_type} · {entity.relationship} · {Math.round(entity.confidence * 100)}% confidence</span>
+                    {entity.evidence[0] ? <small>“{entity.evidence[0]}”</small> : null}
                   </div>
                 ))}
               </CardContent>

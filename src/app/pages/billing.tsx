@@ -38,6 +38,7 @@ interface BillingReport {
     byCategory: {
       promptTracking: BillingCategory;
       productEnrichment: BillingCategory;
+      entityExtraction: BillingCategory;
     };
   };
   series: Array<{
@@ -45,15 +46,24 @@ interface BillingReport {
     totalCost: number;
     promptTrackingCost: number;
     productEnrichmentCost: number;
+    entityExtractionCost: number;
     totalTasks: number;
     promptTrackingTasks: number;
     productEnrichmentTasks: number;
+    entityExtractionTasks: number;
   }>;
   enrichmentWarning: {
     workspaceMonthToDateTasks: number;
     workspaceMonthToDateCost: number;
     threshold: number;
     exceeded: boolean;
+  };
+  entityExtractionWarning: {
+    workspaceMonthToDateTasks: number;
+    workspaceMonthToDateCost: number;
+    threshold: number;
+    exceeded: boolean;
+    costIsEstimated: true;
   };
 }
 
@@ -129,7 +139,7 @@ export default function BillingPage() {
       <PageHeader
         eyebrow="Provider usage"
         title="Billing"
-        description="Track provider charges across prompt monitoring and product enrichment."
+        description="Track provider charges and estimated AI inference costs by workload."
         action={
           <div className="billing-period-toggle" aria-label="Billing period">
             <button
@@ -165,6 +175,19 @@ export default function BillingPage() {
         </div>
       ) : null}
 
+      {report.data?.entityExtractionWarning.exceeded ? (
+        <div className="billing-warning" role="status">
+          <AlertTriangle size={17} />
+          <div>
+            <strong>Entity extraction cost warning</strong>
+            <span>
+              Estimated workspace extraction cost is {formatProviderCost(report.data.entityExtractionWarning.workspaceMonthToDateCost)} this month,
+              above the {formatProviderCost(report.data.entityExtractionWarning.threshold)} warning level.
+            </span>
+          </div>
+        </div>
+      ) : null}
+
       {report.isPending ? (
         <div className="billing-summary-grid">
           {Array.from({ length: 4 }, (_, index) => (
@@ -174,7 +197,7 @@ export default function BillingPage() {
       ) : (
         <div className="billing-summary-grid">
           <BillingMetric
-            label="Total provider cost"
+            label="Total tracked cost"
             value={formatProviderCost(summary?.totalCost ?? 0)}
             detail={periodLabel}
             icon={<CircleDollarSign size={18} />}
@@ -182,13 +205,13 @@ export default function BillingPage() {
           <BillingMetric
             label="Charged tasks"
             value={compact(summary?.chargedTasks ?? 0)}
-            detail="Prompt tracking and product enrichment"
+            detail="All provider and inference workloads"
             icon={<ReceiptText size={18} />}
           />
           <BillingMetric
-            label="Average per run"
+            label="Average per task"
             value={formatProviderCost(summary?.averageCost ?? 0)}
-            detail="Across charged runs"
+            detail="Across provider tasks and AI calls"
             icon={<Gauge size={18} />}
           />
           <BillingMetric
@@ -214,6 +237,17 @@ export default function BillingPage() {
             </div>
           </Card>
           <Card className="billing-breakdown-card">
+            <span className="billing-category-swatch entities" />
+            <div>
+              <strong>Entity extraction <small className="estimated-label">Estimated</small></strong>
+              <span>{compact(summary.byCategory.entityExtraction.chargedTasks)} inference calls</span>
+            </div>
+            <div>
+              <strong>{formatProviderCost(summary.byCategory.entityExtraction.totalCost)}</strong>
+              <span>{summary.byCategory.entityExtraction.sharePercent.toFixed(1)}% of total · {formatProviderCost(summary.byCategory.entityExtraction.averageCost)} avg.</span>
+            </div>
+          </Card>
+          <Card className="billing-breakdown-card">
             <span className="billing-category-swatch enrichment" />
             <div>
               <strong>Product enrichment</strong>
@@ -229,8 +263,8 @@ export default function BillingPage() {
 
       <Card className="billing-chart-card">
         <CardHeader
-          title="Daily provider cost"
-          description={`${periodLabel} · stacked by provider workload`}
+          title="Daily tracked cost"
+          description={`${periodLabel} · provider charges plus estimated entity inference at list price`}
         />
         <div className="billing-chart">
           {report.isPending ? (
@@ -242,8 +276,8 @@ export default function BillingPage() {
             />
           ) : (summary?.chargedTasks ?? 0) === 0 ? (
             <EmptyState
-              title="No provider charges in this period"
-              description="Charges will appear after a monitored prompt is submitted."
+              title="No tracked costs in this period"
+              description="Costs will appear after a monitored prompt or enrichment task runs."
             />
           ) : (
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
@@ -280,7 +314,7 @@ export default function BillingPage() {
                   }}
                   formatter={(value, name) => [
                     formatProviderCost(Number(value)),
-                    name === "Prompt tracking" ? "Prompt tracking" : "Product enrichment",
+                    String(name),
                   ]}
                   labelFormatter={(value) => {
                     const date =
@@ -308,6 +342,14 @@ export default function BillingPage() {
                   fill="#7c3aed"
                   maxBarSize={30}
                   name="Product enrichment"
+                  stackId="provider-cost"
+                  radius={[2, 2, 0, 0]}
+                />
+                <Bar
+                  dataKey="entityExtractionCost"
+                  fill="#0f766e"
+                  maxBarSize={30}
+                  name="Entity extraction (estimated)"
                   stackId="provider-cost"
                   radius={[2, 2, 0, 0]}
                 />

@@ -26,6 +26,7 @@ describe("project navigation", () => {
     "/prompts/library",
     "/snapshots",
     "/citations",
+    "/brands",
     "/shopping",
     "/settings",
   ])("preserves project-level section navigation on %s", (pathname) => {

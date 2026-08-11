@@ -875,7 +875,14 @@ analyticsRoutes.get(
       c.get("timing"),
     );
     const dates = billingDateRange(input.period);
-    const [promptRows, enrichmentRows, workspaceEnrichment, workspaceSettings] = await Promise.all([
+    const [
+      promptRows,
+      enrichmentRows,
+      entityRows,
+      workspaceEnrichment,
+      workspaceEntityExtraction,
+      workspaceSettings,
+    ] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT metric_date, SUM(charged_runs) AS charged_runs,
         SUM(provider_cost_usd) AS provider_cost_usd
@@ -932,6 +939,36 @@ analyticsRoutes.get(
         )
         .all<BillingDailyRow>(),
       c.env.CONTROL_DB.prepare(
+        `SELECT metric_date, SUM(charged_runs) AS charged_runs,
+          SUM(provider_cost_usd) AS provider_cost_usd
+         FROM (
+           SELECT substr(chunk.completed_at, 1, 10) AS metric_date,
+             COUNT(*) AS charged_runs,
+             COALESCE(SUM(chunk.estimated_cost_usd), 0) AS provider_cost_usd
+           FROM entity_extraction_chunks chunk
+           JOIN entity_extraction_jobs job ON job.id = chunk.job_id
+           WHERE job.project_id = ? AND job.workspace_id = ?
+             AND chunk.status = 'completed' AND chunk.completed_at >= ? AND chunk.completed_at < ?
+           GROUP BY metric_date
+           UNION ALL
+           SELECT usage_date, charged_tasks, estimated_cost_usd
+           FROM deleted_entity_extraction_usage_daily
+           WHERE project_id = ? AND workspace_id = ?
+             AND usage_date >= substr(?, 1, 10) AND usage_date < substr(?, 1, 10)
+         ) usage GROUP BY metric_date ORDER BY metric_date`,
+      )
+        .bind(
+          input.projectId,
+          principal.workspaceId,
+          dates.startTimestamp,
+          dates.endExclusiveTimestamp,
+          input.projectId,
+          principal.workspaceId,
+          dates.startTimestamp,
+          dates.endExclusiveTimestamp,
+        )
+        .all<BillingDailyRow>(),
+      c.env.CONTROL_DB.prepare(
         `SELECT COUNT(*) AS charged_runs, COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
          FROM product_enrichment_jobs
          WHERE workspace_id = ? AND request_cost_usd IS NOT NULL AND request_cost_usd > 0
@@ -940,16 +977,41 @@ analyticsRoutes.get(
         .bind(principal.workspaceId)
         .first<{ charged_runs: number; provider_cost_usd: number }>(),
       c.env.CONTROL_DB.prepare(
-        "SELECT product_enrichment_warning_usd FROM workspaces WHERE id = ?",
+        `SELECT SUM(charged_runs) AS charged_runs,
+          SUM(provider_cost_usd) AS provider_cost_usd FROM (
+          SELECT COUNT(*) AS charged_runs,
+            COALESCE(SUM(chunk.estimated_cost_usd), 0) AS provider_cost_usd
+          FROM entity_extraction_chunks chunk
+          JOIN entity_extraction_jobs job ON job.id = chunk.job_id
+          WHERE job.workspace_id = ? AND chunk.status = 'completed'
+            AND chunk.completed_at >= strftime('%Y-%m-01T00:00:00.000Z', 'now')
+          UNION ALL
+          SELECT COALESCE(SUM(charged_tasks), 0),
+            COALESCE(SUM(estimated_cost_usd), 0)
+          FROM deleted_entity_extraction_usage_daily
+          WHERE workspace_id = ? AND usage_date >= strftime('%Y-%m-01', 'now')
+        ) usage`,
+      )
+        .bind(principal.workspaceId, principal.workspaceId)
+        .first<{ charged_runs: number; provider_cost_usd: number }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT product_enrichment_warning_usd, entity_extraction_warning_usd
+         FROM workspaces WHERE id = ?`,
       )
         .bind(principal.workspaceId)
-        .first<{ product_enrichment_warning_usd: number }>(),
+        .first<{
+          product_enrichment_warning_usd: number;
+          entity_extraction_warning_usd: number;
+        }>(),
     ]);
     const promptReport = buildBillingReport(promptRows.results, dates);
     const enrichmentReport = buildBillingReport(enrichmentRows.results, dates);
-    const mergedReport = mergeBillingReports(promptReport, enrichmentReport);
+    const entityReport = buildBillingReport(entityRows.results, dates);
+    const mergedReport = mergeBillingReports(promptReport, enrichmentReport, entityReport);
     const threshold = Number(workspaceSettings?.product_enrichment_warning_usd ?? 10);
     const workspaceMonthToDateCost = Number(workspaceEnrichment?.provider_cost_usd ?? 0);
+    const entityThreshold = Number(workspaceSettings?.entity_extraction_warning_usd ?? 5);
+    const entityMonthToDateCost = Number(workspaceEntityExtraction?.provider_cost_usd ?? 0);
     return c.json({
       data: {
         period: input.period,
@@ -962,6 +1024,13 @@ analyticsRoutes.get(
           workspaceMonthToDateCost,
           threshold,
           exceeded: threshold > 0 && workspaceMonthToDateCost >= threshold,
+        },
+        entityExtractionWarning: {
+          workspaceMonthToDateTasks: Number(workspaceEntityExtraction?.charged_runs ?? 0),
+          workspaceMonthToDateCost: entityMonthToDateCost,
+          threshold: entityThreshold,
+          exceeded: entityThreshold > 0 && entityMonthToDateCost >= entityThreshold,
+          costIsEstimated: true,
         },
       },
     });
@@ -2979,6 +3048,69 @@ analyticsRoutes.get(
 );
 
 analyticsRoutes.get(
+  "/analytics/entities",
+  zValidator("query", DateRangeSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const input = c.req.valid("query");
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
+    const dates = range(input);
+    const rows = await c.env.CONTROL_DB.prepare(
+      `SELECT entity.id, entity.canonical_name, entity.entity_type,
+        entity.relationship, entity.status, entity.aliases_json, entity.domains_json,
+        entity.provider_corroborated, entity.domain_corroborated,
+        entity.snapshot_count, entity.prompt_count,
+        entity.competitor_snapshot_count, entity.competitor_prompt_count,
+        entity.first_seen_at, entity.last_seen_at, entity.tracked_brand_id,
+        COUNT(DISTINCT mention.snapshot_id) AS period_snapshot_count,
+        COUNT(DISTINCT mention.tracked_query_id) AS period_prompt_count,
+        MAX(mention.confidence) AS confidence,
+        (
+          SELECT latest.evidence_json FROM entity_mentions latest
+          WHERE latest.entity_id = entity.id
+            AND latest.captured_at >= ? AND latest.captured_at < ?
+          ORDER BY latest.captured_at DESC, latest.id DESC
+          LIMIT 1
+        ) AS latest_evidence_json
+       FROM project_entities entity
+       LEFT JOIN entity_mentions mention ON mention.entity_id = entity.id
+         AND mention.captured_at >= ? AND mention.captured_at < ?
+       WHERE entity.project_id = ? AND entity.status != 'merged'
+       GROUP BY entity.id
+       ORDER BY
+         CASE entity.status WHEN 'candidate' THEN 0 WHEN 'auto_tracked' THEN 1
+           WHEN 'tracked' THEN 2 ELSE 3 END,
+         period_snapshot_count DESC, entity.last_seen_at DESC, entity.canonical_name`,
+    )
+      .bind(
+        `${dates.from}T00:00:00.000Z`,
+        exclusiveDateEnd(dates.to),
+        `${dates.from}T00:00:00.000Z`,
+        exclusiveDateEnd(dates.to),
+        input.projectId,
+      )
+      .all<Record<string, unknown> & {
+        aliases_json: string;
+        domains_json: string;
+        latest_evidence_json: string | null;
+      }>();
+    return c.json({
+      data: rows.results.map((entity) => ({
+        ...entity,
+        aliases: jsonParse<string[]>(entity.aliases_json, []),
+        domains: jsonParse<string[]>(entity.domains_json, []),
+        latestEvidence: jsonParse<string[]>(entity.latest_evidence_json, []),
+      })),
+    });
+  },
+);
+
+analyticsRoutes.get(
   "/analytics/products",
   zValidator("query", DateRangeSchema),
   async (c) => {
@@ -3136,6 +3268,7 @@ analyticsRoutes.get(
       domains,
       items,
       trackedBrands,
+      detectedEntities,
       crawlJob,
     ] =
       await Promise.all([
@@ -3204,6 +3337,21 @@ analyticsRoutes.get(
             aliases_json: string;
           }>(),
         c.env.CONTROL_DB.prepare(
+          `SELECT mention.id, mention.entity_id, mention.surface_text,
+            mention.occurrence_count, mention.entity_type, mention.relationship,
+            mention.confidence, mention.evidence_json, mention.sources_json,
+            entity.canonical_name, entity.status, entity.tracked_brand_id
+           FROM entity_mentions mention
+           JOIN project_entities entity ON entity.id = mention.entity_id
+           WHERE mention.snapshot_id = ?
+           ORDER BY mention.confidence DESC, entity.canonical_name`,
+        )
+          .bind(id)
+          .all<Record<string, unknown> & {
+            evidence_json: string;
+            sources_json: string;
+          }>(),
+        c.env.CONTROL_DB.prepare(
           `SELECT request_cost_usd
            FROM crawl_jobs
            WHERE id = ? AND workspace_id = ?`,
@@ -3266,6 +3414,11 @@ analyticsRoutes.get(
         domains: domains.results,
         items: structuredItems,
         brandMentions,
+        detectedEntities: detectedEntities.results.map((entity) => ({
+          ...entity,
+          evidence: jsonParse<string[]>(entity.evidence_json, []),
+          sources: jsonParse<string[]>(entity.sources_json, []),
+        })),
       },
     });
   },

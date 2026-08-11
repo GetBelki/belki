@@ -194,16 +194,21 @@ describe("billing reporting", () => {
       [{ metric_date: "2026-08-10", charged_runs: 1, provider_cost_usd: 0.1 }],
       dates,
     );
+    const entities = buildBillingReport(
+      [{ metric_date: "2026-08-10", charged_runs: 2, provider_cost_usd: 0.05 }],
+      dates,
+    );
 
-    expect(mergeBillingReports(prompt, enrichment)).toMatchObject({
+    expect(mergeBillingReports(prompt, enrichment, entities)).toMatchObject({
       summary: {
-        totalCost: 0.3,
-        chargedTasks: 3,
-        averageCost: 0.1,
+        totalCost: 0.35,
+        chargedTasks: 5,
+        averageCost: 0.07,
         highestDailyCost: 0.2,
         byCategory: {
           promptTracking: { totalCost: 0.2, chargedTasks: 2 },
           productEnrichment: { totalCost: 0.1, chargedTasks: 1 },
+          entityExtraction: { totalCost: 0.05, chargedTasks: 2 },
         },
       },
       series: [
@@ -212,12 +217,14 @@ describe("billing reporting", () => {
           totalCost: 0.2,
           promptTrackingCost: 0.2,
           productEnrichmentCost: 0,
+          entityExtractionCost: 0,
         },
         {
           date: "2026-08-10",
-          totalCost: 0.1,
+          totalCost: 0.15,
           promptTrackingCost: 0,
           productEnrichmentCost: 0.1,
+          entityExtractionCost: 0.05,
         },
       ],
     });

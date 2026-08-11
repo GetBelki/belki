@@ -12,6 +12,7 @@ import { sha256 } from "../lib/crypto";
 import { getShard } from "../lib/shards";
 import { promptPurgeRequested } from "../lib/prompt-purges";
 import { parseAdvancedPayload } from "./dataforseo-schema";
+import { enqueueEntityExtractionForSnapshot } from "../automation/entity-extraction";
 
 interface JobRow {
   id: string;
@@ -141,6 +142,13 @@ export async function normalizeSnapshot(
     )
       .bind(nowIso(), nowIso(), job.id)
       .run();
+    await enqueueEntityExtractionForSnapshot(env, {
+      id: existing.id,
+      workspaceId: job.workspace_id,
+      projectId: job.project_id,
+      trackedQueryId: job.tracked_query_id,
+      shardId: job.shard_id,
+    });
     return existing.id;
   }
 
@@ -631,6 +639,13 @@ export async function normalizeSnapshot(
     snapshotId,
     shardId: job.shard_id,
   } satisfies RollupQueueMessage);
+  await enqueueEntityExtractionForSnapshot(env, {
+    id: snapshotId,
+    workspaceId: job.workspace_id,
+    projectId: job.project_id,
+    trackedQueryId: job.tracked_query_id,
+    shardId: job.shard_id,
+  });
   return snapshotId;
 }
 

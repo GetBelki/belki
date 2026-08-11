@@ -6,12 +6,14 @@ import {
   ExportInputSchema,
   WebhookDestinationInputSchema,
   ProductEnrichmentSettingsSchema,
+  EntityActionSchema,
+  EntityExtractionSettingsSchema,
 } from "../../shared/contracts";
 import type { AppEnv } from "../lib/app";
 import { requireRole } from "../lib/auth";
 import { writeAudit } from "../lib/audit";
 import { hmac } from "../lib/crypto";
-import { ApiError, nowIso } from "../lib/http";
+import { ApiError, jsonParse, nowIso } from "../lib/http";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 
@@ -77,6 +79,233 @@ automationRoutes.patch(
       .run();
     if (result.meta.changes === 0) throw new ApiError(404, "alert_not_found", "Alert not found.");
     return c.json({ data: { id, isRead: true } });
+  },
+);
+
+automationRoutes.get("/settings/entity-extraction", async (c) => {
+  const principal = requireRole(c, "admin");
+  const [workspace, usage] = await Promise.all([
+    c.env.CONTROL_DB.prepare(
+      `SELECT entity_extraction_enabled, entity_auto_track_enabled,
+        entity_extraction_warning_usd
+       FROM workspaces WHERE id = ?`,
+    ).bind(principal.workspaceId).first<{
+      entity_extraction_enabled: number;
+      entity_auto_track_enabled: number;
+      entity_extraction_warning_usd: number;
+    }>(),
+    c.env.CONTROL_DB.prepare(
+      `SELECT SUM(tasks) AS tasks, SUM(cost) AS cost FROM (
+        SELECT COUNT(*) AS tasks, COALESCE(SUM(chunk.estimated_cost_usd), 0) AS cost
+        FROM entity_extraction_chunks chunk
+        JOIN entity_extraction_jobs job ON job.id = chunk.job_id
+        WHERE job.workspace_id = ? AND chunk.status = 'completed'
+          AND chunk.completed_at >= strftime('%Y-%m-01T00:00:00.000Z', 'now')
+        UNION ALL
+        SELECT COALESCE(SUM(charged_tasks), 0), COALESCE(SUM(estimated_cost_usd), 0)
+        FROM deleted_entity_extraction_usage_daily
+        WHERE workspace_id = ? AND usage_date >= strftime('%Y-%m-01', 'now')
+      ) usage`,
+    ).bind(principal.workspaceId, principal.workspaceId).first<{ tasks: number; cost: number }>(),
+  ]);
+  if (!workspace) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
+  const threshold = Number(workspace.entity_extraction_warning_usd);
+  const cost = Number(usage?.cost ?? 0);
+  return c.json({
+    data: {
+      enabled: workspace.entity_extraction_enabled === 1,
+      autoTrackEnabled: workspace.entity_auto_track_enabled === 1,
+      monthlyWarningUsd: threshold,
+      monthToDateTasks: Number(usage?.tasks ?? 0),
+      monthToDateCost: cost,
+      warningExceeded: threshold > 0 && cost >= threshold,
+      costIsEstimated: true,
+    },
+  });
+});
+
+automationRoutes.patch(
+  "/settings/entity-extraction",
+  zValidator("json", EntityExtractionSettingsSchema),
+  async (c) => {
+    const principal = requireRole(c, "admin");
+    const input = c.req.valid("json");
+    const current = await c.env.CONTROL_DB.prepare(
+      `SELECT entity_extraction_enabled, entity_auto_track_enabled,
+        entity_extraction_warning_usd FROM workspaces WHERE id = ?`,
+    ).bind(principal.workspaceId).first<{
+      entity_extraction_enabled: number;
+      entity_auto_track_enabled: number;
+      entity_extraction_warning_usd: number;
+    }>();
+    if (!current) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
+    const enabled = input.enabled ?? current.entity_extraction_enabled === 1;
+    const autoTrackEnabled =
+      input.autoTrackEnabled ?? current.entity_auto_track_enabled === 1;
+    const threshold =
+      input.monthlyWarningUsd ?? current.entity_extraction_warning_usd;
+    const now = nowIso();
+    const statements: D1PreparedStatement[] = [
+      c.env.CONTROL_DB.prepare(
+        `UPDATE workspaces SET entity_extraction_enabled = ?,
+          entity_auto_track_enabled = ?, entity_extraction_warning_usd = ?,
+          updated_at = ? WHERE id = ?`,
+      ).bind(
+        enabled ? 1 : 0,
+        autoTrackEnabled ? 1 : 0,
+        threshold,
+        now,
+        principal.workspaceId,
+      ),
+    ];
+    if (!enabled) {
+      statements.push(c.env.CONTROL_DB.prepare(
+        `UPDATE entity_extraction_jobs SET status = 'cancelled',
+          error_message = 'Workspace entity extraction is paused.', updated_at = ?
+         WHERE workspace_id = ? AND status IN ('queued', 'failed')`,
+      ).bind(now, principal.workspaceId));
+    }
+    await c.env.CONTROL_DB.batch(statements);
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "entity_extraction.settings_updated",
+      resourceType: "workspace",
+      resourceId: principal.workspaceId,
+      metadata: { enabled, autoTrackEnabled, monthlyWarningUsd: threshold },
+    });
+    return c.json({ data: { enabled, autoTrackEnabled, monthlyWarningUsd: threshold } });
+  },
+);
+
+automationRoutes.patch(
+  "/entities/:id",
+  zValidator("param", IdParamSchema),
+  zValidator("json", EntityActionSchema),
+  async (c) => {
+    const principal = requireRole(c, "editor");
+    const { id } = c.req.valid("param");
+    const input = c.req.valid("json");
+    const entity = await c.env.CONTROL_DB.prepare(
+      `SELECT entity.* FROM project_entities entity
+       JOIN projects project ON project.id = entity.project_id
+       WHERE entity.id = ? AND project.workspace_id = ? AND project.deleted_at IS NULL`,
+    ).bind(id, principal.workspaceId).first<{
+      id: string;
+      project_id: string;
+      canonical_name: string;
+      aliases_json: string;
+      domains_json: string;
+      entity_type: string;
+      status: string;
+    }>();
+    if (!entity) throw new ApiError(404, "entity_not_found", "Entity not found.");
+    const now = nowIso();
+    if (input.action === "track") {
+      if (!['brand', 'company', 'organization'].includes(entity.entity_type)) {
+        throw new ApiError(422, "entity_not_trackable", "Only brands and organizations can be tracked.");
+      }
+      await c.env.CONTROL_DB.batch([
+        c.env.CONTROL_DB.prepare(
+          `INSERT OR IGNORE INTO tracked_brands (
+            id, project_id, kind, name, aliases_json, domains_json, created_at, updated_at
+          ) VALUES (?, ?, 'competitor', ?, ?, ?, ?, ?)`,
+        ).bind(
+          entity.id,
+          entity.project_id,
+          entity.canonical_name,
+          entity.aliases_json,
+          entity.domains_json,
+          now,
+          now,
+        ),
+        c.env.CONTROL_DB.prepare(
+          `UPDATE project_entities SET status = 'tracked', relationship = 'competitor',
+            tracked_brand_id = ?, updated_at = ? WHERE id = ?`,
+        ).bind(entity.id, now, entity.id),
+      ]);
+    } else if (input.action === "ignore") {
+      await c.env.CONTROL_DB.prepare(
+        "UPDATE project_entities SET status = 'ignored', updated_at = ? WHERE id = ?",
+      ).bind(now, entity.id).run();
+    } else if (input.action === "restore") {
+      await c.env.CONTROL_DB.prepare(
+        `UPDATE project_entities SET status = CASE WHEN tracked_brand_id IS NULL
+          THEN 'candidate' ELSE 'tracked' END, updated_at = ? WHERE id = ?`,
+      ).bind(now, entity.id).run();
+    } else {
+      const target = await c.env.CONTROL_DB.prepare(
+        `SELECT id, aliases_json, domains_json FROM project_entities
+         WHERE id = ? AND project_id = ? AND status != 'merged'`,
+      ).bind(input.targetEntityId, entity.project_id).first<{
+        id: string;
+        aliases_json: string;
+        domains_json: string;
+      }>();
+      if (!target || target.id === entity.id) {
+        throw new ApiError(422, "invalid_merge_target", "Choose another active entity in this project.");
+      }
+      const mentions = await c.env.CONTROL_DB.prepare(
+        "SELECT * FROM entity_mentions WHERE entity_id = ? ORDER BY captured_at",
+      ).bind(entity.id).all<Record<string, string | number>>();
+      for (const mention of mentions.results) {
+        await c.env.CONTROL_DB.prepare(
+          `INSERT INTO entity_mentions (
+            id, snapshot_id, workspace_id, project_id, tracked_query_id, entity_id,
+            surface_text, occurrence_count, entity_type, relationship, confidence,
+            evidence_json, sources_json, captured_at, created_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(snapshot_id, entity_id) DO UPDATE SET
+            occurrence_count = entity_mentions.occurrence_count + excluded.occurrence_count,
+            confidence = MAX(entity_mentions.confidence, excluded.confidence)`,
+        ).bind(
+          crypto.randomUUID(), mention.snapshot_id, mention.workspace_id,
+          mention.project_id, mention.tracked_query_id, target.id, mention.surface_text,
+          mention.occurrence_count, mention.entity_type, mention.relationship,
+          mention.confidence, mention.evidence_json, mention.sources_json,
+          mention.captured_at, mention.created_at,
+        ).run();
+      }
+      await c.env.CONTROL_DB.batch([
+        c.env.CONTROL_DB.prepare("DELETE FROM entity_mentions WHERE entity_id = ?").bind(entity.id),
+        c.env.CONTROL_DB.prepare(
+          `UPDATE project_entities SET aliases_json = ?, domains_json = ?, updated_at = ? WHERE id = ?`,
+        ).bind(
+          JSON.stringify([...new Set([
+            ...jsonParse<string[]>(target.aliases_json, []),
+            ...jsonParse<string[]>(entity.aliases_json, []),
+            entity.canonical_name,
+          ])]),
+          JSON.stringify([...new Set([
+            ...jsonParse<string[]>(target.domains_json, []),
+            ...jsonParse<string[]>(entity.domains_json, []),
+          ])]),
+          now,
+          target.id,
+        ),
+        c.env.CONTROL_DB.prepare(
+          `UPDATE project_entities SET
+            snapshot_count = (SELECT COUNT(DISTINCT snapshot_id) FROM entity_mentions WHERE entity_id = ?),
+            prompt_count = (SELECT COUNT(DISTINCT tracked_query_id) FROM entity_mentions WHERE entity_id = ?),
+            competitor_snapshot_count = (SELECT COUNT(DISTINCT snapshot_id) FROM entity_mentions WHERE entity_id = ? AND relationship = 'competitor'),
+            competitor_prompt_count = (SELECT COUNT(DISTINCT tracked_query_id) FROM entity_mentions WHERE entity_id = ? AND relationship = 'competitor'),
+            updated_at = ? WHERE id = ?`,
+        ).bind(target.id, target.id, target.id, target.id, now, target.id),
+        c.env.CONTROL_DB.prepare(
+          `UPDATE project_entities SET status = 'merged', merged_into_id = ?, updated_at = ?
+           WHERE id = ?`,
+        ).bind(target.id, now, entity.id),
+      ]);
+    }
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: `entity.${input.action}`,
+      resourceType: "project_entity",
+      resourceId: entity.id,
+      metadata: input.action === "merge" ? { targetEntityId: input.targetEntityId } : undefined,
+    });
+    return c.json({ data: { id: entity.id, action: input.action } });
   },
 );
 
