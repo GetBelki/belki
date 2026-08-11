@@ -390,6 +390,10 @@ export function OverviewPage() {
   const brandComparison = overview.data?.brandComparison;
   const comparisonSummary = brandComparison?.summary;
   const comparisonBrands = brandComparison?.brands ?? [];
+  const ownedBrandName =
+    comparisonBrands.find((brand) => brand.kind === "owned")?.name ??
+    currentProject?.name ??
+    "Your brand";
   const brandComparisonSeries = (brandComparison?.series ?? []).map((point) => ({
     metric_date: point.metric_date,
     ...Object.fromEntries(
@@ -446,10 +450,10 @@ export function OverviewPage() {
             tone="blue"
           />
           <KpiCard
-            label="Competitive gap"
+            label="Visibility gap"
             value={percentagePoints(comparisonSummary?.competitiveGap?.differencePercentagePoints)}
             detail={comparisonSummary?.competitiveGap
-              ? `vs ${comparisonSummary.competitiveGap.competitorName}`
+              ? `${ownedBrandName} ${percent(comparisonSummary.ownedVisibility)} · ${comparisonSummary.competitiveGap.competitorName} ${percent(comparisonSummary.competitiveGap.competitorVisibility)}`
               : "Track a competitor to compare"}
             icon={<Scale size={19} />}
             tone="green"
@@ -461,7 +465,9 @@ export function OverviewPage() {
         <div className="overview-charts-row">
           <Card className="chart-card brand-comparison-card">
             <CardHeader
-              title="Brand visibility vs competitors"
+              title={brandMetric === "visibility"
+                ? "Brand visibility vs competitors"
+                : "Share of Voice vs competitors"}
               description={brandMetric === "visibility"
                 ? "Daily share of completed responses mentioning each brand"
                 : "Daily share of appearances across all tracked brands"}
