@@ -32,7 +32,7 @@ button { border: 0; }
   justify-content: center;
   min-height: 100vh;
 }
-.loader-brand { align-items: center; display: flex; font-size: 17px; font-weight: 720; gap: 9px; margin-bottom: 12px; }
+.loader-brand { align-items: center; display: flex; font-size: 18px; font-weight: 700; gap: 8px; line-height: 1; margin-bottom: 12px; }
 .loader-line { height: 10px; width: 240px; }
 .loader-line.short { width: 160px; }
 .brand-mark {
@@ -116,8 +116,9 @@ button { border: 0; }
 }
 .mobile-topbar strong {
   color: #18181b;
-  font-size: 15px;
+  font-size: 17px;
   font-weight: 650;
+  line-height: 1;
 }
 .mobile-brand {
   align-items: center;
@@ -503,13 +504,13 @@ body {
   box-shadow: none;
   color: #18181b;
   flex: none;
-  height: 34px;
-  width: 34px;
+  height: 28px;
+  width: 28px;
 }
 
 .brand-mark svg {
-  height: 32px;
-  width: 32px;
+  height: 26px;
+  width: 26px;
 }
 
 .sidebar {
@@ -522,8 +523,9 @@ body {
 
 .sidebar-brand {
   color: #09090b;
-  font-size: 16px;
+  font-size: 18px;
   font-weight: 650;
+  line-height: 1;
   margin: 0 8px 22px;
 }
 
@@ -531,7 +533,7 @@ body {
   align-items: center;
   color: inherit;
   display: flex;
-  gap: 9px;
+  gap: 8px;
   min-width: 0;
   text-decoration: none;
 }
