@@ -136,7 +136,7 @@ export function AppLayout() {
             className="mobile-brand"
             to="/"
           >
-            <AppIcon size={25} />
+            <AppIcon size={23} />
             <strong>{APP_NAME}</strong>
           </NavLink>
         </header>
