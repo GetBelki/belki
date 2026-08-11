@@ -7,6 +7,7 @@ import { AppLayout } from "./components/layout";
 import { AcceptInvitePage, LoginPage, ResetPasswordPage, SetupPage } from "./pages/auth";
 import { Skeleton } from "./components/ui";
 import { AppIcon } from "./components/app-icon";
+import { APP_NAME } from "./lib/branding";
 
 const OverviewPage = lazy(() =>
   import("./pages/main").then((module) => ({ default: module.OverviewPage })),
@@ -136,7 +137,7 @@ export function App() {
 function AppLoader() {
   return (
     <div className="app-loader">
-      <div className="loader-brand"><span className="brand-mark"><AppIcon /></span> AI Visibility Tracker</div>
+      <div className="loader-brand"><span className="brand-mark"><AppIcon /></span> {APP_NAME}</div>
       <Skeleton className="loader-line" />
       <Skeleton className="loader-line short" />
     </div>

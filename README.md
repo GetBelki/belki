@@ -1,8 +1,8 @@
-# AI Visibility Tracker
+# Belki
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Xyborg/AI-Visibility-Tracker)
 
-Self-hosted ChatGPT web visibility tracking on Cloudflare. AI Visibility Tracker schedules
+Self-hosted ChatGPT web visibility tracking on Cloudflare. Belki schedules
 DataForSEO LLM Scraper runs, stores normalized evidence, and reports citations,
 retrieved domains, contextual entities, shopping results, and visibility changes.
 
