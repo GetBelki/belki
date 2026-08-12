@@ -33,7 +33,7 @@ const NAVIGATION = [
 ] as const;
 
 export function AppLayout() {
-  const { session, projects, projectId, setProjectId } = useApp();
+  const { session, projects, projectId, setProjectId, currentProject } = useApp();
   const queryClient = useQueryClient();
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -80,7 +80,9 @@ export function AppLayout() {
         />
         <nav className="sidebar-nav">
           <p>Monitor</p>
-          {NAVIGATION.map(({ to, label, icon: Icon, ...item }) => (
+          {NAVIGATION
+            .filter(({ to }) => to !== "/ads" || Number(currentProject?.ads_count ?? 0) > 0)
+            .map(({ to, label, icon: Icon, ...item }) => (
             <NavLink
               key={to}
               to={to}
@@ -91,7 +93,7 @@ export function AppLayout() {
               <Icon size={17} />
               <span>{label}</span>
             </NavLink>
-          ))}
+            ))}
           <p>Manage</p>
           {session.user.role === "owner" || session.user.role === "admin" ? (
             <>

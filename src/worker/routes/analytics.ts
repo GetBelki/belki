@@ -11,6 +11,7 @@ import { requireRole } from "../lib/auth";
 import { writeAudit } from "../lib/audit";
 import { decodeCursor, encodeCursor } from "../lib/cursor";
 import { matchedBrandTerms, normalizeHostname } from "../lib/domain";
+import { allowedAdAssetUrl, normalizeAdItem } from "../lib/ads";
 import { evidenceResponseHeaders } from "../lib/evidence";
 import { getShard } from "../lib/shards";
 import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
@@ -3389,7 +3390,6 @@ analyticsRoutes.get(
       products,
       domains,
       items,
-      ads,
       trackedBrands,
       detectedEntities,
       crawlJob,
@@ -3448,17 +3448,6 @@ analyticsRoutes.get(
           )
           .bind(id)
           .all<Record<string, unknown> & { payload_json: string }>(),
-        shard
-          .prepare(
-            `SELECT id, snapshot_item_id, ordinal, rank_group, rank_absolute,
-              advertiser_identity, advertiser_key, advertiser_name,
-              advertiser_canonical_url, advertiser_domain, title, snippet,
-              canonical_url, destination_domain, image_source_url,
-              favicon_source_url, creative_key
-             FROM snapshot_ads WHERE snapshot_id = ? ORDER BY ordinal`,
-          )
-          .bind(id)
-          .all<Record<string, string | number | null>>(),
         c.env.CONTROL_DB.prepare(
           `SELECT id, kind, name, aliases_json
            FROM tracked_brands WHERE project_id = ? ORDER BY kind DESC, name`,
@@ -3526,7 +3515,32 @@ analyticsRoutes.get(
         {},
       ),
     }));
-    const adSourceUrls = [...new Set(ads.results.flatMap((ad) => [
+    // Provider items are the source of truth for snapshot display. Keeping this
+    // read independent from the derived snapshot_ads table prevents a pending
+    // migration or backfill from making the entire captured response unavailable.
+    const snapshotAds = items.results.flatMap((item) => {
+      const ad = normalizeAdItem(jsonParse<unknown>(item.payload_json, {}));
+      return ad ? [{
+        id: `ad:${String(item.id)}`,
+        snapshot_item_id: String(item.id),
+        ordinal: Number(item.ordinal),
+        rank_group: ad.rankGroup,
+        rank_absolute: ad.rankAbsolute,
+        advertiser_identity: ad.advertiserIdentity,
+        advertiser_key: ad.advertiserKey,
+        advertiser_name: ad.advertiserName,
+        advertiser_canonical_url: ad.advertiserCanonicalUrl,
+        advertiser_domain: ad.advertiserDomain,
+        title: ad.title,
+        snippet: ad.snippet,
+        canonical_url: ad.canonicalUrl,
+        destination_domain: ad.destinationDomain,
+        image_source_url: ad.imageSourceUrl,
+        favicon_source_url: ad.faviconSourceUrl,
+        creative_key: ad.creativeKey,
+      }] : [];
+    });
+    const adSourceUrls = [...new Set(snapshotAds.flatMap((ad) => [
       ad.image_source_url,
       ad.favicon_source_url,
     ]).filter((value): value is string => typeof value === "string" && Boolean(value)))];
@@ -3542,13 +3556,15 @@ analyticsRoutes.get(
     const adAssetUrl = (sourceUrl: unknown) => {
       if (typeof sourceUrl !== "string") return null;
       const asset = adAssetMap.get(sourceUrl);
-      if (!asset || asset.status !== "ready") return null;
-      const key = asset.asset_key.split("/").at(-1);
-      return key
-        ? `/api/v1/ads/assets/${key}?projectId=${encodeURIComponent(index.project_id)}`
-        : null;
+      if (asset?.status === "ready") {
+        const key = asset.asset_key.split("/").at(-1);
+        if (key) {
+          return `/api/v1/ads/assets/${key}?projectId=${encodeURIComponent(index.project_id)}`;
+        }
+      }
+      return allowedAdAssetUrl(sourceUrl)?.href ?? null;
     };
-    const structuredAds = ads.results.map((ad) => ({
+    const structuredAds = snapshotAds.map((ad) => ({
       ...ad,
       image_url: adAssetUrl(ad.image_source_url),
       favicon_url: adAssetUrl(ad.favicon_source_url),

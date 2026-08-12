@@ -105,6 +105,7 @@ export interface Project {
   html_capture_enabled: number;
   query_count: number;
   last_snapshot_at: string | null;
+  ads_count: number;
 }
 
 export interface Session {

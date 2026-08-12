@@ -50,7 +50,7 @@ import {
   entityExtractionBatch,
   reconcileEntityExtractionJobs,
 } from "./automation/entity-extraction";
-import { adAssetBatch } from "./automation/ad-assets";
+import { adAssetBatch, reconcileAdAssets } from "./automation/ad-assets";
 
 const app = new Hono<AppEnv>();
 
@@ -269,6 +269,7 @@ async function scheduled(
     metrics.recoveredProductInfoPostbacks = await collectReadyProductInfoTasks(env);
     metrics.reconciledPromptPurges = await reconcilePromptPurges(env);
     metrics.reconciledEntityExtractions = await reconcileEntityExtractionJobs(env);
+    metrics.reconciledAdAssets = await reconcileAdAssets(env);
     const backfill = await backfillAnalyticsReadModel(env);
     metrics.analyticsBackfillProjects = backfill.projects;
     metrics.analyticsBackfillSnapshots = backfill.snapshots;

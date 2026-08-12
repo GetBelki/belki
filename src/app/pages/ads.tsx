@@ -156,9 +156,15 @@ function AdvertiserIdentity({
   return (
     <span className="advertiser-identity">
       <span className="advertiser-favicon">
-        {faviconUrl ? <img src={faviconUrl} alt="" loading="lazy" />
-          : domain ? <DomainFavicon domain={domain} size={18} />
-          : <Megaphone size={16} />}
+        {domain ? <DomainFavicon domain={domain} size={18} /> : <Megaphone size={16} />}
+        {faviconUrl ? (
+          <img
+            src={faviconUrl}
+            alt=""
+            loading="lazy"
+            onError={(event) => event.currentTarget.remove()}
+          />
+        ) : null}
       </span>
       <span><strong>{name}</strong>{domain ? <small>{domain}</small> : null}</span>
     </span>
@@ -169,8 +175,15 @@ function CreativeCard({ creative }: { creative: AdCreative }) {
   return (
     <article className="ad-creative-card">
       <div className="ad-creative-image">
-        {creative.imageUrl ? <img src={creative.imageUrl} alt="" loading="lazy" />
-          : <ImageIcon size={24} />}
+        <ImageIcon className="ad-image-fallback" size={22} />
+        {creative.imageUrl ? (
+          <img
+            src={creative.imageUrl}
+            alt=""
+            loading="lazy"
+            onError={(event) => event.currentTarget.remove()}
+          />
+        ) : null}
         <Badge>Sponsored</Badge>
       </div>
       <div className="ad-creative-body">
@@ -202,7 +215,7 @@ function CreativeCard({ creative }: { creative: AdCreative }) {
 }
 
 export function AdsPage() {
-  const { projectId } = useApp();
+  const { projectId, currentProject } = useApp();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const period = periodValue(searchParams.get("period"));
@@ -228,6 +241,12 @@ export function AdsPage() {
   });
   if (!projectId) return <NoProject />;
   const data = query.data;
+  const projectHasAds = Number(currentProject?.ads_count ?? 0) > 0;
+  const hasTrendActivity = Boolean(data?.trend.some((row) => row.appearances > 0));
+  const noAdsDetected = !query.isPending
+    && !query.isError
+    && !projectHasAds
+    && Number(data?.summary.appearances ?? 0) === 0;
   const update = (key: string, value: string) => {
     const next = new URLSearchParams(searchParams);
     if (value) next.set(key, value); else next.delete(key);
@@ -239,8 +258,17 @@ export function AdsPage() {
         eyebrow={PERIOD_OPTIONS.find((option) => option.value === period)?.label}
         title="Ads"
         description="Advertisers and sponsored creatives observed in captured ChatGPT responses."
-        action={<Select value={period} onValueChange={(value) => update("period", value)} options={PERIOD_OPTIONS} />}
+        action={<div className="ads-period-select"><Select value={period} onValueChange={(value) => update("period", value)} options={PERIOD_OPTIONS} /></div>}
       />
+      {noAdsDetected ? (
+        <Card className="ads-empty-card">
+          <EmptyState
+            title="No ads detected yet"
+            description="This section will appear in navigation automatically after a captured ChatGPT response contains a sponsored result."
+          />
+        </Card>
+      ) : (
+        <>
       {data?.indexing ? (
         <div className="indexing-notice">Historical ads are being indexed. New results already appear here.</div>
       ) : null}
@@ -256,10 +284,10 @@ export function AdsPage() {
       </div>
       <Card className="ad-trend-card">
         <CardHeader title="Ad activity trend" description="Daily share of completed responses containing an ad, with total ad appearances." />
-        <CardContent className="ad-trend-chart">
-          {query.isPending ? <Skeleton className="chart-skeleton" /> : data?.trend.length ? (
+        <CardContent className={`ad-trend-chart${!query.isPending && !hasTrendActivity ? " ad-trend-empty" : ""}`}>
+          {query.isPending ? <Skeleton className="chart-skeleton" /> : hasTrendActivity ? (
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              <LineChart data={data.trend} margin={{ top: 8, right: 10, left: 0, bottom: 0 }}>
+              <LineChart data={data?.trend ?? []} margin={{ top: 8, right: 10, left: 0, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
                 <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                 <YAxis yAxisId="rate" domain={[0, 100]} tickFormatter={(value) => `${value}%`} tickLine={false} axisLine={false} width={42} />
@@ -331,6 +359,8 @@ export function AdsPage() {
             : <EmptyState title="No creatives found" description="Captured ad creatives will appear here." />}
         </CardContent>
       </Card>
+        </>
+      )}
     </div>
   );
 }
@@ -354,7 +384,7 @@ export function AdvertiserDetailPage() {
         eyebrow="Advertiser activity"
         title={advertiser?.name ?? "Advertiser"}
         description={advertiser?.domain ?? "Sponsored appearances across captured responses."}
-        action={<Select value={period} onValueChange={(value) => setSearchParams({ period: value }, { replace: true })} options={PERIOD_OPTIONS} />}
+        action={<div className="ads-period-select"><Select value={period} onValueChange={(value) => setSearchParams({ period: value }, { replace: true })} options={PERIOD_OPTIONS} /></div>}
       />
       {query.isPending ? <Skeleton className="ad-detail-hero" /> : advertiser ? (
         <Card className="ad-detail-hero"><CardContent>
