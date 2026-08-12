@@ -26,6 +26,7 @@ export function AppProvider({
     queryKey: ["projects"],
     queryFn: () => api<Project[]>("/projects"),
     initialData: session.projects,
+    refetchInterval: 60_000,
   });
   const projects = useMemo(() => projectsQuery.data ?? [], [projectsQuery.data]);
   const [selectedProjectId, setProjectIdState] = useState<string | null>(

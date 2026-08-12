@@ -458,8 +458,8 @@ function AdBlock({
   const domain = stored?.destination_domain
     ?? stored?.advertiser_domain
     ?? text(payload?.domain);
-  const image = stored?.image_url ?? null;
-  const favicon = stored?.favicon_url ?? null;
+  const image = stored?.image_url ?? safeExternalUrl(payload?.image_url);
+  const favicon = stored?.favicon_url ?? safeExternalUrl(advertiser?.favicon_url);
   return (
     <section className="structured-ad-block" aria-label={`Sponsored ad from ${advertiserName}`}>
       <div className="structured-block-heading">

@@ -7,6 +7,7 @@ export interface ProjectSummary {
   updated_at: string;
   query_count: number;
   last_snapshot_at: string | null;
+  ads_count: number;
 }
 
 export async function listProjects(
@@ -26,7 +27,12 @@ export async function listProjects(
           SELECT MAX(s.captured_at)
           FROM snapshot_index s
           WHERE s.project_id = p.id
-        ) AS last_snapshot_at
+        ) AS last_snapshot_at,
+        (
+          SELECT COALESCE(SUM(f.ads_count), 0)
+          FROM analytics_snapshot_facts f
+          WHERE f.project_id = p.id
+        ) AS ads_count
       FROM projects p
       WHERE p.workspace_id = ? AND p.deleted_at IS NULL
       ORDER BY p.updated_at DESC`,

@@ -2,7 +2,7 @@ import { zValidator } from "@hono/zod-validator";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../lib/app";
-import { decodeAdKey } from "../lib/ads";
+import { allowedAdAssetUrl, decodeAdKey } from "../lib/ads";
 import { ApiError, exclusiveDateEnd } from "../lib/http";
 
 const PeriodSchema = z.enum(["7d", "30d", "90d", "365d"]);
@@ -129,9 +129,12 @@ function assetUrl(
   key: string | null,
   status: string | null,
   projectId: string,
+  sourceUrl: string | null = null,
 ): string | null {
-  if (!key || status !== "ready") return null;
-  return `/api/v1/ads/assets/${key.split("/").at(-1)}?projectId=${encodeURIComponent(projectId)}`;
+  if (key && status === "ready") {
+    return `/api/v1/ads/assets/${key.split("/").at(-1)}?projectId=${encodeURIComponent(projectId)}`;
+  }
+  return sourceUrl ? allowedAdAssetUrl(sourceUrl)?.href ?? null : null;
 }
 
 interface CreativeRow {
@@ -147,8 +150,10 @@ interface CreativeRow {
   destination_domain: string | null;
   image_asset_key: string | null;
   image_asset_status: string | null;
+  image_source_url: string | null;
   favicon_asset_key: string | null;
   favicon_asset_status: string | null;
+  favicon_source_url: string | null;
   appearances: number;
   first_seen: string;
   latest_seen: string;
@@ -166,8 +171,8 @@ function serializeCreative(row: CreativeRow, projectId: string) {
     snippet: row.snippet,
     destinationUrl: row.canonical_url,
     destinationDomain: row.destination_domain,
-    imageUrl: assetUrl(row.image_asset_key, row.image_asset_status, projectId),
-    faviconUrl: assetUrl(row.favicon_asset_key, row.favicon_asset_status, projectId),
+    imageUrl: assetUrl(row.image_asset_key, row.image_asset_status, projectId, row.image_source_url),
+    faviconUrl: assetUrl(row.favicon_asset_key, row.favicon_asset_status, projectId, row.favicon_source_url),
     appearances: Number(row.appearances),
     firstSeen: row.first_seen,
     latestSeen: row.latest_seen,
@@ -230,7 +235,8 @@ adsRoutes.get(
           COUNT(DISTINCT ad.creative_identity) AS creatives,
           MIN(ad.captured_at) AS first_seen, MAX(ad.captured_at) AS latest_seen,
           MAX(favicon.asset_key) AS favicon_asset_key,
-          MAX(favicon.status) AS favicon_asset_status
+          MAX(favicon.status) AS favicon_asset_status,
+          MAX(ad.favicon_source_url) AS favicon_source_url
          ${fromSql}
          GROUP BY ad.advertiser_identity, ad.advertiser_key
          ORDER BY appearances DESC, latest_seen DESC LIMIT 100`,
@@ -244,8 +250,10 @@ adsRoutes.get(
           MAX(ad.destination_domain) AS destination_domain,
           MAX(image.asset_key) AS image_asset_key,
           MAX(image.status) AS image_asset_status,
+          MAX(ad.image_source_url) AS image_source_url,
           MAX(favicon.asset_key) AS favicon_asset_key,
           MAX(favicon.status) AS favicon_asset_status,
+          MAX(ad.favicon_source_url) AS favicon_source_url,
           COUNT(*) AS appearances, MIN(ad.captured_at) AS first_seen,
           MAX(ad.captured_at) AS latest_seen, AVG(ad.rank_absolute) AS average_position
          ${fromSql}
@@ -308,6 +316,7 @@ adsRoutes.get(
           row.favicon_asset_key === null ? null : String(row.favicon_asset_key),
           row.favicon_asset_status === null ? null : String(row.favicon_asset_status),
           input.projectId,
+          row.favicon_source_url === null ? null : String(row.favicon_source_url),
         ),
       })),
       creatives: creatives.results.map((row) => serializeCreative(row, input.projectId)),
@@ -343,7 +352,8 @@ adsRoutes.get(
           COUNT(DISTINCT ad.creative_identity) AS creatives,
           MIN(ad.captured_at) AS first_seen, MAX(ad.captured_at) AS latest_seen,
           MAX(favicon.asset_key) AS favicon_asset_key,
-          MAX(favicon.status) AS favicon_asset_status ${fromSql}`,
+          MAX(favicon.status) AS favicon_asset_status,
+          MAX(ad.favicon_source_url) AS favicon_source_url ${fromSql}`,
       ).bind(...filtered.bindings).first<Record<string, string | number | null>>(),
       c.env.CONTROL_DB.prepare(
         `SELECT substr(ad.captured_at, 1, 10) AS date, COUNT(*) AS appearances,
@@ -359,8 +369,10 @@ adsRoutes.get(
           MAX(ad.destination_domain) AS destination_domain,
           MAX(image.asset_key) AS image_asset_key,
           MAX(image.status) AS image_asset_status,
+          MAX(ad.image_source_url) AS image_source_url,
           MAX(favicon.asset_key) AS favicon_asset_key,
           MAX(favicon.status) AS favicon_asset_status,
+          MAX(ad.favicon_source_url) AS favicon_source_url,
           COUNT(*) AS appearances, MIN(ad.captured_at) AS first_seen,
           MAX(ad.captured_at) AS latest_seen, AVG(ad.rank_absolute) AS average_position
          ${fromSql}
@@ -414,6 +426,7 @@ adsRoutes.get(
           summary.favicon_asset_key === null ? null : String(summary.favicon_asset_key),
           summary.favicon_asset_status === null ? null : String(summary.favicon_asset_status),
           input.projectId,
+          summary.favicon_source_url === null ? null : String(summary.favicon_source_url),
         ),
         appearances: Number(summary.appearances),
         snapshots: Number(summary.snapshots),

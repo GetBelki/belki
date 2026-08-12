@@ -75,7 +75,7 @@ async function cacheAdAsset(
     redirect: "error",
     headers: { Accept: "image/avif,image/webp,image/png,image/jpeg,image/gif,*/*;q=0.1" },
   });
-  if (!response.ok || !response.body) {
+  if (!response.ok) {
     throw new Error(`Ad asset returned HTTP ${response.status}`);
   }
   const contentType = response.headers.get("content-type")?.split(";", 1)[0]?.trim().toLowerCase();
@@ -85,15 +85,11 @@ async function cacheAdAsset(
   const contentLength = Number(response.headers.get("content-length") ?? "0");
   if (contentLength > MAX_ASSET_BYTES) throw new Error("Ad asset exceeds 5 MiB");
 
-  let received = 0;
-  const limiter = new TransformStream<Uint8Array, Uint8Array>({
-    transform(chunk, controller) {
-      received += chunk.byteLength;
-      if (received > MAX_ASSET_BYTES) throw new Error("Ad asset exceeds 5 MiB");
-      controller.enqueue(chunk);
-    },
-  });
-  await env.EVIDENCE_BUCKET.put(row.asset_key, response.body.pipeThrough(limiter), {
+  // Buffering gives R2 a known content length. The response is bounded first by
+  // Content-Length and then again after reading, so it cannot exceed 5 MiB.
+  const body = await response.arrayBuffer();
+  if (body.byteLength > MAX_ASSET_BYTES) throw new Error("Ad asset exceeds 5 MiB");
+  await env.EVIDENCE_BUCKET.put(row.asset_key, body, {
     httpMetadata: { contentType },
     customMetadata: { sourceUrl: source.href, kind: message.kind },
   });
@@ -102,8 +98,29 @@ async function cacheAdAsset(
       attempts = attempts + 1, last_error = NULL, updated_at = ?
      WHERE source_url = ?`,
   )
-    .bind(contentType, received, nowIso(), source.href)
+    .bind(contentType, body.byteLength, nowIso(), source.href)
     .run();
+}
+
+export async function reconcileAdAssets(env: Env): Promise<number> {
+  const recoverable = await env.CONTROL_DB.prepare(
+    `SELECT source_url, kind FROM ad_assets
+     WHERE status IN ('pending', 'failed') AND attempts < 6
+       AND julianday(updated_at) < julianday('now', '-2 minutes')
+     ORDER BY updated_at
+     LIMIT 100`,
+  ).all<{ source_url: string; kind: "creative" | "favicon" }>();
+  if (!recoverable.results.length) return 0;
+  const updatedAt = nowIso();
+  await env.CONTROL_DB.batch(recoverable.results.map((asset) =>
+    env.CONTROL_DB.prepare(
+      "UPDATE ad_assets SET status = 'pending', updated_at = ? WHERE source_url = ?",
+    ).bind(updatedAt, asset.source_url),
+  ));
+  await env.AD_ASSET_QUEUE.sendBatch(recoverable.results.map((asset) => ({
+    body: { sourceUrl: asset.source_url, kind: asset.kind } satisfies AdAssetQueueMessage,
+  })));
+  return recoverable.results.length;
 }
 
 export async function adAssetBatch(

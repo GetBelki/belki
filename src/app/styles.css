@@ -117,7 +117,14 @@
   height: 34px;
   justify-content: center;
   overflow: hidden;
+  position: relative;
   width: 34px;
+}
+
+.advertiser-favicon > img {
+  background: #f4f4f5;
+  inset: 5px;
+  position: absolute;
 }
 
 .ad-card-actions,
@@ -142,6 +149,15 @@
 
 .ads-page {
   gap: 18px;
+}
+
+.ads-period-select {
+  flex: 0 0 160px;
+  width: 160px;
+}
+
+.ads-empty-card .empty-state {
+  min-height: 190px;
 }
 
 .indexing-notice {
@@ -191,6 +207,10 @@
   padding-top: 4px;
 }
 
+.ad-trend-chart.ad-trend-empty {
+  height: 150px;
+}
+
 .ads-report-filters {
   grid-template-columns: minmax(300px, 1fr) 190px 180px 150px;
 }
@@ -198,23 +218,37 @@
 .ad-creative-grid {
   display: grid;
   gap: 14px;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
 .ad-creative-grid > .skeleton {
-  min-height: 330px;
+  min-height: 190px;
 }
 
 .ad-creative-card {
   border: 1px solid #e4e4e7;
   border-radius: 9px;
+  display: grid;
+  grid-template-columns: 158px minmax(0, 1fr);
   min-width: 0;
   overflow: hidden;
 }
 
 .ad-creative-image {
-  aspect-ratio: 16 / 8;
-  min-height: 0;
+  aspect-ratio: auto;
+  border-right: 1px solid #e4e4e7;
+  min-height: 188px;
+}
+
+.ad-creative-image img {
+  background: #f4f4f5;
+  inset: 0;
+  object-fit: contain;
+  position: absolute;
+}
+
+.ad-image-fallback {
+  color: #a1a1aa;
 }
 
 .ad-creative-image .badge {
@@ -224,6 +258,8 @@
 }
 
 .ad-creative-body {
+  display: flex;
+  flex-direction: column;
   padding: 14px;
 }
 
@@ -245,6 +281,11 @@
   margin-top: 12px;
 }
 
+.ad-creative-actions {
+  margin-top: auto;
+  padding-top: 12px;
+}
+
 .ad-detail-hero .card-content,
 .ad-detail-hero.card-content {
   align-items: center;
@@ -264,9 +305,12 @@
 }
 
 @media (max-width: 1050px) {
-  .ad-kpis,
-  .ad-creative-grid {
+  .ad-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ad-creative-grid {
+    grid-template-columns: 1fr;
   }
 
   .ads-report-filters {
@@ -276,6 +320,7 @@
 
 @media (max-width: 680px) {
   .ad-card,
+  .ad-creative-card,
   .ad-kpis,
   .ad-creative-grid,
   .ads-report-filters {
@@ -284,6 +329,16 @@
 
   .ad-card-image {
     max-height: 210px;
+  }
+
+  .ad-creative-image {
+    border-bottom: 1px solid #e4e4e7;
+    border-right: 0;
+    min-height: 150px;
+  }
+
+  .ads-period-select {
+    width: 100%;
   }
 
   .ad-trend-chart {

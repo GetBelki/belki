@@ -228,12 +228,16 @@ describe("StructuredAnswer", () => {
   });
 
   it("removes ad tracking parameters when normalized evidence is unavailable", () => {
-    renderWithRouter(
+    const view = renderWithRouter(
       <StructuredAnswer
         items={[item("ad-1", "chat_gpt_ad", 0, {
           title: "Example ad",
           url: "https://example.test/landing?utm_source=chatgptads&adgroup=123",
-          advertiser: { name: "Example" },
+          image_url: "https://bzrcdn.openai.com/tessera/example.webp",
+          advertiser: {
+            name: "Example",
+            favicon_url: "https://api.dataforseo.com/cdn/i/example:0",
+          },
         })]}
         products={[]}
         fallbackMarkdown="Fallback"
@@ -242,6 +246,10 @@ describe("StructuredAnswer", () => {
 
     expect(screen.getByRole("link", { name: /Open ad/ }))
       .toHaveAttribute("href", "https://example.test/landing");
+    expect(view.container.querySelector(".ad-card-image img"))
+      .toHaveAttribute("src", "https://bzrcdn.openai.com/tessera/example.webp");
+    expect(view.container.querySelector(".ad-advertiser img"))
+      .toHaveAttribute("src", "https://api.dataforseo.com/cdn/i/example:0");
   });
 
   it("falls back to the combined Markdown for legacy captures", () => {
