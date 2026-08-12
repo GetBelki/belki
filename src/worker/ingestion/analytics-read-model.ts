@@ -1,7 +1,9 @@
 import { productIdentity, productKey } from "../lib/reporting";
 import { getShard } from "../lib/shards";
 import { jsonParse, nowIso } from "../lib/http";
-import { matchedBrandTerms } from "../lib/domain";
+import { matchedBrandTerms, normalizeBrand, normalizeHostname } from "../lib/domain";
+import { normalizeAdItem } from "../lib/ads";
+import { registerAdAssetSources } from "../automation/ad-assets";
 
 interface SnapshotReadModelRow {
   id: string;
@@ -13,8 +15,11 @@ interface SnapshotReadModelRow {
 }
 
 interface OwnedBrandRow {
+  id: string;
+  kind: "owned" | "competitor";
   name: string;
   aliases_json: string;
+  domains_json: string;
 }
 
 interface CitationReadModelRow {
@@ -46,6 +51,86 @@ interface ProductReadModelRow {
   product_ids_json: string;
 }
 
+interface AdReadModelRow {
+  id: string;
+  snapshot_item_id: string;
+  ordinal: number;
+  rank_group: number | null;
+  rank_absolute: number | null;
+  advertiser_identity: string;
+  advertiser_key: string;
+  advertiser_name: string | null;
+  advertiser_raw_url: string | null;
+  advertiser_canonical_url: string | null;
+  advertiser_hostname: string | null;
+  advertiser_domain: string | null;
+  title: string | null;
+  snippet: string | null;
+  raw_url: string | null;
+  canonical_url: string | null;
+  destination_hostname: string | null;
+  destination_domain: string | null;
+  image_source_url: string | null;
+  favicon_source_url: string | null;
+  creative_identity: string;
+  creative_key: string;
+}
+
+async function loadSnapshotAds(
+  shard: D1Database,
+  snapshotId: string,
+): Promise<AdReadModelRow[]> {
+  const items = await shard
+    .prepare(
+      `SELECT id, ordinal, payload_json
+       FROM snapshot_items
+       WHERE snapshot_id = ? AND type = 'chat_gpt_ad'
+       ORDER BY ordinal`,
+    )
+    .bind(snapshotId)
+    .all<{ id: string; ordinal: number; payload_json: string }>();
+  const statements: D1PreparedStatement[] = [];
+  for (const item of items.results) {
+    const ad = normalizeAdItem(jsonParse<unknown>(item.payload_json, {}));
+    if (!ad) continue;
+    statements.push(
+      shard
+        .prepare(
+          `INSERT OR IGNORE INTO snapshot_ads (
+            id, snapshot_id, snapshot_item_id, ordinal, rank_group,
+            rank_absolute, advertiser_identity, advertiser_key,
+            advertiser_name, advertiser_raw_url, advertiser_canonical_url,
+            advertiser_hostname, advertiser_domain, title, snippet, raw_url,
+            canonical_url, destination_hostname, destination_domain,
+            image_source_url, favicon_source_url, creative_identity, creative_key
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        )
+        .bind(
+          crypto.randomUUID(), snapshotId, item.id, item.ordinal,
+          ad.rankGroup, ad.rankAbsolute, ad.advertiserIdentity, ad.advertiserKey,
+          ad.advertiserName, ad.advertiserRawUrl, ad.advertiserCanonicalUrl,
+          ad.advertiserHostname, ad.advertiserDomain, ad.title, ad.snippet,
+          ad.rawUrl, ad.canonicalUrl, ad.destinationHostname,
+          ad.destinationDomain, ad.imageSourceUrl, ad.faviconSourceUrl,
+          ad.creativeIdentity, ad.creativeKey,
+        ),
+    );
+  }
+  if (statements.length) await shard.batch(statements);
+  const ads = await shard
+    .prepare(
+      `SELECT id, snapshot_item_id, ordinal, rank_group, rank_absolute,
+        advertiser_identity, advertiser_key, advertiser_name, advertiser_raw_url,
+        advertiser_canonical_url, advertiser_hostname, advertiser_domain, title,
+        snippet, raw_url, canonical_url, destination_hostname, destination_domain,
+        image_source_url, favicon_source_url, creative_identity, creative_key
+       FROM snapshot_ads WHERE snapshot_id = ? ORDER BY ordinal`,
+    )
+    .bind(snapshotId)
+    .all<AdReadModelRow>();
+  return ads.results;
+}
+
 export interface AnalyticsReadModelPayload {
   snapshotId: string;
   projectId: string;
@@ -59,7 +144,7 @@ export async function syncAnalyticsReadModel(
   payload: AnalyticsReadModelPayload,
 ): Promise<void> {
   const shard = getShard(env, shardId);
-  const [snapshot, citations, retrievedDomains, products, ownedBrands] =
+  const [snapshot, citations, retrievedDomains, products, trackedBrands, project, ads] =
     await Promise.all([
       shard
         .prepare(
@@ -98,26 +183,61 @@ export async function syncAnalyticsReadModel(
         .bind(payload.snapshotId)
         .all<ProductReadModelRow>(),
       env.CONTROL_DB.prepare(
-        `SELECT name, aliases_json
+        `SELECT id, kind, name, aliases_json, domains_json
          FROM tracked_brands
-         WHERE project_id = ? AND kind = 'owned'`,
+         WHERE project_id = ?`,
       )
         .bind(payload.projectId)
         .all<OwnedBrandRow>(),
+      env.CONTROL_DB.prepare(
+        "SELECT primary_domain FROM projects WHERE id = ?",
+      )
+        .bind(payload.projectId)
+        .first<{ primary_domain: string | null }>(),
+      loadSnapshotAds(shard, payload.snapshotId),
     ]);
   if (!snapshot) {
     throw new Error(`Snapshot ${payload.snapshotId} is missing from shard ${shardId}`);
   }
 
   const updatedAt = nowIso();
-  const brandMentionsCount = ownedBrands.results.filter(
+  const brandMentionsCount = trackedBrands.results.filter(
     (brand) =>
+      brand.kind === "owned" &&
       matchedBrandTerms(
         snapshot.answer_markdown ?? "",
         brand.name,
         jsonParse<string[]>(brand.aliases_json, []),
       ).length > 0,
   ).length;
+  const ownedProjectDomain = normalizeHostname(project?.primary_domain).registrableDomain;
+  const adRelationships = new Map<string, {
+    relationship: "owned" | "competitor" | "untracked";
+    trackedBrandId: string | null;
+  }>();
+  for (const ad of ads) {
+    const adDomains = new Set(
+      [ad.advertiser_domain, ad.destination_domain].filter(
+        (domain): domain is string => Boolean(domain),
+      ),
+    );
+    if (ownedProjectDomain && adDomains.has(ownedProjectDomain)) {
+      adRelationships.set(ad.id, { relationship: "owned", trackedBrandId: null });
+      continue;
+    }
+    const adName = normalizeBrand(ad.advertiser_name ?? "");
+    const matched = trackedBrands.results.find((brand) => {
+      const domains = jsonParse<string[]>(brand.domains_json, [])
+        .map((domain) => normalizeHostname(domain).registrableDomain)
+        .filter((domain): domain is string => Boolean(domain));
+      if (domains.some((domain) => adDomains.has(domain))) return true;
+      return [brand.name, ...jsonParse<string[]>(brand.aliases_json, [])]
+        .some((name) => normalizeBrand(name) === adName);
+    });
+    adRelationships.set(ad.id, matched
+      ? { relationship: matched.kind, trackedBrandId: matched.id }
+      : { relationship: "untracked", trackedBrandId: null });
+  }
   const brandMentionedRuns = brandMentionsCount > 0 ? 1 : 0;
   const citedDomainsCount = new Set(
     citations.results.map((citation) => citation.registrable_domain),
@@ -127,9 +247,9 @@ export async function syncAnalyticsReadModel(
       `INSERT INTO analytics_snapshot_facts (
         snapshot_id, project_id, tracked_query_id, shard_id, captured_at,
         metric_date, cited_domains_count, retrieved_domains_count, citation_count,
-        brand_mentioned_runs, brand_mentions_count, products_count, provider_cost_usd,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        brand_mentioned_runs, brand_mentions_count, products_count, ads_count,
+        ads_indexed_at, provider_cost_usd, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(snapshot_id) DO UPDATE SET
         cited_domains_count = excluded.cited_domains_count,
         retrieved_domains_count = excluded.retrieved_domains_count,
@@ -137,6 +257,8 @@ export async function syncAnalyticsReadModel(
         brand_mentioned_runs = excluded.brand_mentioned_runs,
         brand_mentions_count = excluded.brand_mentions_count,
         products_count = excluded.products_count,
+        ads_count = excluded.ads_count,
+        ads_indexed_at = excluded.ads_indexed_at,
         provider_cost_usd = excluded.provider_cost_usd,
         updated_at = excluded.updated_at`,
     ).bind(
@@ -152,6 +274,8 @@ export async function syncAnalyticsReadModel(
       brandMentionedRuns,
       brandMentionsCount,
       products.results.length,
+      ads.length,
+      updatedAt,
       snapshot.provider_cost_usd,
       updatedAt,
       updatedAt,
@@ -159,9 +283,10 @@ export async function syncAnalyticsReadModel(
     env.CONTROL_DB.prepare(
       `INSERT INTO analytics_read_model_projects (
         project_id, status, schema_version, last_ingested_at, updated_at
-      ) VALUES (?, 'pending', 1, ?, ?)
+      ) VALUES (?, 'pending', 2, ?, ?)
       ON CONFLICT(project_id) DO UPDATE SET
         last_ingested_at = excluded.last_ingested_at,
+        schema_version = MAX(schema_version, excluded.schema_version),
         updated_at = excluded.updated_at`,
     ).bind(payload.projectId, snapshot.captured_at, updatedAt),
     env.CONTROL_DB.prepare(
@@ -169,6 +294,9 @@ export async function syncAnalyticsReadModel(
     ).bind(payload.snapshotId),
     env.CONTROL_DB.prepare(
       "DELETE FROM analytics_product_occurrences WHERE snapshot_id = ?",
+    ).bind(payload.snapshotId),
+    env.CONTROL_DB.prepare(
+      "DELETE FROM analytics_ad_occurrences WHERE snapshot_id = ?",
     ).bind(payload.snapshotId),
   ];
 
@@ -233,7 +361,41 @@ export async function syncAnalyticsReadModel(
     );
   }
 
+  for (const ad of ads) {
+    statements.push(
+      env.CONTROL_DB.prepare(
+        `INSERT INTO analytics_ad_occurrences (
+          ad_row_id, snapshot_id, snapshot_item_id, project_id, tracked_query_id,
+          captured_at, advertiser_identity, advertiser_key, advertiser_name,
+          advertiser_raw_url, advertiser_canonical_url, advertiser_hostname,
+          advertiser_domain, title, snippet, raw_url, canonical_url,
+          destination_hostname, destination_domain, image_source_url,
+          favicon_source_url, creative_identity, creative_key, relationship,
+          matched_tracked_brand_id, rank_group, rank_absolute
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        ad.id, payload.snapshotId, ad.snapshot_item_id, payload.projectId,
+        payload.trackedQueryId, snapshot.captured_at, ad.advertiser_identity,
+        ad.advertiser_key, ad.advertiser_name, ad.advertiser_raw_url,
+        ad.advertiser_canonical_url, ad.advertiser_hostname,
+        ad.advertiser_domain, ad.title, ad.snippet, ad.raw_url,
+        ad.canonical_url, ad.destination_hostname, ad.destination_domain,
+        ad.image_source_url, ad.favicon_source_url, ad.creative_identity,
+        ad.creative_key, adRelationships.get(ad.id)?.relationship ?? "untracked",
+        adRelationships.get(ad.id)?.trackedBrandId ?? null,
+        ad.rank_group, ad.rank_absolute,
+      ),
+    );
+  }
+
   for (let index = 0; index < statements.length; index += 100) {
     await env.CONTROL_DB.batch(statements.slice(index, index + 100));
   }
+  await registerAdAssetSources(
+    env,
+    ads.flatMap((ad) => [
+      { sourceUrl: ad.image_source_url, kind: "creative" as const },
+      { sourceUrl: ad.favicon_source_url, kind: "favicon" as const },
+    ]),
+  );
 }

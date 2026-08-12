@@ -271,4 +271,25 @@ export async function runRetention(env: Env): Promise<void> {
      WHERE julianday(created_at) < julianday('now', '-12 months')
        AND status IN ('completed', 'failed', 'cancelled')`,
   ).run();
+  const orphanedAdAssets = await env.CONTROL_DB.prepare(
+    `SELECT asset.source_url, asset.asset_key
+     FROM ad_assets asset
+     WHERE NOT EXISTS (
+       SELECT 1 FROM analytics_ad_occurrences occurrence
+       WHERE occurrence.image_source_url = asset.source_url
+          OR occurrence.favicon_source_url = asset.source_url
+     )
+     LIMIT 1000`,
+  ).all<{ source_url: string; asset_key: string }>();
+  if (orphanedAdAssets.results.length) {
+    await env.EVIDENCE_BUCKET.delete(
+      orphanedAdAssets.results.map((asset) => asset.asset_key),
+    );
+    await env.CONTROL_DB.batch(
+      orphanedAdAssets.results.map((asset) =>
+        env.CONTROL_DB.prepare("DELETE FROM ad_assets WHERE source_url = ?")
+          .bind(asset.source_url),
+      ),
+    );
+  }
 }

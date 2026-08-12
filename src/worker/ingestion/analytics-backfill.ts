@@ -22,6 +22,7 @@ export interface AnalyticsBackfillResult {
 }
 
 const BACKFILL_BATCH_SIZE = 50;
+const ANALYTICS_SCHEMA_VERSION = 2;
 
 export async function backfillAnalyticsReadModel(
   env: Env,
@@ -31,12 +32,26 @@ export async function backfillAnalyticsReadModel(
     `INSERT INTO analytics_read_model_projects (
       project_id, status, schema_version, updated_at
     )
-    SELECT id, 'pending', 1, ?
+    SELECT id, 'pending', ?, ?
     FROM projects
     WHERE deleted_at IS NULL
-    ON CONFLICT(project_id) DO NOTHING`,
+    ON CONFLICT(project_id) DO UPDATE SET
+      status = CASE
+        WHEN analytics_read_model_projects.schema_version < excluded.schema_version
+          THEN 'pending'
+        ELSE analytics_read_model_projects.status
+      END,
+      schema_version = MAX(
+        analytics_read_model_projects.schema_version,
+        excluded.schema_version
+      ),
+      updated_at = CASE
+        WHEN analytics_read_model_projects.schema_version < excluded.schema_version
+          THEN excluded.updated_at
+        ELSE analytics_read_model_projects.updated_at
+      END`,
   )
-    .bind(updatedAt)
+    .bind(ANALYTICS_SCHEMA_VERSION, updatedAt)
     .run();
 
   const project = await env.CONTROL_DB.prepare(
@@ -75,7 +90,8 @@ export async function backfillAnalyticsReadModel(
         snapshot.captured_at
        FROM snapshot_index snapshot
        LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
-       WHERE snapshot.project_id = ? AND fact.snapshot_id IS NULL
+       WHERE snapshot.project_id = ?
+         AND (fact.snapshot_id IS NULL OR fact.ads_indexed_at IS NULL)
        ORDER BY snapshot.captured_at, snapshot.id
        LIMIT ?`,
     )
@@ -97,7 +113,8 @@ export async function backfillAnalyticsReadModel(
         SELECT 1
         FROM snapshot_index snapshot
         LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
-        WHERE snapshot.project_id = ? AND fact.snapshot_id IS NULL
+        WHERE snapshot.project_id = ?
+          AND (fact.snapshot_id IS NULL OR fact.ads_indexed_at IS NULL)
       ) AS has_more`,
     )
       .bind(project.project_id)

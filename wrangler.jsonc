@@ -84,7 +84,8 @@
       { "binding": "NOTIFICATION_QUEUE", "queue": "ai-tracker-notification" },
       { "binding": "PROMPT_PURGE_QUEUE", "queue": "ai-tracker-prompt-purge" },
       { "binding": "PRODUCT_ENRICHMENT_QUEUE", "queue": "ai-tracker-product-enrichment" },
-      { "binding": "ENTITY_EXTRACTION_QUEUE", "queue": "ai-tracker-entity-extraction" }
+      { "binding": "ENTITY_EXTRACTION_QUEUE", "queue": "ai-tracker-entity-extraction" },
+      { "binding": "AD_ASSET_QUEUE", "queue": "ai-tracker-ad-assets" }
     ],
     "consumers": [
       { "queue": "ai-tracker-standard", "max_batch_size": 100, "max_batch_timeout": 5, "max_concurrency": 8, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
@@ -95,7 +96,8 @@
       { "queue": "ai-tracker-notification", "max_batch_size": 20, "max_batch_timeout": 5, "max_concurrency": 4, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
       { "queue": "ai-tracker-prompt-purge", "max_batch_size": 5, "max_batch_timeout": 2, "max_concurrency": 4, "max_retries": 5, "dead_letter_queue": "ai-tracker-dlq" },
       { "queue": "ai-tracker-product-enrichment", "max_batch_size": 10, "max_batch_timeout": 2, "max_concurrency": 8, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
-      { "queue": "ai-tracker-entity-extraction", "max_batch_size": 5, "max_batch_timeout": 2, "max_concurrency": 2, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" }
+      { "queue": "ai-tracker-entity-extraction", "max_batch_size": 5, "max_batch_timeout": 2, "max_concurrency": 2, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" },
+      { "queue": "ai-tracker-ad-assets", "max_batch_size": 10, "max_batch_timeout": 2, "max_concurrency": 4, "max_retries": 3, "dead_letter_queue": "ai-tracker-dlq" }
     ]
   }
 }

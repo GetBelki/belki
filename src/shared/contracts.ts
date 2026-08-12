@@ -285,6 +285,11 @@ export interface EntityExtractionQueueMessage {
   jobId: string;
 }
 
+export interface AdAssetQueueMessage {
+  sourceUrl: string;
+  kind: "creative" | "favicon";
+}
+
 export type ProductEnrichmentQueueMessage =
   | { kind: "submit"; jobId: string }
   | {

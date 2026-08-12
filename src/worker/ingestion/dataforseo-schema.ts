@@ -42,6 +42,14 @@ const BrandEntitySchema = z
   })
   .passthrough();
 
+const AdvertiserSchema = z
+  .object({
+    name: z.string().nullable().optional(),
+    url: z.string().nullable().optional(),
+    favicon_url: z.string().nullable().optional(),
+  })
+  .passthrough();
+
 const ItemSchema = z
   .object({
     type: z.string(),
@@ -49,6 +57,12 @@ const ItemSchema = z
     rank_absolute: z.number().nullable().optional(),
     markdown: z.string().nullable().optional(),
     items: z.array(z.record(z.string(), z.unknown())).optional(),
+    title: z.string().nullable().optional(),
+    snippet: z.string().nullable().optional(),
+    url: z.string().nullable().optional(),
+    domain: z.string().nullable().optional(),
+    image_url: z.string().nullable().optional(),
+    advertiser: AdvertiserSchema.nullable().optional(),
   })
   .passthrough();
 

@@ -13,6 +13,7 @@ const PROJECT_DETAIL_ROUTES = [
   },
   { path: "/snapshots/:snapshotId", destination: "/prompts" },
   { path: "/citations/:domain", destination: "/citations" },
+  { path: "/ads/:advertiserKey", destination: "/ads" },
   { path: "/shopping/:productKey", destination: "/shopping" },
 ] as const;
 
