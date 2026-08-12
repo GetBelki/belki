@@ -52,7 +52,9 @@ interface AdCreative {
   destinationUrl: string | null;
   destinationDomain: string | null;
   imageUrl: string | null;
+  imageFallbackUrl: string | null;
   faviconUrl: string | null;
+  faviconFallbackUrl: string | null;
   appearances: number;
   firstSeen: string;
   latestSeen: string;
@@ -148,10 +150,12 @@ function AdvertiserIdentity({
   name,
   domain,
   faviconUrl,
+  faviconFallbackUrl,
 }: {
   name: string;
   domain: string | null;
   faviconUrl: string | null;
+  faviconFallbackUrl?: string | null;
 }) {
   return (
     <span className="advertiser-identity">
@@ -162,7 +166,14 @@ function AdvertiserIdentity({
             src={faviconUrl}
             alt=""
             loading="lazy"
-            onError={(event) => event.currentTarget.remove()}
+            onError={(event) => {
+              if (faviconFallbackUrl && event.currentTarget.dataset.fallbackAttempted !== "true") {
+                event.currentTarget.dataset.fallbackAttempted = "true";
+                event.currentTarget.src = faviconFallbackUrl;
+                return;
+              }
+              event.currentTarget.remove();
+            }}
           />
         ) : null}
       </span>
@@ -181,7 +192,14 @@ function CreativeCard({ creative }: { creative: AdCreative }) {
             src={creative.imageUrl}
             alt=""
             loading="lazy"
-            onError={(event) => event.currentTarget.remove()}
+            onError={(event) => {
+              if (creative.imageFallbackUrl && event.currentTarget.dataset.fallbackAttempted !== "true") {
+                event.currentTarget.dataset.fallbackAttempted = "true";
+                event.currentTarget.src = creative.imageFallbackUrl;
+                return;
+              }
+              event.currentTarget.remove();
+            }}
           />
         ) : null}
         <Badge>Sponsored</Badge>
@@ -191,6 +209,7 @@ function CreativeCard({ creative }: { creative: AdCreative }) {
           name={creative.advertiserName}
           domain={creative.advertiserDomain}
           faviconUrl={creative.faviconUrl}
+          faviconFallbackUrl={creative.faviconFallbackUrl}
         />
         <h3>{creative.title ?? "Untitled ad"}</h3>
         {creative.snippet ? <p>{creative.snippet}</p> : null}
@@ -245,6 +264,7 @@ export function AdsPage() {
   const hasTrendActivity = Boolean(data?.trend.some((row) => row.appearances > 0));
   const noAdsDetected = !query.isPending
     && !query.isError
+    && !data?.indexing
     && !projectHasAds
     && Number(data?.summary.appearances ?? 0) === 0;
   const update = (key: string, value: string) => {
@@ -287,10 +307,10 @@ export function AdsPage() {
         <CardContent className={`ad-trend-chart${!query.isPending && !hasTrendActivity ? " ad-trend-empty" : ""}`}>
           {query.isPending ? <Skeleton className="chart-skeleton" /> : hasTrendActivity ? (
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              <LineChart data={data?.trend ?? []} margin={{ top: 8, right: 10, left: 0, bottom: 0 }}>
+              <LineChart data={data?.trend ?? []} margin={{ top: 8, right: 10, left: 8, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
                 <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
-                <YAxis yAxisId="rate" domain={[0, 100]} tickFormatter={(value) => `${value}%`} tickLine={false} axisLine={false} width={42} />
+                <YAxis yAxisId="rate" domain={[0, 100]} tickFormatter={(value) => `${value}%`} tickLine={false} axisLine={false} width={52} />
                 <YAxis yAxisId="count" orientation="right" allowDecimals={false} tickLine={false} axisLine={false} width={34} />
                 <Tooltip formatter={(value, name) => name === "Appearance rate" ? `${Number(value).toFixed(1)}%` : Number(value)} />
                 <Line yAxisId="rate" type="monotone" dataKey="appearanceRate" name="Appearance rate" stroke="#18181b" strokeWidth={2.5} dot={{ r: 2 }} />
@@ -386,19 +406,21 @@ export function AdvertiserDetailPage() {
         description={advertiser?.domain ?? "Sponsored appearances across captured responses."}
         action={<div className="ads-period-select"><Select value={period} onValueChange={(value) => setSearchParams({ period: value }, { replace: true })} options={PERIOD_OPTIONS} /></div>}
       />
-      {query.isPending ? <Skeleton className="ad-detail-hero" /> : advertiser ? (
-        <Card className="ad-detail-hero"><CardContent>
-          <AdvertiserIdentity name={advertiser.name} domain={advertiser.domain} faviconUrl={advertiser.faviconUrl} />
-          <Badge>{relationshipLabel(advertiser.relationship)}</Badge>
-          {advertiser.website ? <a href={advertiser.website} target="_blank" rel="noreferrer">Website <ExternalLink size={13} /></a> : null}
+      {query.isPending ? <Skeleton className="ad-detail-summary" /> : advertiser ? (
+        <Card className="ad-detail-summary"><CardContent>
+          <div className="ad-detail-identity">
+            <AdvertiserIdentity name={advertiser.name} domain={advertiser.domain} faviconUrl={advertiser.faviconUrl} />
+            <Badge>{relationshipLabel(advertiser.relationship)}</Badge>
+            {advertiser.website ? <a href={advertiser.website} target="_blank" rel="noreferrer">Website <ExternalLink size={13} /></a> : null}
+          </div>
+          <div className="ad-detail-metrics">
+            <div><span>Appearances</span><strong>{compact(advertiser.appearances)}</strong><small>{compact(advertiser.snapshots)} responses</small></div>
+            <div><span>Prompts</span><strong>{compact(advertiser.prompts)}</strong><small>Distinct tracked prompts</small></div>
+            <div><span>Creatives</span><strong>{compact(advertiser.creatives)}</strong><small>Distinct ad variants</small></div>
+            <div><span>Latest seen</span><strong className="ad-kpi-date">{dateTime(advertiser.latestSeen)}</strong><small>Observed, not campaign status</small></div>
+          </div>
         </CardContent></Card>
       ) : null}
-      <div className="ad-kpis">
-        <div className="ad-kpi"><span>Appearances</span><strong>{compact(advertiser?.appearances ?? 0)}</strong><small>{compact(advertiser?.snapshots ?? 0)} responses</small></div>
-        <div className="ad-kpi"><span>Prompts</span><strong>{compact(advertiser?.prompts ?? 0)}</strong><small>Distinct tracked prompts</small></div>
-        <div className="ad-kpi"><span>Creatives</span><strong>{compact(advertiser?.creatives ?? 0)}</strong><small>Distinct ad variants</small></div>
-        <div className="ad-kpi"><span>Latest seen</span><strong className="ad-kpi-date">{dateTime(advertiser?.latestSeen)}</strong><small>Observed, not campaign status</small></div>
-      </div>
       <Card className="ad-trend-card"><CardHeader title="Appearance trend" description="Captured appearances for this advertiser." /><CardContent className="ad-trend-chart">
         {query.isPending ? <Skeleton className="chart-skeleton" /> : query.data?.trend.length ? (
           <ResponsiveContainer width="100%" height="100%" minWidth={0}><LineChart data={query.data.trend}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} /><YAxis allowDecimals={false} tickLine={false} axisLine={false} width={34} /><Tooltip /><Line type="monotone" dataKey="appearances" stroke="#18181b" strokeWidth={2.5} dot={{ r: 2 }} /></LineChart></ResponsiveContainer>

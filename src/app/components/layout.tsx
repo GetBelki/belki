@@ -81,7 +81,9 @@ export function AppLayout() {
         <nav className="sidebar-nav">
           <p>Monitor</p>
           {NAVIGATION
-            .filter(({ to }) => to !== "/ads" || Number(currentProject?.ads_count ?? 0) > 0)
+            .filter(({ to }) => to !== "/ads"
+              || Number(currentProject?.ads_count ?? 0) > 0
+              || location.pathname.startsWith("/ads"))
             .map(({ to, label, icon: Icon, ...item }) => (
             <NavLink
               key={to}

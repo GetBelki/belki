@@ -16,17 +16,17 @@
 }
 
 /* Ads */
-.structured-ad-block {
+.captured-placement-block {
   margin: 18px 0;
 }
 
-.structured-ad-block .structured-block-heading > span {
+.captured-placement-block .structured-block-heading > span {
   align-items: center;
   display: inline-flex;
   gap: 7px;
 }
 
-.ad-card {
+.captured-placement-card {
   border: 1px solid #d4d4d8;
   border-radius: 9px;
   display: grid;
@@ -35,7 +35,7 @@
   overflow: hidden;
 }
 
-.ad-card-image,
+.captured-placement-media,
 .ad-creative-image {
   align-items: center;
   background: #f4f4f5;
@@ -47,33 +47,33 @@
   position: relative;
 }
 
-.ad-card-image img,
+.captured-placement-media img,
 .ad-creative-image img {
   height: 100%;
   object-fit: cover;
   width: 100%;
 }
 
-.ad-card-body {
+.captured-placement-body {
   min-width: 0;
   padding: 16px;
 }
 
-.ad-card-body h3,
+.captured-placement-body h3,
 .ad-creative-body h3 {
   font-size: 15px;
   line-height: 1.35;
   margin: 10px 0 5px;
 }
 
-.ad-card-body p,
+.captured-placement-body p,
 .ad-creative-body p {
   color: #52525b;
   line-height: 1.5;
   margin: 0;
 }
 
-.ad-advertiser,
+.captured-placement-brand,
 .advertiser-identity {
   align-items: center;
   display: inline-flex;
@@ -81,7 +81,7 @@
   min-width: 0;
 }
 
-.ad-advertiser img,
+.captured-placement-brand img,
 .advertiser-favicon img {
   border-radius: 4px;
   height: 22px;
@@ -89,7 +89,7 @@
   width: 22px;
 }
 
-.ad-advertiser span,
+.captured-placement-brand span,
 .advertiser-identity small {
   color: #71717a;
   display: block;
@@ -127,7 +127,7 @@
   position: absolute;
 }
 
-.ad-card-actions,
+.captured-placement-actions,
 .ad-creative-actions {
   align-items: center;
   display: flex;
@@ -136,7 +136,7 @@
   margin-top: 14px;
 }
 
-.ad-performance-link,
+.captured-placement-performance,
 .ad-creative-actions a {
   align-items: center;
   color: #27272a;
@@ -148,7 +148,13 @@
 }
 
 .ads-page {
+  display: flex;
+  flex-direction: column;
   gap: 18px;
+}
+
+.ads-page .page-header {
+  margin-bottom: 0;
 }
 
 .ads-period-select {
@@ -217,8 +223,8 @@
 
 .ad-creative-grid {
   display: grid;
-  gap: 14px;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  grid-template-columns: 1fr;
 }
 
 .ad-creative-grid > .skeleton {
@@ -226,18 +232,22 @@
 }
 
 .ad-creative-card {
-  border: 1px solid #e4e4e7;
-  border-radius: 9px;
+  border: 0;
+  border-top: 1px solid #e4e4e7;
   display: grid;
-  grid-template-columns: 158px minmax(0, 1fr);
+  grid-template-columns: 148px minmax(0, 1fr);
   min-width: 0;
   overflow: hidden;
+}
+
+.ad-creative-card:first-child {
+  border-top: 0;
 }
 
 .ad-creative-image {
   aspect-ratio: auto;
   border-right: 1px solid #e4e4e7;
-  min-height: 188px;
+  min-height: 154px;
 }
 
 .ad-creative-image img {
@@ -286,15 +296,23 @@
   padding-top: 12px;
 }
 
-.ad-detail-hero .card-content,
-.ad-detail-hero.card-content {
+.ad-detail-summary {
+  min-height: 178px;
+}
+
+.ad-detail-summary .card-content {
+  padding: 0;
+}
+
+.ad-detail-identity {
   align-items: center;
   display: flex;
   gap: 14px;
-  min-height: 76px;
+  min-height: 74px;
+  padding: 16px 20px;
 }
 
-.ad-detail-hero a {
+.ad-detail-identity a {
   align-items: center;
   color: #27272a;
   display: inline-flex;
@@ -304,9 +322,54 @@
   text-decoration: none;
 }
 
+.ad-detail-metrics {
+  border-top: 1px solid #e4e4e7;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.ad-detail-metrics > div {
+  display: flex;
+  flex-direction: column;
+  min-height: 102px;
+  padding: 16px 20px;
+}
+
+.ad-detail-metrics > div + div {
+  border-left: 1px solid #e4e4e7;
+}
+
+.ad-detail-metrics span,
+.ad-detail-metrics small {
+  color: #71717a;
+  font-size: 11px;
+}
+
+.ad-detail-metrics strong {
+  font-size: 22px;
+  line-height: 1.2;
+  margin: 4px 0;
+}
+
+.ad-detail-metrics .ad-kpi-date {
+  font-size: 15px;
+}
+
 @media (max-width: 1050px) {
   .ad-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ad-detail-metrics {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .ad-detail-metrics > div:nth-child(3) {
+    border-left: 0;
+  }
+
+  .ad-detail-metrics > div:nth-child(n + 3) {
+    border-top: 1px solid #e4e4e7;
   }
 
   .ad-creative-grid {
@@ -319,7 +382,7 @@
 }
 
 @media (max-width: 680px) {
-  .ad-card,
+  .captured-placement-card,
   .ad-creative-card,
   .ad-kpis,
   .ad-creative-grid,
@@ -327,8 +390,18 @@
     grid-template-columns: 1fr;
   }
 
-  .ad-card-image {
+  .captured-placement-media {
     max-height: 210px;
+  }
+
+  .ad-detail-metrics {
+    grid-template-columns: 1fr;
+  }
+
+  .ad-detail-metrics > div + div,
+  .ad-detail-metrics > div:nth-child(3) {
+    border-left: 0;
+    border-top: 1px solid #e4e4e7;
   }
 
   .ad-creative-image {

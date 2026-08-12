@@ -283,7 +283,7 @@ export async function syncAnalyticsReadModel(
     env.CONTROL_DB.prepare(
       `INSERT INTO analytics_read_model_projects (
         project_id, status, schema_version, last_ingested_at, updated_at
-      ) VALUES (?, 'pending', 2, ?, ?)
+      ) VALUES (?, 'pending', 3, ?, ?)
       ON CONFLICT(project_id) DO UPDATE SET
         last_ingested_at = excluded.last_ingested_at,
         schema_version = MAX(schema_version, excluded.schema_version),

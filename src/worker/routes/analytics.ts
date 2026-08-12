@@ -780,7 +780,7 @@ async function analyticsReadModelReady(
     env.CONTROL_DB.prepare(
       `SELECT status
        FROM analytics_read_model_projects
-       WHERE project_id = ? AND schema_version = 2`,
+       WHERE project_id = ? AND schema_version = 3`,
     )
       .bind(projectId)
       .first<{ status: string }>();
@@ -3567,7 +3567,13 @@ analyticsRoutes.get(
     const structuredAds = snapshotAds.map((ad) => ({
       ...ad,
       image_url: adAssetUrl(ad.image_source_url),
+      image_fallback_url: typeof ad.image_source_url === "string"
+        ? allowedAdAssetUrl(ad.image_source_url)?.href ?? null
+        : null,
       favicon_url: adAssetUrl(ad.favicon_source_url),
+      favicon_fallback_url: typeof ad.favicon_source_url === "string"
+        ? allowedAdAssetUrl(ad.favicon_source_url)?.href ?? null
+        : null,
     }));
     const answerMarkdown =
       typeof structuredSnapshot?.answer_markdown === "string"

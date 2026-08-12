@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import type { ReactNode } from "react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
@@ -46,7 +46,9 @@ const adEvidence: AdEvidence = {
   canonical_url: "https://www.sharegrid.com/",
   destination_domain: "sharegrid.com",
   image_url: "/api/v1/ads/assets/image?projectId=project",
+  image_fallback_url: "https://bzrcdn.openai.com/tessera/fallback.webp",
   favicon_url: "/api/v1/ads/assets/favicon?projectId=project",
+  favicon_fallback_url: "https://api.dataforseo.com/cdn/i/fallback:0",
   rank_group: 1,
   rank_absolute: 4,
 };
@@ -246,10 +248,33 @@ describe("StructuredAnswer", () => {
 
     expect(screen.getByRole("link", { name: /Open ad/ }))
       .toHaveAttribute("href", "https://example.test/landing");
-    expect(view.container.querySelector(".ad-card-image img"))
+    expect(view.container.querySelector(".captured-placement-media img"))
       .toHaveAttribute("src", "https://bzrcdn.openai.com/tessera/example.webp");
-    expect(view.container.querySelector(".ad-advertiser img"))
+    expect(view.container.querySelector(".captured-placement-brand img"))
       .toHaveAttribute("src", "https://api.dataforseo.com/cdn/i/example:0");
+  });
+
+  it("falls back to provider assets when a retained ad asset is unavailable", () => {
+    const view = renderWithRouter(
+      <StructuredAnswer
+        items={[item("ad-1", "chat_gpt_ad", 0, { type: "chat_gpt_ad" })]}
+        products={[]}
+        ads={[adEvidence]}
+        fallbackMarkdown="Fallback"
+      />,
+    );
+    const image = view.container.querySelector<HTMLImageElement>(
+      ".captured-placement-media img",
+    );
+    const favicon = view.container.querySelector<HTMLImageElement>(
+      ".captured-placement-brand img",
+    );
+    expect(image).not.toBeNull();
+    expect(favicon).not.toBeNull();
+    fireEvent.error(image!);
+    fireEvent.error(favicon!);
+    expect(image).toHaveAttribute("src", adEvidence.image_fallback_url);
+    expect(favicon).toHaveAttribute("src", adEvidence.favicon_fallback_url);
   });
 
   it("falls back to the combined Markdown for legacy captures", () => {

@@ -74,7 +74,9 @@ export interface AdEvidence extends EvidenceRow {
   canonical_url: string | null;
   destination_domain: string | null;
   image_url: string | null;
+  image_fallback_url?: string | null;
   favicon_url: string | null;
+  favicon_fallback_url?: string | null;
   rank_group: number | null;
   rank_absolute: number | null;
 }
