@@ -6,6 +6,7 @@ import {
   ExportInputSchema,
   WebhookDestinationInputSchema,
   ProductEnrichmentSettingsSchema,
+  ProjectBillingAlertsSchema,
   EntityActionSchema,
   EntityExtractionSettingsSchema,
 } from "../../shared/contracts";
@@ -47,6 +48,111 @@ function assertSafeWebhookUrl(raw: string): void {
 }
 
 export const automationRoutes = new Hono<AppEnv>();
+
+automationRoutes.get(
+  "/projects/:projectId/billing-alerts",
+  zValidator("param", z.object({ projectId: z.string().uuid() })),
+  async (c) => {
+    const principal = requireRole(c, "admin");
+    const { projectId } = c.req.valid("param");
+    await assertProject(c.env.CONTROL_DB, principal.workspaceId, projectId);
+    const [project, enrichment, entities] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `SELECT product_enrichment_warning_usd, entity_extraction_warning_usd
+         FROM projects WHERE id = ?`,
+      ).bind(projectId).first<{
+        product_enrichment_warning_usd: number;
+        entity_extraction_warning_usd: number;
+      }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS tasks, COALESCE(SUM(request_cost_usd), 0) AS cost
+         FROM product_enrichment_jobs
+         WHERE project_id = ? AND request_cost_usd > 0
+           AND COALESCE(submitted_at, created_at) >= strftime('%Y-%m-01T00:00:00.000Z', 'now')`,
+      ).bind(projectId).first<{ tasks: number; cost: number }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT SUM(tasks) AS tasks, SUM(cost) AS cost FROM (
+          SELECT COUNT(*) AS tasks, COALESCE(SUM(chunk.estimated_cost_usd), 0) AS cost
+          FROM entity_extraction_chunks chunk
+          JOIN entity_extraction_jobs job ON job.id = chunk.job_id
+          WHERE job.project_id = ? AND chunk.status = 'completed'
+            AND chunk.completed_at >= strftime('%Y-%m-01T00:00:00.000Z', 'now')
+          UNION ALL
+          SELECT COALESCE(SUM(charged_tasks), 0), COALESCE(SUM(estimated_cost_usd), 0)
+          FROM deleted_entity_extraction_usage_daily
+          WHERE project_id = ? AND usage_date >= strftime('%Y-%m-01', 'now')
+        ) usage`,
+      ).bind(projectId, projectId).first<{ tasks: number; cost: number }>(),
+    ]);
+    if (!project) throw new ApiError(404, "project_not_found", "Project not found.");
+    const productThreshold = Number(project.product_enrichment_warning_usd);
+    const entityThreshold = Number(project.entity_extraction_warning_usd);
+    const productCost = Number(enrichment?.cost ?? 0);
+    const entityCost = Number(entities?.cost ?? 0);
+    return c.json({
+      data: {
+        productEnrichment: {
+          threshold: productThreshold,
+          monthToDateTasks: Number(enrichment?.tasks ?? 0),
+          monthToDateCost: productCost,
+          exceeded: productThreshold > 0 && productCost >= productThreshold,
+          estimated: false,
+        },
+        entityExtraction: {
+          threshold: entityThreshold,
+          monthToDateTasks: Number(entities?.tasks ?? 0),
+          monthToDateCost: entityCost,
+          exceeded: entityThreshold > 0 && entityCost >= entityThreshold,
+          estimated: true,
+        },
+      },
+    });
+  },
+);
+
+automationRoutes.patch(
+  "/projects/:projectId/billing-alerts",
+  zValidator("param", z.object({ projectId: z.string().uuid() })),
+  zValidator("json", ProjectBillingAlertsSchema),
+  async (c) => {
+    const principal = requireRole(c, "admin");
+    const { projectId } = c.req.valid("param");
+    const input = c.req.valid("json");
+    await assertProject(c.env.CONTROL_DB, principal.workspaceId, projectId);
+    const current = await c.env.CONTROL_DB.prepare(
+      `SELECT product_enrichment_warning_usd, entity_extraction_warning_usd
+       FROM projects WHERE id = ?`,
+    ).bind(projectId).first<{
+      product_enrichment_warning_usd: number;
+      entity_extraction_warning_usd: number;
+    }>();
+    if (!current) throw new ApiError(404, "project_not_found", "Project not found.");
+    const productEnrichmentWarningUsd = input.productEnrichmentWarningUsd
+      ?? current.product_enrichment_warning_usd;
+    const entityExtractionWarningUsd = input.entityExtractionWarningUsd
+      ?? current.entity_extraction_warning_usd;
+    await c.env.CONTROL_DB.prepare(
+      `UPDATE projects SET product_enrichment_warning_usd = ?,
+        entity_extraction_warning_usd = ?, updated_at = ? WHERE id = ?`,
+    ).bind(
+      productEnrichmentWarningUsd,
+      entityExtractionWarningUsd,
+      nowIso(),
+      projectId,
+    ).run();
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "project.billing_alerts_updated",
+      resourceType: "project",
+      resourceId: projectId,
+      metadata: { productEnrichmentWarningUsd, entityExtractionWarningUsd },
+    });
+    return c.json({
+      data: { projectId, productEnrichmentWarningUsd, entityExtractionWarningUsd },
+    });
+  },
+);
 
 automationRoutes.get("/alerts", async (c) => {
   const principal = c.get("principal");

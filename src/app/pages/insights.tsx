@@ -1334,14 +1334,14 @@ interface ProductAnalyticsDetail {
       languageCode: string;
     } | null;
     policy: {
-      workspaceEnabled: boolean;
+      projectEnabled: boolean;
       automaticRefreshEnabled: boolean;
-      monthlyWarningUsd: number;
     };
     refresh: {
       targetId: string | null;
       status: string;
       pending: boolean;
+      supported: boolean;
       lastCompletedAt: string | null;
       nextEligibleAt: string | null;
       lastError: string | null;
@@ -1470,6 +1470,14 @@ function ProductMarketSection({
   onRefresh: () => void;
   onPolicyChange: (enabled: boolean) => void;
 }) {
+  const enrichmentUnavailable = !market.refresh.supported;
+  const refreshStatusLabel = market.refresh.pending
+    ? "Refreshing"
+    : market.refresh.status === "available"
+      ? "Current"
+      : enrichmentUnavailable
+        ? "Unavailable"
+        : market.refresh.status;
   const currency = market.summary?.prices[0]?.currency ?? null;
   const priceTrend = currency
     ? market.priceTrend.filter((point) => point.currency === currency)
@@ -1489,7 +1497,7 @@ function ProductMarketSection({
             <Badge
               tone={market.refresh.status === "available" ? "success" : market.refresh.status === "failed" ? "danger" : market.refresh.pending ? "warning" : "neutral"}
             >
-              {market.refresh.pending ? "Refreshing" : market.refresh.status === "available" ? "Current" : market.refresh.status}
+              {refreshStatusLabel}
             </Badge>
           </div>
           <p>Product specifications, seller offers, availability, and market pricing for one Google Shopping locale.</p>
@@ -1511,8 +1519,11 @@ function ProductMarketSection({
           />
           <Button
             variant="secondary"
-            disabled={!canEdit || !market.policy.workspaceEnabled || !market.selectedLocale || refreshPending}
+            disabled={!canEdit || !market.policy.projectEnabled || !market.selectedLocale || enrichmentUnavailable || refreshPending}
             onClick={onRefresh}
+            title={enrichmentUnavailable
+              ? "This capture did not include a Google Shopping product identifier."
+              : undefined}
           >
             <RefreshCw size={14} /> {refreshPending ? "Queueing…" : "Refresh now"}
           </Button>
@@ -1528,8 +1539,13 @@ function ProductMarketSection({
             </label>
           ) : null}
         </div>
-        {!market.policy.workspaceEnabled ? (
-          <div className="product-market-paused"><AlertTriangle size={14} /> Product enrichment is paused for this workspace in Settings.</div>
+        {!market.policy.projectEnabled ? (
+          <div className="product-market-paused"><AlertTriangle size={14} /> Product enrichment is paused for this project in Settings.</div>
+        ) : null}
+        {market.policy.projectEnabled && enrichmentUnavailable ? (
+          <div className="product-market-paused">
+            <AlertTriangle size={14} /> Google Shopping data is unavailable because captured responses did not include a compatible product identifier. A future eligible capture will enable enrichment automatically.
+          </div>
         ) : null}
       </Card>
 

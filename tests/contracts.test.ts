@@ -3,6 +3,8 @@ import {
   BulkQueryInputSchema,
   EntityExtractionSettingsSchema,
   PromptPurgeInputSchema,
+  ProjectBillingAlertsSchema,
+  ProjectFeatureSettingsSchema,
   ProjectInputSchema,
   ProjectUpdateSchema,
   QueryInputSchema,
@@ -133,6 +135,30 @@ describe("API contracts", () => {
       monthlyWarningUsd: 5,
     })).toEqual({ enabled: true, autoTrackEnabled: false, monthlyWarningUsd: 5 });
     expect(EntityExtractionSettingsSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("accepts project-scoped feature switches and rejects empty updates", () => {
+    expect(ProjectFeatureSettingsSchema.parse({
+      productEnrichmentEnabled: true,
+      entityExtractionEnabled: true,
+      entityAutoTrackEnabled: false,
+    })).toEqual({
+      productEnrichmentEnabled: true,
+      entityExtractionEnabled: true,
+      entityAutoTrackEnabled: false,
+    });
+    expect(ProjectFeatureSettingsSchema.safeParse({}).success).toBe(false);
+  });
+
+  it("validates project billing alerts independently by workload", () => {
+    expect(ProjectBillingAlertsSchema.parse({
+      productEnrichmentWarningUsd: 10,
+      entityExtractionWarningUsd: 5,
+    })).toEqual({
+      productEnrichmentWarningUsd: 10,
+      entityExtractionWarningUsd: 5,
+    });
+    expect(ProjectBillingAlertsSchema.safeParse({ productEnrichmentWarningUsd: -1 }).success).toBe(false);
   });
 
   it("normalizes and de-duplicates prompt tags without changing their display case", () => {

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CalendarDays,
@@ -17,9 +17,9 @@ import {
   YAxis,
 } from "recharts";
 import { NoProject, PageHeader } from "../components/layout";
-import { Card, CardHeader, EmptyState, Skeleton } from "../components/ui";
+import { Button, Card, CardHeader, DataTable, EmptyState, Input, Label, Select, Skeleton } from "../components/ui";
 import { useApp } from "../context";
-import { api } from "../lib/api";
+import { api, patch } from "../lib/api";
 import { formatProviderCost } from "../lib/snapshot-evidence";
 import { compact } from "../lib/utils";
 
@@ -27,6 +27,7 @@ type BillingPeriod = "30d" | "month";
 
 interface BillingReport {
   period: BillingPeriod;
+  projectId: string | null;
   currency: "USD";
   range: { from: string; to: string };
   summary: {
@@ -52,19 +53,38 @@ interface BillingReport {
     productEnrichmentTasks: number;
     entityExtractionTasks: number;
   }>;
-  enrichmentWarning: {
-    workspaceMonthToDateTasks: number;
-    workspaceMonthToDateCost: number;
+  projectBreakdown: Array<{
+    projectId: string;
+    projectName: string;
+    totalCost: number;
+    chargedTasks: number;
+    promptTrackingCost: number;
+    productEnrichmentCost: number;
+    entityExtractionCost: number;
+  }>;
+  projectAlerts: Array<{
+    projectId: string;
+    projectName: string;
+    category: "productEnrichment" | "entityExtraction";
+    monthToDateTasks: number;
+    monthToDateCost: number;
     threshold: number;
     exceeded: boolean;
-  };
-  entityExtractionWarning: {
-    workspaceMonthToDateTasks: number;
-    workspaceMonthToDateCost: number;
-    threshold: number;
-    exceeded: boolean;
-    costIsEstimated: true;
-  };
+    estimated: boolean;
+  }>;
+}
+
+interface BillingAlerts {
+  productEnrichment: BillingAlert;
+  entityExtraction: BillingAlert;
+}
+
+interface BillingAlert {
+  threshold: number;
+  monthToDateTasks: number;
+  monthToDateCost: number;
+  exceeded: boolean;
+  estimated: boolean;
 }
 
 interface BillingCategory {
@@ -113,77 +133,101 @@ function BillingMetric({
 }
 
 export default function BillingPage() {
-  const { projectId } = useApp();
+  const { projectId, projects } = useApp();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedPeriod = searchParams.get("period");
   const period: BillingPeriod = requestedPeriod === "month" ? "month" : "30d";
+  const requestedProject = searchParams.get("project");
+  const billingProjectId = projects.some((project) => project.id === requestedProject)
+    ? requestedProject
+    : null;
   const report = useQuery({
-    queryKey: ["billing", projectId, period],
+    queryKey: ["billing", billingProjectId ?? "all", period],
     queryFn: () =>
       api<BillingReport>(
-        `/analytics/billing?projectId=${projectId}&period=${period}`,
+        `/analytics/billing?period=${period}${billingProjectId ? `&projectId=${billingProjectId}` : ""}`,
       ),
     enabled: Boolean(projectId),
+  });
+  const billingAlerts = useQuery({
+    queryKey: ["billing-alerts", billingProjectId],
+    queryFn: () => api<BillingAlerts>(`/projects/${billingProjectId}/billing-alerts`),
+    enabled: Boolean(billingProjectId),
+  });
+  const updateAlerts = useMutation({
+    mutationFn: (body: {
+      productEnrichmentWarningUsd?: number;
+      entityExtractionWarningUsd?: number;
+    }) => patch(`/projects/${billingProjectId}/billing-alerts`, body),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["billing-alerts", billingProjectId] }),
+        queryClient.invalidateQueries({ queryKey: ["billing"] }),
+      ]);
+    },
   });
 
   if (!projectId) return <NoProject />;
 
   const setPeriod = (value: BillingPeriod) => {
-    setSearchParams(value === "30d" ? {} : { period: value }, { replace: true });
+    const next = new URLSearchParams(searchParams);
+    if (value === "30d") next.delete("period");
+    else next.set("period", value);
+    setSearchParams(next, { replace: true });
+  };
+  const setBillingProject = (value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value === "all") next.delete("project");
+    else next.set("project", value);
+    setSearchParams(next, { replace: true });
+  };
+  const warningSubmit = (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    updateAlerts.mutate({
+      productEnrichmentWarningUsd: Number(data.get("productEnrichmentWarningUsd")),
+      entityExtractionWarningUsd: Number(data.get("entityExtractionWarningUsd")),
+    });
   };
   const periodLabel = period === "month" ? "Current month" : "Last 30 days";
   const summary = report.data?.summary;
+  const selectedProjectName = projects.find((project) => project.id === billingProjectId)?.name;
+  const exceededAlerts = report.data?.projectAlerts.filter((alert) => alert.exceeded) ?? [];
 
   return (
     <div className="page">
       <PageHeader
         eyebrow="Provider usage"
         title="Billing"
-        description="Track provider charges and estimated AI inference costs by workload."
+        description={billingProjectId
+          ? `Provider charges and estimated inference costs for ${selectedProjectName}.`
+          : "Workspace costs across every project, separated by workload."}
         action={
-          <div className="billing-period-toggle" aria-label="Billing period">
-            <button
-              aria-pressed={period === "30d"}
-              className={period === "30d" ? "active" : undefined}
-              onClick={() => setPeriod("30d")}
-              type="button"
-            >
-              Last 30 days
-            </button>
-            <button
-              aria-pressed={period === "month"}
-              className={period === "month" ? "active" : undefined}
-              onClick={() => setPeriod("month")}
-              type="button"
-            >
-              Current month
-            </button>
+          <div className="billing-header-controls">
+            <Select
+              ariaLabel="Billing project scope"
+              value={billingProjectId ?? "all"}
+              onValueChange={setBillingProject}
+              options={[
+                { value: "all", label: "All projects" },
+                ...projects.map((project) => ({ value: project.id, label: project.name })),
+              ]}
+            />
+            <div className="billing-period-toggle" aria-label="Billing period">
+              <button aria-pressed={period === "30d"} className={period === "30d" ? "active" : undefined} onClick={() => setPeriod("30d")} type="button">Last 30 days</button>
+              <button aria-pressed={period === "month"} className={period === "month" ? "active" : undefined} onClick={() => setPeriod("month")} type="button">Current month</button>
+            </div>
           </div>
         }
       />
 
-      {report.data?.enrichmentWarning.exceeded ? (
+      {exceededAlerts.length ? (
         <div className="billing-warning" role="status">
           <AlertTriangle size={17} />
           <div>
-            <strong>Product enrichment cost warning</strong>
-            <span>
-              Workspace enrichment spend is {formatProviderCost(report.data.enrichmentWarning.workspaceMonthToDateCost)} this month,
-              above the {formatProviderCost(report.data.enrichmentWarning.threshold)} warning level.
-            </span>
-          </div>
-        </div>
-      ) : null}
-
-      {report.data?.entityExtractionWarning.exceeded ? (
-        <div className="billing-warning" role="status">
-          <AlertTriangle size={17} />
-          <div>
-            <strong>Entity extraction cost warning</strong>
-            <span>
-              Estimated workspace extraction cost is {formatProviderCost(report.data.entityExtractionWarning.workspaceMonthToDateCost)} this month,
-              above the {formatProviderCost(report.data.entityExtractionWarning.threshold)} warning level.
-            </span>
+            <strong>{exceededAlerts.length === 1 ? "A project cost warning was reached" : `${exceededAlerts.length} project cost warnings were reached`}</strong>
+            <span>{exceededAlerts.map((alert) => `${alert.projectName} · ${alert.category === "productEnrichment" ? "Product enrichment" : "Entity extraction"}`).join(", ")}</span>
           </div>
         </div>
       ) : null}
@@ -358,6 +402,80 @@ export default function BillingPage() {
           )}
         </div>
       </Card>
+
+      {!billingProjectId && report.data?.projectBreakdown.length ? (
+        <Card className="billing-project-table">
+          <CardHeader
+            title="Cost by project"
+            description="Workspace total separated by project and workload."
+          />
+          <DataTable
+            columns={[
+              { key: "project", label: "Project" },
+              { key: "prompt", label: "Prompt tracking" },
+              { key: "enrichment", label: "Product enrichment" },
+              { key: "entities", label: "Entity extraction" },
+              { key: "tasks", label: "Tasks" },
+              { key: "total", label: "Total" },
+            ]}
+            rows={report.data.projectBreakdown.map((project) => ({
+              id: project.projectId,
+              project: <strong>{project.projectName}</strong>,
+              prompt: formatProviderCost(project.promptTrackingCost),
+              enrichment: formatProviderCost(project.productEnrichmentCost),
+              entities: <span>{formatProviderCost(project.entityExtractionCost)} <small className="estimated-label">Estimated</small></span>,
+              tasks: compact(project.chargedTasks),
+              total: <strong>{formatProviderCost(project.totalCost)}</strong>,
+            }))}
+          />
+        </Card>
+      ) : null}
+
+      {billingProjectId ? (
+        <Card className="billing-alert-settings">
+          <CardHeader
+            title="Monthly cost warnings"
+            description="Warnings are specific to this project and do not pause work."
+          />
+          {billingAlerts.isPending ? (
+            <Skeleton className="billing-alert-skeleton" />
+          ) : billingAlerts.data ? (
+            <form key={billingProjectId} onSubmit={warningSubmit}>
+              <div className="billing-alert-fields">
+                <div>
+                  <Label hint={`${formatProviderCost(billingAlerts.data.productEnrichment.monthToDateCost)} this month`}>
+                    Product enrichment warning (USD)
+                  </Label>
+                  <Input
+                    defaultValue={billingAlerts.data.productEnrichment.threshold}
+                    min="0"
+                    name="productEnrichmentWarningUsd"
+                    step="0.01"
+                    type="number"
+                  />
+                </div>
+                <div>
+                  <Label hint={`${formatProviderCost(billingAlerts.data.entityExtraction.monthToDateCost)} estimated this month`}>
+                    Entity extraction warning (USD)
+                  </Label>
+                  <Input
+                    defaultValue={billingAlerts.data.entityExtraction.threshold}
+                    min="0"
+                    name="entityExtractionWarningUsd"
+                    step="0.01"
+                    type="number"
+                  />
+                </div>
+              </div>
+              {updateAlerts.isError ? <p className="form-error">Warning levels could not be saved.</p> : null}
+              <div className="billing-alert-actions">
+                <span>Set a value to 0 to disable that warning.</span>
+                <Button disabled={updateAlerts.isPending}>{updateAlerts.isPending ? "Saving…" : "Save warnings"}</Button>
+              </div>
+            </form>
+          ) : <p className="muted">Warning settings could not be loaded.</p>}
+        </Card>
+      ) : null}
     </div>
   );
 }

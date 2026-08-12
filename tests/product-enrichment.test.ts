@@ -33,6 +33,18 @@ describe("Google Shopping product enrichment", () => {
     expect(googleProductIdentifiers([{ query: "dog food" }, null])).toBeNull();
   });
 
+  it("maps every ChatGPT Google Shopping identifier to the merchant endpoint", () => {
+    expect(googleProductIdentifiers([{
+      product_id: "serp-element-123",
+      catalog_id: "shopping-product-456",
+      gpcid: "global-product-789",
+    }])).toEqual({
+      productId: "shopping-product-456",
+      dataDocid: "serp-element-123",
+      gid: "global-product-789",
+    });
+  });
+
   it("only refreshes a successful locale after seven days", () => {
     const now = new Date("2026-08-10T09:00:00.000Z");
     expect(productEnrichmentDue(null, now)).toBe(true);

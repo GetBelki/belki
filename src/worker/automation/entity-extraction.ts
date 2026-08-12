@@ -413,19 +413,18 @@ async function autoTrackEligibleCompetitors(env: Env, job: EntityJobRow): Promis
 export async function processEntityExtraction(env: Env, jobId: string): Promise<void> {
   const job = await env.CONTROL_DB.prepare(
     `SELECT job.*, query.query_text, project.primary_domain, snapshot.captured_at,
-      workspace.entity_extraction_enabled, workspace.entity_auto_track_enabled
+      project.entity_extraction_enabled, project.entity_auto_track_enabled
      FROM entity_extraction_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
      JOIN projects project ON project.id = job.project_id
      JOIN snapshot_index snapshot ON snapshot.id = job.snapshot_id
-     JOIN workspaces workspace ON workspace.id = job.workspace_id
      WHERE job.id = ? AND query.deleted_at IS NULL AND project.deleted_at IS NULL`,
   ).bind(jobId).first<EntityJobRow>();
   if (!job || job.status === "completed" || job.status === "cancelled") return;
   if (job.entity_extraction_enabled !== 1) {
     await env.CONTROL_DB.prepare(
       `UPDATE entity_extraction_jobs SET status = 'cancelled',
-        error_message = 'Workspace entity extraction is paused.', updated_at = ? WHERE id = ?`,
+        error_message = 'Project entity extraction is paused.', updated_at = ? WHERE id = ?`,
     ).bind(nowIso(), job.id).run();
     return;
   }
@@ -511,10 +510,11 @@ export async function enqueueEntityExtractionForSnapshot(
     shardId: number;
   },
 ): Promise<string | null> {
-  const workspace = await env.CONTROL_DB.prepare(
-    "SELECT entity_extraction_enabled FROM workspaces WHERE id = ?",
-  ).bind(snapshot.workspaceId).first<{ entity_extraction_enabled: number }>();
-  if (workspace?.entity_extraction_enabled !== 1) return null;
+  const project = await env.CONTROL_DB.prepare(
+    `SELECT entity_extraction_enabled FROM projects
+     WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`,
+  ).bind(snapshot.projectId, snapshot.workspaceId).first<{ entity_extraction_enabled: number }>();
+  if (project?.entity_extraction_enabled !== 1) return null;
   const id = crypto.randomUUID();
   const now = nowIso();
   const inserted = await env.CONTROL_DB.prepare(
@@ -560,11 +560,10 @@ export async function reconcileEntityExtractionJobs(env: Env): Promise<number> {
     `SELECT snapshot.id, snapshot.workspace_id, snapshot.project_id,
       snapshot.tracked_query_id, snapshot.shard_id
      FROM snapshot_index snapshot
-     JOIN workspaces workspace ON workspace.id = snapshot.workspace_id
      JOIN projects project ON project.id = snapshot.project_id
      JOIN tracked_queries query ON query.id = snapshot.tracked_query_id
      LEFT JOIN entity_extraction_jobs job ON job.snapshot_id = snapshot.id
-     WHERE job.id IS NULL AND workspace.entity_extraction_enabled = 1
+     WHERE job.id IS NULL AND project.entity_extraction_enabled = 1
        AND project.deleted_at IS NULL AND query.deleted_at IS NULL
      ORDER BY snapshot.captured_at DESC LIMIT 100`,
   ).all<{
@@ -588,12 +587,13 @@ export async function reconcileEntityExtractionJobs(env: Env): Promise<number> {
 
   const stale = await env.CONTROL_DB.prepare(
     `SELECT job.id FROM entity_extraction_jobs job
-     JOIN workspaces workspace ON workspace.id = job.workspace_id
-     WHERE workspace.entity_extraction_enabled = 1 AND job.attempts < 5 AND (
+     JOIN projects project ON project.id = job.project_id
+     WHERE project.entity_extraction_enabled = 1 AND project.deleted_at IS NULL
+       AND job.attempts < 5 AND (
        (job.status = 'queued' AND julianday(job.updated_at) < julianday('now', '-2 minutes')) OR
        (job.status = 'processing' AND julianday(job.updated_at) < julianday('now', '-20 minutes')) OR
        (job.status = 'failed' AND julianday(job.updated_at) < julianday('now', '-5 minutes')) OR
-       (job.status = 'cancelled' AND job.error_message = 'Workspace entity extraction is paused.')
+       (job.status = 'cancelled' AND job.error_message = 'Project entity extraction is paused.')
      ) ORDER BY job.updated_at LIMIT 100`,
   ).all<{ id: string }>();
   if (stale.results.length) {

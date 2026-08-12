@@ -8,6 +8,7 @@ import {
   PromptPurgeInputSchema,
   PromptTagMutationSchema,
   ProjectInputSchema,
+  ProjectFeatureSettingsSchema,
   ProjectUpdateSchema,
   QueryInputSchema,
   QueryUpdateSchema,
@@ -189,6 +190,147 @@ coreRoutes.get(
           aliases: jsonParse(String(brand.aliases_json), []),
           domains: jsonParse(String(brand.domains_json), []),
         })),
+      },
+    });
+  },
+);
+
+coreRoutes.get(
+  "/projects/:id/settings",
+  zValidator("param", IdParamSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const { id } = c.req.valid("param");
+    await requireProject(c.env.CONTROL_DB, principal.workspaceId, id);
+    const project = await c.env.CONTROL_DB.prepare(
+      `SELECT id, name, primary_domain, html_capture_enabled,
+        product_enrichment_enabled, entity_extraction_enabled,
+        entity_auto_track_enabled, raw_retention_days, html_retention_days
+       FROM projects
+       WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`,
+    )
+      .bind(id, principal.workspaceId)
+      .first<{
+        id: string;
+        name: string;
+        primary_domain: string | null;
+        html_capture_enabled: number;
+        product_enrichment_enabled: number;
+        entity_extraction_enabled: number;
+        entity_auto_track_enabled: number;
+        raw_retention_days: number;
+        html_retention_days: number;
+      }>();
+    if (!project) throw new ApiError(404, "project_not_found", "Project not found.");
+    return c.json({
+      data: {
+        id: project.id,
+        name: project.name,
+        primaryDomain: project.primary_domain,
+        htmlCaptureEnabled: project.html_capture_enabled === 1,
+        productEnrichmentEnabled: project.product_enrichment_enabled === 1,
+        entityExtractionEnabled: project.entity_extraction_enabled === 1,
+        entityAutoTrackEnabled: project.entity_auto_track_enabled === 1,
+        rawRetentionDays: project.raw_retention_days,
+        htmlRetentionDays: project.html_retention_days,
+      },
+    });
+  },
+);
+
+coreRoutes.patch(
+  "/projects/:id/settings",
+  zValidator("param", IdParamSchema),
+  zValidator("json", ProjectFeatureSettingsSchema),
+  async (c) => {
+    const principal = requireRole(c, "admin");
+    const { id } = c.req.valid("param");
+    const input = c.req.valid("json");
+    await requireProject(c.env.CONTROL_DB, principal.workspaceId, id);
+    const current = await c.env.CONTROL_DB.prepare(
+      `SELECT html_capture_enabled, product_enrichment_enabled,
+        entity_extraction_enabled, entity_auto_track_enabled
+       FROM projects WHERE id = ?`,
+    )
+      .bind(id)
+      .first<{
+        html_capture_enabled: number;
+        product_enrichment_enabled: number;
+        entity_extraction_enabled: number;
+        entity_auto_track_enabled: number;
+      }>();
+    if (!current) throw new ApiError(404, "project_not_found", "Project not found.");
+    const htmlCaptureEnabled = input.htmlCaptureEnabled ?? current.html_capture_enabled === 1;
+    const productEnrichmentEnabled = input.productEnrichmentEnabled
+      ?? current.product_enrichment_enabled === 1;
+    const entityExtractionEnabled = input.entityExtractionEnabled
+      ?? current.entity_extraction_enabled === 1;
+    const entityAutoTrackEnabled = entityExtractionEnabled
+      ? input.entityAutoTrackEnabled ?? current.entity_auto_track_enabled === 1
+      : false;
+    const updatedAt = nowIso();
+    const statements: D1PreparedStatement[] = [
+      c.env.CONTROL_DB.prepare(
+        `UPDATE projects SET html_capture_enabled = ?, product_enrichment_enabled = ?,
+          entity_extraction_enabled = ?, entity_auto_track_enabled = ?, updated_at = ?
+         WHERE id = ?`,
+      ).bind(
+        htmlCaptureEnabled ? 1 : 0,
+        productEnrichmentEnabled ? 1 : 0,
+        entityExtractionEnabled ? 1 : 0,
+        entityAutoTrackEnabled ? 1 : 0,
+        updatedAt,
+        id,
+      ),
+    ];
+    if (!productEnrichmentEnabled) {
+      statements.push(
+        c.env.CONTROL_DB.prepare(
+          `UPDATE product_enrichment_jobs SET status = 'cancelled', active_slot = NULL,
+            error_code = 'project_paused', error_message = 'Project product enrichment is paused.',
+            updated_at = ?
+           WHERE project_id = ? AND status = 'queued'`,
+        ).bind(updatedAt, id),
+        c.env.CONTROL_DB.prepare(
+          `UPDATE product_enrichment_targets SET
+            status = CASE WHEN latest_snapshot_id IS NULL THEN 'paused' ELSE 'available' END,
+            current_job_id = CASE
+              WHEN current_job_id IN (
+                SELECT id FROM product_enrichment_jobs
+                WHERE project_id = ? AND status = 'cancelled'
+              ) THEN NULL ELSE current_job_id END,
+            updated_at = ? WHERE project_id = ?`,
+        ).bind(id, updatedAt, id),
+      );
+    }
+    if (!entityExtractionEnabled) {
+      statements.push(c.env.CONTROL_DB.prepare(
+        `UPDATE entity_extraction_jobs SET status = 'cancelled',
+          error_message = 'Project entity extraction is paused.', updated_at = ?
+         WHERE project_id = ? AND status = 'queued'`,
+      ).bind(updatedAt, id));
+    }
+    await c.env.CONTROL_DB.batch(statements);
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "project.features_updated",
+      resourceType: "project",
+      resourceId: id,
+      metadata: {
+        htmlCaptureEnabled,
+        productEnrichmentEnabled,
+        entityExtractionEnabled,
+        entityAutoTrackEnabled,
+      },
+    });
+    return c.json({
+      data: {
+        id,
+        htmlCaptureEnabled,
+        productEnrichmentEnabled,
+        entityExtractionEnabled,
+        entityAutoTrackEnabled,
       },
     });
   },
