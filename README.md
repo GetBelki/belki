@@ -1,79 +1,165 @@
-# Belki
+<p align="center">
+  <img src="public/favicon.svg" alt="Belki squirrel" width="72" height="72">
+</p>
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Xyborg/AI-Visibility-Tracker)
+<h1 align="center">Belki</h1>
 
-Self-hosted ChatGPT web visibility tracking on Cloudflare. Belki schedules
-DataForSEO LLM Scraper runs, stores normalized evidence, and reports citations,
-retrieved domains, contextual entities, shopping results, and visibility changes.
+<p align="center">
+  <strong>Know when AI recommends you—and when it doesn't.</strong>
+</p>
 
-The implementation is designed for multi-user installations and at least one
-million runs per month. It uses a control D1 database plus 32 snapshot D1
-shards, queue-backed ingestion, and R2 for raw evidence and exports.
+<p align="center">
+  Self-hosted ChatGPT visibility, competitor, citation, shopping, entity, and advertising intelligence on Cloudflare.
+</p>
 
-## What is included
+Belki schedules and captures DataForSEO ChatGPT LLM Scraper responses, retains
+the underlying evidence, and turns those responses into project-level visibility
+analytics. It is designed for multi-user installations and at least one million
+runs per month.
 
-- React 19 dashboard with projects, tracked prompts, snapshots, evidence,
-  domains, brands, products, alerts, exports, users, and settings
-- Shared prompt tags with bulk assignment, stable color labels, and match-all
-  filtering across single and bulk prompt workflows
-- Local password authentication, CSRF protection, role-based access, manual
-  invitation links, and manual password-reset links
-- Daily and weekly schedules evaluated in each query's IANA timezone
-- DataForSEO Standard postbacks for monitoring and Live Advanced runs for
-  manual refreshes
-- Recovery through `tasks_ready`, signed provider tags, idempotent ingestion,
-  queue retries, and dead-letter queues
-- Normalized D1 analytics and streamed gzip evidence/export storage in R2
-- Cross-industry named entity extraction with exact-answer validation,
-  competitor discovery, evidence, confidence, and guarded automatic tracking
-- Separate estimated Workers AI inference reporting, usage warnings, pause
-  controls, and preserved billing totals when prompts are deleted
-- Permanent single and bulk prompt deletion with asynchronous D1/R2 cleanup,
-  export invalidation, and anonymous billing-total preservation
-- In-app alerts and HMAC-signed HTTPS webhooks
-- Twelve-month hot snapshots, two-year raw evidence, opt-in 90-day HTML
-  evidence, and seven-day export retention
+## What Belki tracks
+
+- **Visibility and competition** — brand visibility, Share of Voice, visibility
+  gap against the leading competitor, daily competitor trends, and annotations
+  showing when the monitored prompt set changed.
+- **Prompts and snapshots** — daily or weekly scheduled prompts, manual refreshes,
+  bulk creation, tags, locale settings, captured answers, tables, citations,
+  retrieved results, and fan-out queries.
+- **Citation sources** — citation rate, source share, domain trends, source detail,
+  and links back to the exact captured response.
+- **Entities** — cross-industry discovery of brands, companies, people, and places;
+  answer-text validation; evidence and corroboration; manual tracking; and guarded
+  automatic competitor tracking.
+- **Ads** — sponsored-result detection, ad appearance rate, advertiser activity,
+  creatives, destinations, observed positions, retained image/favicon assets, and
+  the prompts and snapshots in which each ad appeared.
+- **Shopping** — products observed in AI answers, merchant labels, price, rating,
+  reviews, appearance history, and optional Google Shopping enrichment with
+  specifications, seller offers, availability, market pricing, and review data.
+- **Billing and operations** — provider charges and estimated Workers AI costs by
+  project and workload, daily trends, project-level warnings, alerts, exports,
+  webhooks, health diagnostics, users, and role-based access.
+
+### Metric definitions
+
+| Metric | Definition |
+|---|---|
+| Visibility | Completed responses mentioning the tracked brand ÷ all completed responses |
+| Share of Voice | Tracked-brand appearances ÷ appearances across the owned brand and every tracked competitor |
+| Visibility gap | Owned-brand visibility minus the visibility of the leading tracked competitor, in percentage points |
+| Citation rate | Completed responses containing at least one citation ÷ all completed responses |
+| Ad appearance rate | Completed responses containing at least one sponsored result ÷ all completed responses |
+
+Share of Voice is only available after a competitor is tracked. The overview
+plots the owned brand and the four most visible competitors while calculating
+Share of Voice across every tracked competitor.
+
+## Product behavior and defaults
+
+- Settings are scoped explicitly: feature switches belong to the selected
+  **project**, project administration and webhooks belong to the **workspace**,
+  and installation checks live under **Diagnostics**.
+- Named entity extraction is enabled for new projects. Automatic competitor
+  tracking is opt-in and requires repeated, corroborated evidence.
+- Google Shopping enrichment is opt-in for new projects and only runs when a
+  captured product includes a compatible Google Shopping identifier.
+- The Ads navigation item appears automatically after the selected project has
+  detected a sponsored result. Ads remain visible in their originating snapshot.
+- Provider and inference costs are reported in Billing, with aggregate and
+  per-project views. Product-enrichment and entity-extraction warning thresholds
+  are project-specific and do not stop workloads automatically.
+- Original response-page HTML is opt-in per project. Normalized raw results are
+  retained for 730 days, HTML for 90 days when enabled, hot snapshots for 12
+  months, and exports for 7 days.
 
 ## Architecture
 
+Belki runs as a React single-page application and Hono API in one Cloudflare
+Worker. A control D1 database stores tenancy and aggregate state; 32 snapshot D1
+shards distribute detailed captures. R2 retains raw evidence, optional HTML,
+exports, and mirrored ad assets.
+
 ```mermaid
 flowchart LR
-  UI[React SPA] --> API[Hono Worker API]
-  Cron[Worker crons] --> SQ[Standard queue]
-  API --> LQ[Live queue]
-  SQ --> DFS[DataForSEO LLM Scraper]
-  LQ --> DFS
-  DFS --> Hook[Signed postback]
-  Hook --> R2[(R2 evidence)]
-  Hook --> NQ[Normalize queue]
-  NQ --> Shards[(32 snapshot D1 shards)]
-  NQ --> Control[(Control D1)]
-  NQ --> EQ[Entity extraction queue]
-  EQ --> WAI[Workers AI]
-  EQ --> Control
-  Shards --> RQ[Rollup queue]
-  RQ --> Control
-  Control --> Alerts[Alerts / webhook queue]
+  Browser[Belki React SPA] --> API[Hono Worker API]
+  Cron[Cloudflare Cron Triggers] --> StandardQ[Standard task queue]
+  API --> LiveQ[Live task queue]
+
+  StandardQ --> LLM[DataForSEO ChatGPT LLM Scraper]
+  LiveQ --> LLM
+  LLM --> Postback[Authenticated postback]
+  Postback --> R2[(R2 evidence)]
+  Postback --> NormalizeQ[Normalization queue]
+
+  NormalizeQ --> Shards[(32 snapshot D1 shards)]
+  NormalizeQ --> Control[(Control D1)]
+  NormalizeQ --> EntityQ[Entity extraction queue]
+  NormalizeQ --> AssetQ[Ad asset queue]
+  EntityQ --> WorkersAI[Workers AI]
+  AssetQ --> R2
+
+  Shards --> RollupQ[Analytics rollup queue]
+  RollupQ --> Control
+
+  Control --> ProductQ[Product enrichment queue]
+  ProductQ --> Merchant[DataForSEO Google Product Info]
+  Merchant --> ProductPostback[Authenticated product postback]
+  ProductPostback --> R2
+  ProductPostback --> ProductQ
+
+  Control --> Automation[Alerts, exports, webhooks, and purge queues]
   API --> Control
   API --> Shards
   API --> R2
 ```
 
-The control database owns tenancy, auth, scheduling, job state, compact
-snapshot indexes, rollups, alerts, and exports. A tracked query is assigned to
-one snapshot shard for its lifetime, keeping detail reads local and avoiding
-cross-database joins.
+The control database owns workspaces, users, projects, tracked prompts,
+scheduling, job state, compact snapshot indexes, rollups, ads, entities,
+enrichment state, alerts, billing, and exports. Each tracked prompt is assigned
+to one snapshot shard for its lifetime, avoiding cross-database joins on detail
+reads.
+
+### Capture and analysis flow
+
+```mermaid
+flowchart TD
+  Prompt[Scheduled or manually refreshed prompt] --> Mode{Run type}
+  Mode -->|Scheduled| Standard[Standard task with signed postback]
+  Mode -->|Manual refresh| Live[Live Advanced request]
+  Standard --> Capture[ChatGPT web response]
+  Live --> Capture
+  Standard -. missed postback recovery .-> Ready[DataForSEO tasks_ready]
+  Ready --> Capture
+
+  Capture --> Evidence[Store raw evidence in R2]
+  Evidence --> Normalize[Validate and normalize response]
+  Normalize --> Snapshot[Persist snapshot, answer, citations, products, and ads]
+  Snapshot --> Rollup[Update project analytics and billing]
+  Snapshot --> Entities{Entity extraction enabled?}
+  Snapshot --> Ads{Ad assets present?}
+  Snapshot --> Shopping{Eligible product and enrichment enabled?}
+
+  Entities -->|Yes| NER[Extract, validate, and corroborate entities]
+  Ads -->|Yes| Assets[Mirror creative and favicon assets to R2]
+  Shopping -->|Yes| ProductInfo[Capture Google Shopping market snapshot]
+
+  Rollup --> Dashboard[Overview, prompts, sources, billing, and alerts]
+  NER --> Dashboard
+  Assets --> Dashboard
+  ProductInfo --> Dashboard
+```
 
 ## Requirements
 
 - Node.js 24 or newer
 - pnpm 11
 - A Cloudflare account with Workers Paid
-- DataForSEO API credentials with ChatGPT LLM Scraper access
+- DataForSEO credentials with ChatGPT LLM Scraper access
+- DataForSEO Merchant Google Product Info access for optional Shopping enrichment
 
-Workers Paid is required for the default architecture because it provisions one
-control database and 32 snapshot databases. Workers Free currently allows only
-10 D1 databases per account.
+Workers Paid is required by the default topology because it declares one control
+database and 32 snapshot databases. Workers Free currently permits fewer D1
+databases than this architecture requires.
 
 ## Local development
 
@@ -84,58 +170,76 @@ pnpm db:migrate:local
 pnpm dev
 ```
 
-Fill `.dev.vars` with DataForSEO credentials and three independently generated,
-high-entropy secrets. `BOOTSTRAP_TOKEN` is entered once in the first-run setup
-screen. `APP_CRYPTO_KEY` signs provider job tags; changing it invalidates
-outstanding jobs. `DATAFORSEO_WEBHOOK_TOKEN` protects the postback endpoint.
+Configure these values in `.dev.vars`:
 
-For locally posted Standard tasks, DataForSEO must be able to reach the Worker.
-Use a deployed staging Worker or a secure public tunnel and ensure the
-workspace's `public_base_url` points to it. Live manual runs work without an
-inbound postback.
+| Secret | Purpose |
+|---|---|
+| `DATAFORSEO_LOGIN` | DataForSEO API login |
+| `DATAFORSEO_PASSWORD` | DataForSEO API password |
+| `DATAFORSEO_WEBHOOK_TOKEN` | Authenticates ChatGPT and product-info postbacks |
+| `APP_CRYPTO_KEY` | Signs provider job tags; changing it invalidates outstanding jobs |
+| `BOOTSTRAP_TOKEN` | One-time token entered during the first-run owner setup |
 
-## Cloudflare deployment
+Use independent, high-entropy values for the three application secrets. For
+locally submitted Standard tasks, DataForSEO must be able to reach the Worker.
+Use a deployed staging Worker or a secure public tunnel and set the workspace
+`public_base_url` accordingly. Live manual runs do not require an inbound
+postback.
 
-### Deploy button
+## Production deployment
 
-The button at the top of this README deploys a copy into the selected Cloudflare
-account, provisions the declared D1, R2, and Queue resources, prompts for the
-five required secrets, applies all D1 migrations, and connects the resulting
-repository to Workers Builds.
+This repository deploys through GitHub and a protected `main` branch. Do not
+deploy production directly from a feature branch or local checkout.
 
-Cloudflare requires the source repository to be public for this flow. While
-`Xyborg/AI-Visibility-Tracker` remains private, use the private-repository
-instructions below instead. Keep the default resource names during setup so the
-checked-in R2 lifecycle command continues to target the provisioned bucket.
+```mermaid
+flowchart LR
+  Branch[Feature branch] --> PR[Pull request]
+  PR --> CI[GitHub Actions verification]
+  CI --> Review[Review and protected-branch checks]
+  Review --> Merge[Merge to main]
+  Merge --> Build[Cloudflare Workers Build]
+  Build --> Migrate[Apply control and 32 shard migrations]
+  Migrate --> Deploy[Deploy ai-visibility-tracker Worker]
+```
 
-The requested secrets are:
+### Maintainer workflow
 
-- `DATAFORSEO_LOGIN` and `DATAFORSEO_PASSWORD` — DataForSEO API credentials
-- `DATAFORSEO_WEBHOOK_TOKEN` — a unique high-entropy postback token
-- `APP_CRYPTO_KEY` — an independent high-entropy signing key
-- `BOOTSTRAP_TOKEN` — an independent high-entropy first-run token
+1. Create a feature branch and commit the intended changes.
+2. Push the branch and open a pull request against `main`.
+3. Wait for type checking, linting, tests, and the production build to pass.
+4. Review and merge the pull request.
+5. Cloudflare Workers Builds detects the `main` update and runs the configured
+   build and deploy commands.
+6. Confirm the Workers Build completed and smoke-test the affected authenticated
+   page in production.
 
-### Deploy from this private GitHub repository
+The Cloudflare Git integration uses `/` as its root directory, `pnpm build` as
+the build command, and `pnpm deploy` as the deploy command. The deploy script
+runs remote control and snapshot migrations before publishing the
+`ai-visibility-tracker` Worker.
+
+### Connect a private GitHub repository
 
 1. In Cloudflare, open **Workers & Pages**, select **Create application**, and
    choose **Import a repository**.
-2. Authorize the Cloudflare GitHub App for this private repository and select
-   `Xyborg/AI-Visibility-Tracker`.
-3. Use `main` as the production branch, `/` as the root directory,
-   `pnpm build` as the build command, and `pnpm deploy` as the deploy command.
-4. Keep the Worker name `ai-tracker`, matching `wrangler.jsonc`.
-5. After the Worker is created, add the five values above as encrypted runtime
-   secrets under **Settings → Variables & Secrets**.
-6. Run `pnpm r2:lifecycle` once from an authenticated local checkout to install
-   the evidence-retention policy.
+2. Authorize the Cloudflare GitHub App for the private repository.
+3. Select `main` as the production branch and use the build/deploy commands
+   above.
+4. Add the five required values as encrypted runtime secrets under
+   **Settings → Variables & Secrets**.
+5. From an authenticated checkout, run `pnpm r2:lifecycle` once to apply the
+   checked-in evidence-retention rules.
 
-Future pushes to `main` will deploy automatically through Workers Builds.
-Non-production branch builds can be enabled in Cloudflare to receive preview
-URLs on pull requests.
+### Self-hosting alternatives
 
-### Deploy with Wrangler
+For a public fork, the Cloudflare Deploy button can provision the declared D1,
+R2, Queue, Workers AI, and secret bindings and connect the fork to Workers
+Builds:
 
-Authenticate Wrangler, then run:
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Xyborg/AI-Visibility-Tracker)
+
+For a manual self-hosted deployment, authenticate Wrangler, configure the five
+production secrets, and run:
 
 ```bash
 pnpm build
@@ -143,64 +247,65 @@ pnpm deploy
 pnpm r2:lifecycle
 ```
 
-Wrangler provisions resources declared in `wrangler.jsonc` when they do not
-exist. The deploy script publishes the Worker and applies the control migration
-plus the same snapshot migration to all 32 shards. The lifecycle command
-replaces the `ai-tracker-evidence` bucket lifecycle with the checked-in
-prefix-specific retention policy.
-
-Set production secrets before completing setup:
-
-```bash
-pnpm wrangler secret put DATAFORSEO_LOGIN
-pnpm wrangler secret put DATAFORSEO_PASSWORD
-pnpm wrangler secret put DATAFORSEO_WEBHOOK_TOKEN
-pnpm wrangler secret put APP_CRYPTO_KEY
-pnpm wrangler secret put BOOTSTRAP_TOKEN
-```
+`pnpm deploy` applies all control migrations and the same snapshot migrations
+to all 32 shards before invoking `wrangler deploy`. The lifecycle command
+replaces the lifecycle configuration of the `ai-tracker-evidence` bucket with
+the checked-in prefix-specific retention policy.
 
 ## Operations
 
 | Schedule | Responsibility |
 |---|---|
-| Every 5 minutes | Enqueue due queries and recover stale submissions |
-| Every minute | Collect failed/missed postbacks, reconcile prompt purges and entity extraction, and advance analytics backfills |
-| Daily 03:00 UTC | Expire sessions, tokens, jobs, indexes, and hot snapshots |
-| Sunday 04:00 UTC | Refresh locale catalog and reconcile metric outboxes |
+| Every 5 minutes | Enqueue due prompts, recover stale prompt jobs, enqueue eligible product enrichments, and reconcile product-enrichment jobs |
+| Every minute | Recover missed ChatGPT and product postbacks, reconcile prompt purges, entity extraction and ad assets, and advance analytics backfills |
+| Daily at 03:00 UTC | Expire sessions, tokens, ingest events, jobs, indexes, and hot snapshots |
+| Sunday at 04:00 UTC | Refresh the DataForSEO locale catalog and reconcile metric outboxes |
 
-The Settings health page reports recent job and ingest failures. Cloudflare
-observability is enabled, and each scheduled handler emits structured metrics.
-Webhook destinations receive HMAC SHA-256 signatures in
-`x-ai-tracker-signature`; secrets are shown once.
+The Diagnostics tab reports control database, snapshot-shard, and runtime
+binding health. Cloudflare observability is enabled, and scheduled handlers emit
+structured metrics. Webhook destinations receive HMAC-SHA256 signatures in
+`x-ai-tracker-signature`; signing secrets are displayed only once.
 
-HTML evidence is off by default and can be enabled per project. Raw prompts
-should not contain personal data. R2 objects are private and evidence downloads
-are authorized through the Worker.
+### Security and retention
+
+- Local password authentication uses CSRF protection and the `owner`, `admin`,
+  `editor`, and `viewer` roles.
+- Invitations and password resets use manually shared, expiring links.
+- DataForSEO postbacks require the webhook token and a valid signed job tag.
+- R2 objects are private and evidence downloads are authorized through the
+  Worker.
+- Raw prompts should not contain personal or sensitive data.
+- Permanent prompt deletion asynchronously removes D1 and R2 evidence while
+  retaining anonymous billing totals for accurate reporting.
 
 ## Verification
 
 ```bash
 pnpm typecheck
-pnpm lint
+pnpm lint --max-warnings 0
 pnpm test
 pnpm build
 pnpm deploy:dry
 ```
 
-The unit tests cover validation, entity hallucination rejection and
-corroboration, URL/domain normalization, DST-aware schedules, and date-bound
-utilities. CI runs the full verification sequence on every pull request.
+CI runs type checking, linting, tests, and the production build for every pull
+request. Tests cover contracts, entity extraction and corroboration,
+URL/domain normalization, DST-aware schedules, analytics reporting, ads,
+product enrichment, provider costs, evidence parsing, and the React views used
+to render captured answers.
 
 ## Repository map
 
-- `src/app` — React dashboard
-- `src/worker` — API, ingestion, analytics, alerts, and exports
+- `src/app` — Belki React dashboard and authenticated product experience
+- `src/worker` — Hono API, ingestion, analytics, automation, and scheduled work
 - `src/shared` — request schemas and queue contracts
-- `migrations/control` — tenancy, orchestration, and rollup schema
-- `migrations/snapshot` — detailed snapshot schema
+- `migrations/control` — tenancy, orchestration, analytics, entities, ads,
+  enrichment, billing, and project settings
+- `migrations/snapshot` — detailed response, citation, product, and ad evidence
 - `infrastructure` — R2 lifecycle configuration
-- `scripts/migrate.mjs` — applies migrations across all D1 bindings
-- `ai-tracker-prd.md` — source product and architecture requirements
+- `scripts/migrate.mjs` — applies migrations to the control database and all 32
+  snapshot shards
+- `ai-tracker-prd.md` — original product and architecture requirements
 
 ## License
 
