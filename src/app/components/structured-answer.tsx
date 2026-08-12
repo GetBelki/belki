@@ -459,26 +459,42 @@ function AdBlock({
     ?? stored?.advertiser_domain
     ?? text(payload?.domain);
   const image = stored?.image_url ?? safeExternalUrl(payload?.image_url);
+  const imageFallback = stored?.image_fallback_url ?? safeExternalUrl(payload?.image_url);
   const favicon = stored?.favicon_url ?? safeExternalUrl(advertiser?.favicon_url);
+  const faviconFallback = stored?.favicon_fallback_url ?? safeExternalUrl(advertiser?.favicon_url);
   return (
-    <section className="structured-ad-block" aria-label={`Sponsored ad from ${advertiserName}`}>
+    <section className="captured-placement-block" aria-label={`Sponsored result from ${advertiserName}`}>
       <div className="structured-block-heading">
         <span><Megaphone size={14} /> Sponsored</span>
         {item.rank_absolute ? <Badge>Position {item.rank_absolute}</Badge> : null}
       </div>
-      <article className="ad-card">
-        <div className="ad-card-image">
-          {image ? <img src={image} alt="" loading="lazy" /> : <Megaphone size={24} />}
+      <article className="captured-placement-card">
+        <div className="captured-placement-media">
+          {image ? <img src={image} alt="" loading="lazy" onError={(event) => {
+            if (imageFallback && event.currentTarget.dataset.fallbackAttempted !== "true") {
+              event.currentTarget.dataset.fallbackAttempted = "true";
+              event.currentTarget.src = imageFallback;
+              return;
+            }
+            event.currentTarget.remove();
+          }} /> : <Megaphone size={24} />}
         </div>
-        <div className="ad-card-body">
-          <div className="ad-advertiser">
-            {favicon ? <img src={favicon} alt="" loading="lazy" /> : null}
+        <div className="captured-placement-body">
+          <div className="captured-placement-brand">
+            {favicon ? <img src={favicon} alt="" loading="lazy" onError={(event) => {
+              if (faviconFallback && event.currentTarget.dataset.fallbackAttempted !== "true") {
+                event.currentTarget.dataset.fallbackAttempted = "true";
+                event.currentTarget.src = faviconFallback;
+                return;
+              }
+              event.currentTarget.remove();
+            }} /> : null}
             <strong>{advertiserName}</strong>
             {domain ? <span>{domain}</span> : null}
           </div>
           <h3>{title}</h3>
           {snippet ? <p>{snippet}</p> : null}
-          <div className="ad-card-actions">
+          <div className="captured-placement-actions">
             {destination ? (
               <Button asChild variant="secondary">
                 <a href={destination} target="_blank" rel="noreferrer">
@@ -487,7 +503,7 @@ function AdBlock({
               </Button>
             ) : null}
             {stored?.advertiser_key ? (
-              <Link className="ad-performance-link" to={`/ads/${stored.advertiser_key}`}>
+              <Link className="captured-placement-performance" to={`/ads/${stored.advertiser_key}`}>
                 Advertiser activity
               </Link>
             ) : null}

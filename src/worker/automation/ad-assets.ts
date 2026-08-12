@@ -105,7 +105,8 @@ async function cacheAdAsset(
 export async function reconcileAdAssets(env: Env): Promise<number> {
   const recoverable = await env.CONTROL_DB.prepare(
     `SELECT source_url, kind FROM ad_assets
-     WHERE status IN ('pending', 'failed') AND attempts < 6
+     WHERE ((status IN ('pending', 'failed') AND attempts < 6)
+       OR (status = 'ready' AND COALESCE(size_bytes, 0) = 0))
        AND julianday(updated_at) < julianday('now', '-2 minutes')
      ORDER BY updated_at
      LIMIT 100`,

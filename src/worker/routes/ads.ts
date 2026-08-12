@@ -161,6 +161,12 @@ interface CreativeRow {
 }
 
 function serializeCreative(row: CreativeRow, projectId: string) {
+  const imageFallbackUrl = row.image_source_url
+    ? allowedAdAssetUrl(row.image_source_url)?.href ?? null
+    : null;
+  const faviconFallbackUrl = row.favicon_source_url
+    ? allowedAdAssetUrl(row.favicon_source_url)?.href ?? null
+    : null;
   return {
     creativeKey: row.creative_key,
     advertiserKey: row.advertiser_key,
@@ -172,7 +178,9 @@ function serializeCreative(row: CreativeRow, projectId: string) {
     destinationUrl: row.canonical_url,
     destinationDomain: row.destination_domain,
     imageUrl: assetUrl(row.image_asset_key, row.image_asset_status, projectId, row.image_source_url),
+    imageFallbackUrl,
     faviconUrl: assetUrl(row.favicon_asset_key, row.favicon_asset_status, projectId, row.favicon_source_url),
+    faviconFallbackUrl,
     appearances: Number(row.appearances),
     firstSeen: row.first_seen,
     latestSeen: row.latest_seen,
@@ -206,11 +214,14 @@ adsRoutes.get(
         appearances: number; ad_snapshots: number; advertisers: number; creatives: number;
       }>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT COUNT(*) AS count
+        `SELECT COUNT(*) AS count, COALESCE(SUM(fact.ads_count), 0) AS ad_appearances,
+          COUNT(DISTINCT CASE WHEN fact.ads_count > 0 THEN fact.snapshot_id END) AS ad_snapshots
          FROM analytics_snapshot_facts fact
          JOIN tracked_queries query ON query.id = fact.tracked_query_id
          WHERE ${completed.where}`,
-      ).bind(...completed.bindings).first<{ count: number }>(),
+      ).bind(...completed.bindings).first<{
+        count: number; ad_appearances: number; ad_snapshots: number;
+      }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT substr(ad.captured_at, 1, 10) AS date,
           COUNT(*) AS appearances, COUNT(DISTINCT ad.snapshot_id) AS ad_snapshots
@@ -219,12 +230,16 @@ adsRoutes.get(
         date: string; appearances: number; ad_snapshots: number;
       }>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT substr(fact.captured_at, 1, 10) AS date, COUNT(*) AS completed
+        `SELECT substr(fact.captured_at, 1, 10) AS date, COUNT(*) AS completed,
+          COALESCE(SUM(fact.ads_count), 0) AS ad_appearances,
+          COUNT(DISTINCT CASE WHEN fact.ads_count > 0 THEN fact.snapshot_id END) AS ad_snapshots
          FROM analytics_snapshot_facts fact
          JOIN tracked_queries query ON query.id = fact.tracked_query_id
          WHERE ${completed.where}
          GROUP BY substr(fact.captured_at, 1, 10) ORDER BY date`,
-      ).bind(...completed.bindings).all<{ date: string; completed: number }>(),
+      ).bind(...completed.bindings).all<{
+        date: string; completed: number; ad_appearances: number; ad_snapshots: number;
+      }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT ad.advertiser_identity, ad.advertiser_key,
           MAX(COALESCE(ad.advertiser_name, ad.advertiser_domain)) AS advertiser_name,
@@ -261,38 +276,53 @@ adsRoutes.get(
          ORDER BY latest_seen DESC, appearances DESC LIMIT 24`,
       ).bind(...filtered.bindings).all<CreativeRow>(),
       c.env.CONTROL_DB.prepare(
-        "SELECT status FROM analytics_read_model_projects WHERE project_id = ? AND schema_version = 2",
+        "SELECT status FROM analytics_read_model_projects WHERE project_id = ? AND schema_version = 3",
       ).bind(input.projectId).first<{ status: string }>(),
     ]);
-    const totalAppearances = Number(summary?.appearances ?? 0);
+    const canUseSnapshotTotals = !input.search && !input.relationship;
+    const indexedAppearances = Number(summary?.appearances ?? 0);
+    const snapshotAppearances = Number(completedRuns?.ad_appearances ?? 0);
+    const totalAppearances = canUseSnapshotTotals
+      ? Math.max(indexedAppearances, snapshotAppearances)
+      : indexedAppearances;
+    const indexedSnapshots = Number(summary?.ad_snapshots ?? 0);
+    const snapshotAdSnapshots = Number(completedRuns?.ad_snapshots ?? 0);
+    const totalAdSnapshots = canUseSnapshotTotals
+      ? Math.max(indexedSnapshots, snapshotAdSnapshots)
+      : indexedSnapshots;
     const completedCount = Number(completedRuns?.count ?? 0);
     const byDate = new Map(trends.results.map((row) => [row.date, row]));
-    const completedByDate = new Map(
-      completedTrends.results.map((row) => [row.date, Number(row.completed)]),
-    );
+    const completedByDate = new Map(completedTrends.results.map((row) => [row.date, row]));
     const trend = [];
     for (let cursor = new Date(`${filtered.range.from}T00:00:00.000Z`);
       cursor <= new Date(`${filtered.range.to}T00:00:00.000Z`);
       cursor = new Date(cursor.getTime() + 86_400_000)) {
       const date = cursor.toISOString().slice(0, 10);
       const row = byDate.get(date);
-      const dailyCompleted = completedByDate.get(date) ?? 0;
+      const completedRow = completedByDate.get(date);
+      const dailyCompleted = Number(completedRow?.completed ?? 0);
+      const dailyAppearances = canUseSnapshotTotals
+        ? Math.max(Number(row?.appearances ?? 0), Number(completedRow?.ad_appearances ?? 0))
+        : Number(row?.appearances ?? 0);
+      const dailyAdSnapshots = canUseSnapshotTotals
+        ? Math.max(Number(row?.ad_snapshots ?? 0), Number(completedRow?.ad_snapshots ?? 0))
+        : Number(row?.ad_snapshots ?? 0);
       trend.push({
         date,
-        appearances: Number(row?.appearances ?? 0),
-        adSnapshots: Number(row?.ad_snapshots ?? 0),
+        appearances: dailyAppearances,
+        adSnapshots: dailyAdSnapshots,
         completedResponses: dailyCompleted,
         appearanceRate: dailyCompleted
-          ? (Number(row?.ad_snapshots ?? 0) / dailyCompleted) * 100
+          ? (dailyAdSnapshots / dailyCompleted) * 100
           : 0,
       });
     }
     return c.json({ data: {
       period: input.period,
-      indexing: state?.status !== "ready",
+      indexing: state?.status !== "ready" || snapshotAppearances > indexedAppearances,
       summary: {
         appearanceRate: completedCount
-          ? (Number(summary?.ad_snapshots ?? 0) / completedCount) * 100
+          ? (totalAdSnapshots / completedCount) * 100
           : 0,
         appearances: totalAppearances,
         activeAdvertisers: Number(summary?.advertisers ?? 0),

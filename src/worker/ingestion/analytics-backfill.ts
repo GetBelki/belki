@@ -22,12 +22,30 @@ export interface AnalyticsBackfillResult {
 }
 
 const BACKFILL_BATCH_SIZE = 50;
-const ANALYTICS_SCHEMA_VERSION = 2;
+// Version 3 repairs projects where snapshot facts were committed before their
+// ad occurrence rows. Re-running the source snapshots is idempotent.
+const ANALYTICS_SCHEMA_VERSION = 3;
 
 export async function backfillAnalyticsReadModel(
   env: Env,
 ): Promise<AnalyticsBackfillResult> {
   const updatedAt = nowIso();
+  // A schema bump means existing facts must be replayed even when an older
+  // version marked them indexed. Clearing this timestamp once makes the
+  // ordinary bounded backfill loop repair every source snapshot.
+  await env.CONTROL_DB.prepare(
+    `UPDATE analytics_snapshot_facts
+     SET ads_indexed_at = NULL
+     WHERE project_id IN (
+       SELECT project.id
+       FROM projects project
+       LEFT JOIN analytics_read_model_projects state ON state.project_id = project.id
+       WHERE project.deleted_at IS NULL
+         AND (state.project_id IS NULL OR state.schema_version < ?)
+     )`,
+  )
+    .bind(ANALYTICS_SCHEMA_VERSION)
+    .run();
   await env.CONTROL_DB.prepare(
     `INSERT INTO analytics_read_model_projects (
       project_id, status, schema_version, updated_at
