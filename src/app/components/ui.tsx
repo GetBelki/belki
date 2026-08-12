@@ -186,17 +186,19 @@ export function Select({
   onValueChange,
   options,
   placeholder,
+  ariaLabel,
 }: {
   value?: string;
   onValueChange: (value: string) => void;
   options: Array<{ value: string; label: string; icon?: ReactNode }>;
   placeholder?: string;
+  ariaLabel?: string;
 }) {
   const selectedOption = options.find((option) => option.value === value);
 
   return (
     <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
-      <SelectPrimitive.Trigger className="select-trigger">
+      <SelectPrimitive.Trigger aria-label={ariaLabel} className="select-trigger">
         <SelectPrimitive.Value placeholder={placeholder}>
           {selectedOption ? (
             <span className="select-value-content">

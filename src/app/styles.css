@@ -2086,6 +2086,65 @@ a.evidence-source:hover strong {
   grid-row: 1 / span 2;
 }
 
+.entity-name-groups {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.entity-name-group h4 {
+  align-items: center;
+  color: #71717a;
+  display: flex;
+  font-size: 10px;
+  font-weight: 650;
+  justify-content: space-between;
+  letter-spacing: .06em;
+  margin: 0 0 5px;
+  text-transform: uppercase;
+}
+
+.entity-name-group h4 span {
+  background: #f4f4f5;
+  border-radius: 999px;
+  color: #71717a;
+  font-size: 9px;
+  letter-spacing: 0;
+  padding: 1px 6px;
+}
+
+.entity-name-group ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.entity-name-group li {
+  align-items: center;
+  border-top: 1px solid #f4f4f5;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 30px;
+  padding: 6px 0;
+}
+
+.entity-name-group li:first-child {
+  border-top: 0;
+}
+
+.entity-name-group strong {
+  color: #27272a;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.entity-name-group a {
+  color: #71717a;
+  display: inline-flex;
+  flex: none;
+}
+
 .shopping-grid {
   display: grid;
   gap: 12px;
@@ -2904,6 +2963,15 @@ a.evidence-source:hover strong {
 .snapshot-timeline-item > small {
   color: #71717a;
   font-size: 10px;
+}
+
+.snapshot-timeline-footer {
+  border-top: 1px solid #f4f4f5;
+  padding: 12px 16px 16px;
+}
+
+.snapshot-timeline-footer .button {
+  width: 100%;
 }
 
 .shopping-table-product {
@@ -3728,31 +3796,77 @@ a.evidence-source:hover strong {
   overflow: hidden;
 }
 
+.tracked-entities-card {
+  overflow: hidden;
+}
+
+.entity-filter-bar {
+  border-bottom: 1px solid #f4f4f5;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1fr) 190px;
+  padding: 0 20px 16px;
+}
+
+.entity-discovery-filters {
+  grid-template-columns: minmax(220px, 1fr) 170px 170px;
+}
+
+.entity-filter-bar .input,
+.entity-filter-bar .select-trigger {
+  margin: 0;
+  width: 100%;
+}
+
+.entity-discovery-groups {
+  display: flex;
+  flex-direction: column;
+}
+
+.entity-discovery-group > header {
+  align-items: center;
+  background: #fafafa;
+  border-bottom: 1px solid #e4e4e7;
+  border-top: 1px solid #e4e4e7;
+  display: flex;
+  gap: 8px;
+  padding: 9px 18px;
+}
+
+.entity-discovery-group:first-child > header {
+  border-top: 0;
+}
+
+.entity-discovery-group > header h4 {
+  color: #27272a;
+  font-size: 11px;
+  font-weight: 650;
+  margin: 0;
+}
+
+.entity-discovery-group > header span {
+  background: #e4e4e7;
+  border-radius: 999px;
+  color: #52525b;
+  font-size: 9px;
+  padding: 1px 6px;
+}
+
 .entity-discovery-list > div {
   align-items: center;
   border-top: 1px solid #f4f4f5;
   display: grid;
   gap: 12px;
-  grid-template-columns: 34px minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto;
   padding: 14px 18px;
+}
+
+.entity-discovery-list > div:first-child {
+  border-top: 0;
 }
 
 .entity-discovery-list > div.ignored {
   opacity: .62;
-}
-
-.entity-discovery-avatar {
-  align-items: center;
-  background: #f4f4f5;
-  border: 1px solid #e4e4e7;
-  border-radius: 7px;
-  color: #3f3f46;
-  display: flex;
-  font-size: 12px;
-  font-weight: 700;
-  height: 34px;
-  justify-content: center;
-  width: 34px;
 }
 
 .entity-discovery-copy,
@@ -3774,30 +3888,32 @@ a.evidence-source:hover strong {
 }
 
 .entity-discovery-copy > span,
-.entity-discovery-copy p {
+.entity-evidence p {
   color: #71717a;
   font-size: 10px;
   margin: 0;
 }
 
-.entity-discovery-copy p {
+.entity-evidence {
+  max-width: 780px;
+}
+
+.entity-evidence summary {
+  color: #52525b;
+  cursor: pointer;
+  font-size: 10px;
+  font-weight: 550;
+}
+
+.entity-evidence p {
   line-height: 15px;
-  max-width: 760px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  margin-top: 7px;
+  white-space: normal;
 }
 
 .entity-discovery-actions {
   display: flex;
   gap: 5px;
-}
-
-.detected-entity-list small {
-  color: #71717a;
-  font-size: 9px;
-  grid-column: 1 / -1;
-  line-height: 14px;
 }
 
 @media (max-width: 900px) {
@@ -3807,11 +3923,16 @@ a.evidence-source:hover strong {
 
   .entity-discovery-list > div {
     align-items: start;
-    grid-template-columns: 34px minmax(0, 1fr);
+    grid-template-columns: 1fr;
   }
 
   .entity-discovery-actions {
-    grid-column: 2;
+    grid-column: 1;
+  }
+
+  .entity-filter-bar,
+  .entity-discovery-filters {
+    grid-template-columns: 1fr;
   }
 }
 

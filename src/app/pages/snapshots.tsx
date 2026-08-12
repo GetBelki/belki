@@ -27,6 +27,7 @@ import {
 } from "../components/ui";
 import { useApp } from "../context";
 import { api, apiPage, post } from "../lib/api";
+import { ENTITY_GROUPS, entityGroup, normalizeEntityName } from "../lib/entity-groups";
 import { localeLabel } from "../lib/locale-catalog";
 import { isRunInProgress, runStatusLabel } from "../lib/run-status";
 import {
@@ -60,6 +61,46 @@ function textValue(value: unknown, fallback = ""): string {
   return typeof value === "string" || typeof value === "number"
     ? String(value)
     : fallback;
+}
+
+function EntityNameGroups({
+  entities,
+}: {
+  entities: Array<{ id: string; name: string; type: string; href?: string | null }>;
+}) {
+  const unique = Array.from(new Map(
+    entities
+      .filter((entity) => entity.name.trim())
+      .map((entity) => [normalizeEntityName(entity.name), entity]),
+  ).values());
+
+  return (
+    <div className="entity-name-groups">
+      {ENTITY_GROUPS.map((group) => {
+        const matches = unique
+          .filter((entity) => entityGroup(entity.type) === group.key)
+          .sort((left, right) => left.name.localeCompare(right.name));
+        if (!matches.length) return null;
+        return (
+          <section className="entity-name-group" key={group.key}>
+            <h4>{group.label}<span>{matches.length}</span></h4>
+            <ul>
+              {matches.map((entity) => (
+                <li key={entity.id}>
+                  <strong>{entity.name}</strong>
+                  {entity.href ? (
+                    <a href={entity.href} target="_blank" rel="noreferrer" aria-label={`Open ${entity.name}`}>
+                      <ExternalLink size={13} />
+                    </a>
+                  ) : null}
+                </li>
+              ))}
+            </ul>
+          </section>
+        );
+      })}
+    </div>
+  );
 }
 
 function SnapshotTable({
@@ -527,33 +568,27 @@ export function SnapshotDetailPage() {
 
           {detectedEntities.length ? (
             <Card className="evidence-section">
-              <CardHeader title="Detected entities" description="Contextual named entities extracted from the answer and validated against its exact text." />
-              <CardContent className="entity-list detected-entity-list">
-                {detectedEntities.map((entity) => (
-                  <div key={entity.id}>
-                    <strong>{entity.canonical_name}</strong>
-                    <span>{entity.entity_type} · {entity.relationship} · {Math.round(entity.confidence * 100)}% confidence</span>
-                    {entity.evidence[0] ? <small>“{entity.evidence[0]}”</small> : null}
-                  </div>
-                ))}
+              <CardHeader title="Detected entities" description="Names found in the captured answer." />
+              <CardContent>
+                <EntityNameGroups entities={detectedEntities.map((entity) => ({
+                  id: entity.id,
+                  name: entity.canonical_name,
+                  type: entity.entity_type,
+                }))} />
               </CardContent>
             </Card>
           ) : null}
 
           {brands.length ? (
             <Card className="evidence-section">
-              <CardHeader title="Provider entities" description="Structured brand entities identified by the result provider." />
-              <CardContent className="entity-list">
-                {brands.map((brand, index) => {
-                  const href = safeExternalUrl(brand.raw_url);
-                  return (
-                    <div key={`${String(brand.id)}-${index}`}>
-                      <strong>{textValue(brand.title, "Untitled entity")}</strong>
-                      <span>{textValue(brand.category ?? brand.registrable_domain)}</span>
-                      {href ? <a href={href} target="_blank" rel="noreferrer" aria-label={`Open ${textValue(brand.title, "brand entity")}`}><ExternalLink size={13} /></a> : null}
-                    </div>
-                  );
-                })}
+              <CardHeader title="Provider entities" description="Names identified by the result provider." />
+              <CardContent>
+                <EntityNameGroups entities={brands.map((brand, index) => ({
+                  id: `${String(brand.id)}-${index}`,
+                  name: textValue(brand.title, "Untitled entity"),
+                  type: textValue(brand.category, "brand"),
+                  href: safeExternalUrl(brand.raw_url),
+                }))} />
               </CardContent>
             </Card>
           ) : null}
@@ -567,15 +602,6 @@ export function SnapshotDetailPage() {
             <CardHeader
               title="Recent captures"
               description="Compare snapshots of this prompt."
-              action={history.hasNextPage ? (
-                <Button
-                  variant="ghost"
-                  disabled={history.isFetchingNextPage}
-                  onClick={() => void history.fetchNextPage()}
-                >
-                  {history.isFetchingNextPage ? "Loading…" : "Load older"}
-                </Button>
-              ) : undefined}
             />
             <div className="snapshot-timeline">
               {history.data?.pages.flatMap((page) => page.data).map((item, index) => {
@@ -594,6 +620,17 @@ export function SnapshotDetailPage() {
                 );
               })}
             </div>
+            {history.hasNextPage ? (
+              <div className="snapshot-timeline-footer">
+                <Button
+                  variant="secondary"
+                  disabled={history.isFetchingNextPage}
+                  onClick={() => void history.fetchNextPage()}
+                >
+                  {history.isFetchingNextPage ? "Loading…" : "Load older captures"}
+                </Button>
+              </div>
+            ) : null}
           </Card>
         </aside>
       </div>
