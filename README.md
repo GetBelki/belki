@@ -5,7 +5,7 @@
 <h1 align="center">Belki</h1>
 
 <p align="center">
-  <strong>Know when AI recommends you—and when it doesn't.</strong>
+  <strong>Know when AI recommends you, and when it doesn't.</strong>
 </p>
 
 <p align="center">
@@ -19,24 +19,24 @@ runs per month.
 
 ## What Belki tracks
 
-- **Visibility and competition** — brand visibility, Share of Voice, visibility
+- **Visibility and competition:** brand visibility, Share of Voice, visibility
   gap against the leading competitor, daily competitor trends, and annotations
   showing when the monitored prompt set changed.
-- **Prompts and snapshots** — daily or weekly scheduled prompts, manual refreshes,
+- **Prompts and snapshots:** daily or weekly scheduled prompts, manual refreshes,
   bulk creation, tags, locale settings, captured answers, tables, citations,
   retrieved results, and fan-out queries.
-- **Citation sources** — citation rate, source share, domain trends, source detail,
+- **Citation sources:** citation rate, source share, domain trends, source detail,
   and links back to the exact captured response.
-- **Entities** — cross-industry discovery of brands, companies, people, and places;
+- **Entities:** cross-industry discovery of brands, companies, people, and places;
   answer-text validation; evidence and corroboration; manual tracking; and guarded
   automatic competitor tracking.
-- **Ads** — sponsored-result detection, ad appearance rate, advertiser activity,
+- **Ads:** sponsored-result detection, ad appearance rate, advertiser activity,
   creatives, destinations, observed positions, retained image/favicon assets, and
   the prompts and snapshots in which each ad appeared.
-- **Shopping** — products observed in AI answers, merchant labels, price, rating,
+- **Shopping:** products observed in AI answers, merchant labels, price, rating,
   reviews, appearance history, and optional Google Shopping enrichment with
   specifications, seller offers, availability, market pricing, and review data.
-- **Billing and operations** — provider charges and estimated Workers AI costs by
+- **Billing and operations:** provider charges and estimated Workers AI costs by
   project and workload, daily trends, project-level warnings, alerts, exports,
   webhooks, health diagnostics, users, and role-based access.
 
@@ -296,16 +296,16 @@ to render captured answers.
 
 ## Repository map
 
-- `src/app` — Belki React dashboard and authenticated product experience
-- `src/worker` — Hono API, ingestion, analytics, automation, and scheduled work
-- `src/shared` — request schemas and queue contracts
-- `migrations/control` — tenancy, orchestration, analytics, entities, ads,
+- `src/app`: Belki React dashboard and authenticated product experience
+- `src/worker`: Hono API, ingestion, analytics, automation, and scheduled work
+- `src/shared`: request schemas and queue contracts
+- `migrations/control`: tenancy, orchestration, analytics, entities, ads,
   enrichment, billing, and project settings
-- `migrations/snapshot` — detailed response, citation, product, and ad evidence
-- `infrastructure` — R2 lifecycle configuration
-- `scripts/migrate.mjs` — applies migrations to the control database and all 32
+- `migrations/snapshot`: detailed response, citation, product, and ad evidence
+- `infrastructure`: R2 lifecycle configuration
+- `scripts/migrate.mjs`: applies migrations to the control database and all 32
   snapshot shards
-- `ai-tracker-prd.md` — original product and architecture requirements
+- `ai-tracker-prd.md`: original product and architecture requirements
 
 ## License
 
