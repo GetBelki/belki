@@ -62,6 +62,7 @@ import {
 } from "../components/ui";
 import { useApp } from "../context";
 import { api, apiPage, patch, post, type Project } from "../lib/api";
+import { ENTITY_GROUPS, entityGroup, type EntityGroupKey } from "../lib/entity-groups";
 import { LOCATION_OPTIONS } from "../lib/locale-catalog";
 import { formatPrice, formatProviderCost, productDestination } from "../lib/snapshot-evidence";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
@@ -676,6 +677,11 @@ export function BrandsPage() {
   const { projectId, session } = useApp();
   const queryClient = useQueryClient();
   const [view, setView] = useState<"tracked" | "discovered">("tracked");
+  const [trackedSearch, setTrackedSearch] = useState("");
+  const [trackedKind, setTrackedKind] = useState("all");
+  const [discoveredSearch, setDiscoveredSearch] = useState("");
+  const [discoveredGroup, setDiscoveredGroup] = useState<"all" | EntityGroupKey>("all");
+  const [discoveredStatus, setDiscoveredStatus] = useState("candidate");
   const canEdit = session.user.role !== "viewer";
   const query = useProjectAnalytics<Array<Record<string, string | number>>>("brands");
   const discovered = useProjectAnalytics<Array<{
@@ -705,6 +711,24 @@ export function BrandsPage() {
   const candidates = discovered.data?.filter(
     (entity) => entity.status === "candidate" || entity.status === "ignored",
   ) ?? [];
+  const tracked = (query.data ?? [])
+    .filter((brand) => trackedKind === "all" || brand.kind === trackedKind)
+    .filter((brand) => String(brand.name).toLowerCase().includes(trackedSearch.trim().toLowerCase()))
+    .sort((left, right) => {
+      const kindDifference = (left.kind === "owned" ? 0 : 1) - (right.kind === "owned" ? 0 : 1);
+      if (kindDifference) return kindDifference;
+      return Number(right.mentioned_snapshot_count) - Number(left.mentioned_snapshot_count);
+    });
+  const filteredCandidates = candidates
+    .filter((entity) => discoveredStatus === "all" || entity.status === discoveredStatus)
+    .filter((entity) => discoveredGroup === "all" || entityGroup(entity.entity_type) === discoveredGroup)
+    .filter((entity) => entity.canonical_name.toLowerCase().includes(discoveredSearch.trim().toLowerCase()));
+  const groupedCandidates = ENTITY_GROUPS.map((group) => ({
+    ...group,
+    entities: filteredCandidates
+      .filter((entity) => entityGroup(entity.entity_type) === group.key)
+      .sort((left, right) => right.period_snapshot_count - left.period_snapshot_count),
+  })).filter((group) => group.entities.length);
   return (
     <div className="page">
       <PageHeader
@@ -726,39 +750,116 @@ export function BrandsPage() {
         <button aria-selected={view === "discovered"} className={view === "discovered" ? "active" : undefined} onClick={() => setView("discovered")} role="tab" type="button">Discovered <span>{candidates.length}</span></button>
       </div>
       {view === "tracked" ? (
-        <div className="brand-grid">
-          {query.isPending ? Array.from({ length: 3 }, (_, index) => (
-            <Skeleton className="brand-card-skeleton" key={index} />
-          )) : query.data?.length ? query.data.map((brand) => (
-            <Card className="brand-card" key={String(brand.id)}>
-              <div className="brand-avatar">{String(brand.name).slice(0, 1).toUpperCase()}</div>
-              <div><Badge tone={brand.kind === "owned" ? "info" : "neutral"}>{brand.kind}</Badge><h3>{brand.name}</h3><strong>{compact(Number(brand.mentioned_snapshot_count))}</strong><span>mentioning snapshots</span></div>
-            </Card>
-          )) : <Card><EmptyState title="No tracked entities" description="Configure an owned brand or track a discovered competitor." /></Card>}
-        </div>
+        <Card className="tracked-entities-card">
+          <CardHeader title="Tracked entities" description="Owned brands and competitors included in visibility reporting." />
+          <div className="entity-filter-bar">
+            <Input
+              aria-label="Search tracked entities"
+              onChange={(event) => setTrackedSearch(event.target.value)}
+              placeholder="Search entities"
+              type="search"
+              value={trackedSearch}
+            />
+            <Select
+              ariaLabel="Filter tracked entities by role"
+              onValueChange={setTrackedKind}
+              options={[
+                { value: "all", label: "All roles" },
+                { value: "owned", label: "Owned" },
+                { value: "competitor", label: "Competitors" },
+              ]}
+              value={trackedKind}
+            />
+          </div>
+          {query.isPending ? <TableSkeleton rows={6} columns={3} /> : tracked.length ? (
+            <DataTable
+              columns={[
+                { key: "entity", label: "Entity" },
+                { key: "role", label: "Role" },
+                { key: "mentions", label: "Mentioning snapshots" },
+              ]}
+              rows={tracked.map((brand) => ({
+                id: brand.id,
+                entity: <strong>{brand.name}</strong>,
+                role: <Badge tone={brand.kind === "owned" ? "info" : "neutral"}>{brand.kind === "owned" ? "Owned" : "Competitor"}</Badge>,
+                mentions: <strong>{compact(Number(brand.mentioned_snapshot_count))}</strong>,
+              }))}
+            />
+          ) : query.data?.length ? (
+            <EmptyState title="No matching entities" description="Adjust the search or role filter." />
+          ) : (
+            <EmptyState title="No tracked entities" description="Configure an owned brand or track a discovered competitor." />
+          )}
+        </Card>
       ) : (
         <Card className="entity-discovery-card">
-          <CardHeader title="Discovered entities" description="Contextual extraction from responses across every project type. High-confidence competitors can be tracked automatically." />
-          {discovered.isPending ? <TableSkeleton rows={5} /> : candidates.length ? (
-            <div className="entity-discovery-list">
-              {candidates.map((entity) => (
-                <div className={entity.status === "ignored" ? "ignored" : undefined} key={entity.id}>
-                  <div className="entity-discovery-avatar">{entity.canonical_name.slice(0, 1).toUpperCase()}</div>
-                  <div className="entity-discovery-copy">
-                    <div><strong>{entity.canonical_name}</strong><Badge>{entity.entity_type}</Badge><Badge tone={entity.relationship === "competitor" ? "warning" : "neutral"}>{entity.relationship}</Badge>{entity.provider_corroborated || entity.domain_corroborated ? <Badge tone="success">Corroborated</Badge> : null}</div>
-                    <span>{compact(entity.period_snapshot_count)} responses · {compact(entity.period_prompt_count)} prompts{entity.confidence !== null ? ` · ${Math.round(entity.confidence * 100)}% confidence` : ""}</span>
-                    {entity.latestEvidence[0] ? <p>“{entity.latestEvidence[0]}”</p> : null}
+          <CardHeader title="Discovered entities" description="Names extracted from captured responses. Brands appear first because they are the most likely competitor candidates." />
+          <div className="entity-filter-bar entity-discovery-filters">
+            <Input
+              aria-label="Search discovered entities"
+              onChange={(event) => setDiscoveredSearch(event.target.value)}
+              placeholder="Search entities"
+              type="search"
+              value={discoveredSearch}
+            />
+            <Select
+              ariaLabel="Filter discovered entities by type"
+              onValueChange={(value) => setDiscoveredGroup(value as "all" | EntityGroupKey)}
+              options={[{ value: "all", label: "All types" }, ...ENTITY_GROUPS.map((group) => ({ value: group.key, label: group.label }))]}
+              value={discoveredGroup}
+            />
+            <Select
+              ariaLabel="Filter discovered entities by status"
+              onValueChange={setDiscoveredStatus}
+              options={[
+                { value: "candidate", label: "Candidates" },
+                { value: "ignored", label: "Ignored" },
+                { value: "all", label: "All statuses" },
+              ]}
+              value={discoveredStatus}
+            />
+          </div>
+          {discovered.isPending ? <TableSkeleton rows={5} /> : groupedCandidates.length ? (
+            <div className="entity-discovery-groups">
+              {groupedCandidates.map((group) => (
+                <section className="entity-discovery-group" key={group.key}>
+                  <header><h4>{group.label}</h4><span>{group.entities.length}</span></header>
+                  <div className="entity-discovery-list">
+                    {group.entities.map((entity) => (
+                      <div className={entity.status === "ignored" ? "ignored" : undefined} key={entity.id}>
+                        <div className="entity-discovery-copy">
+                          <div>
+                            <strong>{entity.canonical_name}</strong>
+                            <Badge tone={entity.relationship === "competitor" ? "warning" : "neutral"}>{entity.relationship}</Badge>
+                            {entity.provider_corroborated || entity.domain_corroborated ? <Badge tone="success">Corroborated</Badge> : null}
+                            {entity.status === "ignored" ? <Badge>Ignored</Badge> : null}
+                          </div>
+                          <span>{compact(entity.period_snapshot_count)} responses · {compact(entity.period_prompt_count)} prompts</span>
+                          {entity.latestEvidence[0] ? (
+                            <details className="entity-evidence">
+                              <summary>Show evidence</summary>
+                              <p>“{entity.latestEvidence[0]}”</p>
+                            </details>
+                          ) : null}
+                        </div>
+                        {canEdit ? <div className="entity-discovery-actions">
+                          {entity.status === "ignored" ? (
+                            <Button disabled={updateEntity.isPending} onClick={() => updateEntity.mutate({ id: entity.id, action: "restore" })} variant="secondary">Restore</Button>
+                          ) : (
+                            <>
+                              {group.key === "brands" || group.key === "companies" ? <Button disabled={updateEntity.isPending} onClick={() => updateEntity.mutate({ id: entity.id, action: "track" })}>Track competitor</Button> : null}
+                              <Button disabled={updateEntity.isPending} onClick={() => updateEntity.mutate({ id: entity.id, action: "ignore" })} variant="ghost">Ignore</Button>
+                            </>
+                          )}
+                        </div> : null}
+                      </div>
+                    ))}
                   </div>
-                  {canEdit ? <div className="entity-discovery-actions">
-                    {entity.status === "ignored" ? (
-                      <Button disabled={updateEntity.isPending} onClick={() => updateEntity.mutate({ id: entity.id, action: "restore" })} variant="secondary">Restore</Button>
-                    ) : (
-                      <><Button disabled={updateEntity.isPending || !["brand", "company", "organization"].includes(entity.entity_type)} onClick={() => updateEntity.mutate({ id: entity.id, action: "track" })}>Track competitor</Button><Button disabled={updateEntity.isPending} onClick={() => updateEntity.mutate({ id: entity.id, action: "ignore" })} variant="ghost">Ignore</Button></>
-                    )}
-                  </div> : null}
-                </div>
+                </section>
               ))}
             </div>
+          ) : candidates.length ? (
+            <EmptyState title="No matching entities" description="Adjust the search, type, or status filters." />
           ) : <EmptyState title="No discovered entities yet" description="Entity extraction runs asynchronously after captured responses are normalized." />}
         </Card>
       )}
