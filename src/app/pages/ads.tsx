@@ -390,6 +390,12 @@ export function AdvertiserDetailPage() {
   const { advertiserKey } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const period = periodValue(searchParams.get("period"));
+  const detailView = searchParams.get("view") === "creatives" ? "creatives" : "overview";
+  const updateDetailParam = (key: string, value: string) => {
+    const next = new URLSearchParams(searchParams);
+    if (value) next.set(key, value); else next.delete(key);
+    setSearchParams(next, { replace: true });
+  };
   const query = useQuery({
     queryKey: ["advertiser-ads", projectId, advertiserKey, period],
     queryFn: () => api<AdvertiserDetail>(`/analytics/ads/${advertiserKey}?projectId=${projectId}&period=${period}`),
@@ -404,8 +410,21 @@ export function AdvertiserDetailPage() {
         eyebrow="Advertiser activity"
         title={advertiser?.name ?? "Advertiser"}
         description={advertiser?.domain ?? "Sponsored appearances across captured responses."}
-        action={<div className="ads-period-select"><Select value={period} onValueChange={(value) => setSearchParams({ period: value }, { replace: true })} options={PERIOD_OPTIONS} /></div>}
+        action={<div className="ads-period-select"><Select value={period} onValueChange={(value) => updateDetailParam("period", value)} options={PERIOD_OPTIONS} /></div>}
       />
+      <div className="ad-detail-tabs" role="tablist" aria-label="Advertiser activity views">
+        <button aria-selected={detailView === "overview"} className={detailView === "overview" ? "active" : undefined} onClick={() => updateDetailParam("view", "")} role="tab" type="button">Overview</button>
+        <button aria-selected={detailView === "creatives"} className={detailView === "creatives" ? "active" : undefined} onClick={() => updateDetailParam("view", "creatives")} role="tab" type="button">Creatives <span>{compact(advertiser?.creatives ?? 0)}</span></button>
+      </div>
+      {detailView === "creatives" ? (
+        <section className="ad-creatives-panel" role="tabpanel">
+          <div className="ad-panel-heading"><div><h2>Creatives</h2><p>Copy, destinations, assets, and observed positions.</p></div></div>
+          {query.isPending ? <div className="ad-creative-grid ad-creative-grid-cards"><Skeleton /><Skeleton /><Skeleton /></div> : query.data?.creatives.length ? (
+            <div className="ad-creative-grid ad-creative-grid-cards">{query.data.creatives.map((creative) => <CreativeCard creative={creative} key={creative.creativeKey} />)}</div>
+          ) : <EmptyState title="No creatives" description="No creatives were captured in this period." />}
+        </section>
+      ) : (
+        <>
       {query.isPending ? <Skeleton className="ad-detail-summary" /> : advertiser ? (
         <Card className="ad-detail-summary"><CardContent>
           <div className="ad-detail-identity">
@@ -426,7 +445,6 @@ export function AdvertiserDetailPage() {
           <ResponsiveContainer width="100%" height="100%" minWidth={0}><LineChart data={query.data.trend}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} /><YAxis allowDecimals={false} tickLine={false} axisLine={false} width={34} /><Tooltip /><Line type="monotone" dataKey="appearances" stroke="#18181b" strokeWidth={2.5} dot={{ r: 2 }} /></LineChart></ResponsiveContainer>
         ) : <EmptyState title="No trend data" description="No appearances were captured in this period." />}
       </CardContent></Card>
-      <Card><CardHeader title="Creatives" description="Copy, destinations, assets, and observed positions." /><CardContent>{query.isPending ? <Skeleton /> : query.data?.creatives.length ? <div className="ad-creative-grid">{query.data.creatives.map((creative) => <CreativeCard creative={creative} key={creative.creativeKey} />)}</div> : <EmptyState title="No creatives" description="No creatives were captured in this period." />}</CardContent></Card>
       <Card><CardHeader title="Prompts showing this advertiser" description="Tracked prompts where at least one ad from this advertiser appeared." />
         {query.isPending ? <TableSkeleton rows={6} columns={6} /> : query.data?.prompts.length ? <DataTable columns={[
           { key: "prompt", label: "Prompt" }, { key: "locale", label: "Locale" },
@@ -442,6 +460,8 @@ export function AdvertiserDetailPage() {
           open: <Link to={`/snapshots/${prompt.latestSnapshotId}`} aria-label={`Open latest snapshot for ${prompt.query}`}><ChevronRight size={16} /></Link>,
         }))} /> : <EmptyState title="No prompts" description="No prompt appearances were captured in this period." />}
       </Card>
+        </>
+      )}
     </div>
   );
 }
