@@ -77,6 +77,32 @@ export function Input({
   return <input className={cn("input", className)} {...props} />;
 }
 
+export function Switch({
+  checked,
+  disabled,
+  onCheckedChange,
+  ariaLabel,
+}: {
+  checked: boolean;
+  disabled?: boolean;
+  onCheckedChange: (checked: boolean) => void;
+  ariaLabel: string;
+}) {
+  return (
+    <button
+      aria-checked={checked}
+      aria-label={ariaLabel}
+      className={cn("switch", checked && "is-checked")}
+      disabled={disabled}
+      onClick={() => onCheckedChange(!checked)}
+      role="switch"
+      type="button"
+    >
+      <span />
+    </button>
+  );
+}
+
 export function Label({
   children,
   hint,

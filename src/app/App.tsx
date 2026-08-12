@@ -66,9 +66,7 @@ const UsersPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.UsersPage })),
 );
 const BillingPage = lazy(() => import("./pages/billing"));
-const SettingsPage = lazy(() =>
-  import("./pages/insights").then((module) => ({ default: module.SettingsPage })),
-);
+const SettingsPage = lazy(() => import("./pages/settings"));
 
 export function App() {
   const location = useLocation();

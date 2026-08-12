@@ -83,6 +83,18 @@ export const ProjectUpdateSchema = z.object({
   htmlCaptureEnabled: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
+export const ProjectFeatureSettingsSchema = z.object({
+  htmlCaptureEnabled: z.boolean().optional(),
+  productEnrichmentEnabled: z.boolean().optional(),
+  entityExtractionEnabled: z.boolean().optional(),
+  entityAutoTrackEnabled: z.boolean().optional(),
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+export const ProjectBillingAlertsSchema = z.object({
+  productEnrichmentWarningUsd: z.number().finite().min(0).max(1_000_000).optional(),
+  entityExtractionWarningUsd: z.number().finite().min(0).max(1_000_000).optional(),
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
 export const ProductEnrichmentSettingsSchema = z.object({
   enabled: z.boolean().optional(),
   monthlyWarningUsd: z.number().finite().min(0).max(1_000_000).optional(),

@@ -93,11 +93,12 @@ function strings(value: unknown): string[] {
     : [];
 }
 
-async function workspaceAllowsEnrichment(env: Env, workspaceId: string): Promise<boolean> {
+async function projectAllowsEnrichment(env: Env, projectId: string): Promise<boolean> {
   const row = await env.CONTROL_DB.prepare(
-    "SELECT product_enrichment_enabled FROM workspaces WHERE id = ?",
+    `SELECT product_enrichment_enabled FROM projects
+     WHERE id = ? AND deleted_at IS NULL`,
   )
-    .bind(workspaceId)
+    .bind(projectId)
     .first<{ product_enrichment_enabled: number }>();
   return row?.product_enrichment_enabled === 1;
 }
@@ -162,8 +163,8 @@ async function queueTarget(
   target: TargetRow,
   reason: EnrichmentReason,
 ): Promise<{ jobId: string | null; status: string }> {
-  if (!(await workspaceAllowsEnrichment(env, target.workspace_id))) {
-    return { jobId: null, status: "workspace_paused" };
+  if (!(await projectAllowsEnrichment(env, target.project_id))) {
+    return { jobId: null, status: "project_paused" };
   }
   if (reason !== "manual" && !(await autoRefreshEnabled(env, target.project_id, target.product_identity))) {
     return { jobId: null, status: "product_paused" };
@@ -369,11 +370,12 @@ export async function enqueueDueProductEnrichments(env: Env): Promise<number> {
   const targets = await env.CONTROL_DB.prepare(
     `SELECT target.id
      FROM product_enrichment_targets target
-     JOIN workspaces workspace ON workspace.id = target.workspace_id
+     JOIN projects project ON project.id = target.project_id
      LEFT JOIN product_enrichment_preferences preference
        ON preference.project_id = target.project_id
       AND preference.product_identity = target.product_identity
-     WHERE workspace.product_enrichment_enabled = 1
+     WHERE project.product_enrichment_enabled = 1
+       AND project.deleted_at IS NULL
        AND COALESCE(preference.automatic_refresh_enabled, 1) = 1
        AND target.current_job_id IS NULL
        AND (target.google_product_id IS NOT NULL OR target.data_docid IS NOT NULL OR target.gid IS NOT NULL)
@@ -397,13 +399,14 @@ async function loadJob(env: Env, jobId: string): Promise<JobRow | null> {
     `SELECT job.id, job.target_id, job.workspace_id, job.project_id, job.reason,
       job.priority, job.status, job.provider_tag, job.provider_task_id,
       job.submit_attempts, workspace.public_base_url,
-      workspace.product_enrichment_enabled,
+      project.product_enrichment_enabled,
       COALESCE(preference.automatic_refresh_enabled, 1) AS automatic_refresh_enabled,
       target.location_code, target.language_code, target.google_product_id,
       target.data_docid, target.gid
      FROM product_enrichment_jobs job
      JOIN product_enrichment_targets target ON target.id = job.target_id
      JOIN workspaces workspace ON workspace.id = job.workspace_id
+     JOIN projects project ON project.id = job.project_id
      LEFT JOIN product_enrichment_preferences preference
        ON preference.project_id = job.project_id
       AND preference.product_identity = job.product_identity
@@ -419,7 +422,7 @@ async function submitJob(env: Env, jobId: string): Promise<void> {
   // Recover it by signed tag through tasks_ready instead of risking a duplicate POST.
   if (!job || job.status !== "queued") return;
   if (job.product_enrichment_enabled !== 1) {
-    await cancelJob(env, job.id, job.target_id, "Workspace product enrichment is paused.");
+    await cancelJob(env, job.id, job.target_id, "Project product enrichment is paused.");
     return;
   }
   if (job.reason !== "manual" && job.automatic_refresh_enabled !== 1) {

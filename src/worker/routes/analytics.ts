@@ -31,7 +31,10 @@ import {
   type PromptSetAuditRow,
   type TrackedBrandReportRow,
 } from "../lib/reporting";
-import { summarizeMarketPrices } from "../lib/product-enrichment";
+import {
+  googleProductIdentifiers,
+  summarizeMarketPrices,
+} from "../lib/product-enrichment";
 import {
   ensureProductEnrichmentTarget,
   requestTargetRefresh,
@@ -86,7 +89,7 @@ const ShoppingAnalyticsSchema = PaginatedDateRangeSchema.extend({
   enrichment: z.enum(["enriched", "not_enriched"]).optional(),
 });
 const BillingQuerySchema = z.object({
-  projectId: z.string().uuid(),
+  projectId: z.string().uuid().optional(),
   period: z.enum(["30d", "month"]).default("30d"),
 });
 const ShoppingProductParamSchema = z.object({
@@ -461,6 +464,9 @@ interface MarketTargetRow {
   last_success_at: string | null;
   next_refresh_at: string | null;
   last_error: string | null;
+  google_product_id: string | null;
+  data_docid: string | null;
+  gid: string | null;
 }
 
 interface MarketSnapshotRow {
@@ -508,22 +514,20 @@ interface MarketOfferRow {
 
 async function loadProductMarket(
   env: Env,
-  workspaceId: string,
   projectId: string,
   identity: string,
   dates: ReturnType<typeof productAnalyticsDateRange>,
   occurrences: ShoppingProductOccurrence[],
   requestedLocale?: { locationCode?: number; languageCode?: string },
 ) {
-  const [workspace, preference, targets] = await Promise.all([
+  const [project, preference, targets] = await Promise.all([
     env.CONTROL_DB.prepare(
-      `SELECT product_enrichment_enabled, product_enrichment_warning_usd
-       FROM workspaces WHERE id = ?`,
+      `SELECT product_enrichment_enabled
+       FROM projects WHERE id = ? AND deleted_at IS NULL`,
     )
-      .bind(workspaceId)
+      .bind(projectId)
       .first<{
         product_enrichment_enabled: number;
-        product_enrichment_warning_usd: number;
       }>(),
     env.CONTROL_DB.prepare(
       `SELECT automatic_refresh_enabled FROM product_enrichment_preferences
@@ -533,7 +537,8 @@ async function loadProductMarket(
       .first<{ automatic_refresh_enabled: number }>(),
     env.CONTROL_DB.prepare(
       `SELECT id, location_code, language_code, status, current_job_id,
-        latest_snapshot_id, last_success_at, next_refresh_at, last_error
+        latest_snapshot_id, last_success_at, next_refresh_at, last_error,
+        google_product_id, data_docid, gid
        FROM product_enrichment_targets
        WHERE project_id = ? AND product_identity = ?
        ORDER BY last_seen_at DESC, updated_at DESC`,
@@ -568,6 +573,15 @@ async function loadProductMarket(
           candidate.language_code === selectedLocale.languageCode,
       ) ?? null
     : null;
+  const occurrenceSupportsSelectedLocale = Boolean(selectedLocale && occurrences.some(
+    (occurrence) =>
+      occurrence.location_code === selectedLocale.locationCode &&
+      occurrence.language_code === selectedLocale.languageCode &&
+      googleProductIdentifiers(jsonParse<unknown[]>(occurrence.product_ids_json, [])),
+  ));
+  const enrichmentSupported = Boolean(
+    target?.google_product_id || target?.data_docid || target?.gid || occurrenceSupportsSelectedLocale,
+  );
   let latestSnapshot: MarketSnapshotRow | null = null;
   let latestOffers: MarketOfferRow[] = [];
   let history: MarketSnapshotRow[] = [];
@@ -639,9 +653,8 @@ async function loadProductMarket(
     }),
     selectedLocale,
     policy: {
-      workspaceEnabled: workspace?.product_enrichment_enabled === 1,
+      projectEnabled: project?.product_enrichment_enabled === 1,
       automaticRefreshEnabled: preference?.automatic_refresh_enabled !== 0,
-      monthlyWarningUsd: Number(workspace?.product_enrichment_warning_usd ?? 10),
     },
     refresh: {
       targetId: target?.id ?? null,
@@ -650,6 +663,7 @@ async function loadProductMarket(
       lastCompletedAt: target?.last_success_at ?? null,
       nextEligibleAt: target?.next_refresh_at ?? null,
       lastError: target?.last_error ?? null,
+      supported: enrichmentSupported,
     },
     profile: latestSnapshot
       ? {
@@ -731,7 +745,17 @@ async function latestEnrichmentOccurrence(
      JOIN projects project ON project.id = product.project_id
      WHERE product.project_id = ? AND product.product_identity = ?
        AND query.location_code = ? AND query.language_code = ?
-     ORDER BY product.captured_at DESC LIMIT 1`,
+     ORDER BY
+       CASE WHEN EXISTS (
+         SELECT 1
+         FROM json_each(product.product_ids_json) identifier
+         WHERE NULLIF(TRIM(CAST(json_extract(identifier.value, '$.catalog_id') AS TEXT)), '') IS NOT NULL
+            OR NULLIF(TRIM(CAST(json_extract(identifier.value, '$.headline_offer_docid') AS TEXT)), '') IS NOT NULL
+            OR NULLIF(TRIM(CAST(json_extract(identifier.value, '$.product_id') AS TEXT)), '') IS NOT NULL
+            OR NULLIF(TRIM(CAST(json_extract(identifier.value, '$.gpcid') AS TEXT)), '') IS NOT NULL
+       ) THEN 0 ELSE 1 END,
+       product.captured_at DESC
+     LIMIT 1`,
   )
     .bind(projectId, identity, locationCode, languageCode)
     .first<{
@@ -874,20 +898,24 @@ analyticsRoutes.get(
   async (c) => {
     const principal = requireRole(c, "admin");
     const input = c.req.valid("query");
-    await assertProjectAccess(
-      c.env,
-      principal.workspaceId,
-      input.projectId,
-      c.get("timing"),
-    );
+    if (input.projectId) {
+      await assertProjectAccess(
+        c.env,
+        principal.workspaceId,
+        input.projectId,
+        c.get("timing"),
+      );
+    }
     const dates = billingDateRange(input.period);
+    const scopedProjectId = input.projectId ?? null;
     const [
       promptRows,
       enrichmentRows,
       entityRows,
-      workspaceEnrichment,
-      workspaceEntityExtraction,
-      workspaceSettings,
+      projectUsageRows,
+      projectSettings,
+      monthlyEnrichmentRows,
+      monthlyEntityRows,
     ] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT metric_date, SUM(charged_runs) AS charged_runs,
@@ -898,8 +926,8 @@ analyticsRoutes.get(
            COUNT(*) AS charged_runs,
            COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
          FROM crawl_jobs
-         WHERE project_id = ?
-           AND workspace_id = ?
+         WHERE workspace_id = ?
+           AND (? IS NULL OR project_id = ?)
            AND request_cost_usd IS NOT NULL
            AND request_cost_usd > 0
            AND COALESCE(submitted_at, created_at) >= ?
@@ -908,7 +936,7 @@ analyticsRoutes.get(
          UNION ALL
          SELECT usage_date AS metric_date, charged_runs, provider_cost_usd
          FROM deleted_prompt_usage_daily
-         WHERE project_id = ? AND workspace_id = ?
+         WHERE workspace_id = ? AND (? IS NULL OR project_id = ?)
            AND usage_date >= substr(?, 1, 10)
            AND usage_date < substr(?, 1, 10)
            AND charged_runs > 0
@@ -917,12 +945,14 @@ analyticsRoutes.get(
        ORDER BY metric_date`,
       )
         .bind(
-          input.projectId,
           principal.workspaceId,
+          scopedProjectId,
+          scopedProjectId,
           dates.startTimestamp,
           dates.endExclusiveTimestamp,
-          input.projectId,
           principal.workspaceId,
+          scopedProjectId,
+          scopedProjectId,
           dates.startTimestamp,
           dates.endExclusiveTimestamp,
         )
@@ -931,15 +961,16 @@ analyticsRoutes.get(
         `SELECT substr(COALESCE(submitted_at, created_at), 1, 10) AS metric_date,
           COUNT(*) AS charged_runs, COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
          FROM product_enrichment_jobs
-         WHERE project_id = ? AND workspace_id = ?
+         WHERE workspace_id = ? AND (? IS NULL OR project_id = ?)
            AND request_cost_usd IS NOT NULL AND request_cost_usd > 0
            AND COALESCE(submitted_at, created_at) >= ?
            AND COALESCE(submitted_at, created_at) < ?
          GROUP BY metric_date ORDER BY metric_date`,
       )
         .bind(
-          input.projectId,
           principal.workspaceId,
+          scopedProjectId,
+          scopedProjectId,
           dates.startTimestamp,
           dates.endExclusiveTimestamp,
         )
@@ -953,91 +984,199 @@ analyticsRoutes.get(
              COALESCE(SUM(chunk.estimated_cost_usd), 0) AS provider_cost_usd
            FROM entity_extraction_chunks chunk
            JOIN entity_extraction_jobs job ON job.id = chunk.job_id
-           WHERE job.project_id = ? AND job.workspace_id = ?
+           WHERE job.workspace_id = ? AND (? IS NULL OR job.project_id = ?)
              AND chunk.status = 'completed' AND chunk.completed_at >= ? AND chunk.completed_at < ?
            GROUP BY metric_date
            UNION ALL
            SELECT usage_date, charged_tasks, estimated_cost_usd
            FROM deleted_entity_extraction_usage_daily
-           WHERE project_id = ? AND workspace_id = ?
+           WHERE workspace_id = ? AND (? IS NULL OR project_id = ?)
              AND usage_date >= substr(?, 1, 10) AND usage_date < substr(?, 1, 10)
          ) usage GROUP BY metric_date ORDER BY metric_date`,
       )
         .bind(
-          input.projectId,
           principal.workspaceId,
+          scopedProjectId,
+          scopedProjectId,
           dates.startTimestamp,
           dates.endExclusiveTimestamp,
-          input.projectId,
           principal.workspaceId,
+          scopedProjectId,
+          scopedProjectId,
           dates.startTimestamp,
           dates.endExclusiveTimestamp,
         )
         .all<BillingDailyRow>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT COUNT(*) AS charged_runs, COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
-         FROM product_enrichment_jobs
-         WHERE workspace_id = ? AND request_cost_usd IS NOT NULL AND request_cost_usd > 0
-           AND COALESCE(submitted_at, created_at) >= strftime('%Y-%m-01T00:00:00.000Z', 'now')`,
+        `SELECT usage.project_id, COALESCE(project.name, 'Deleted project') AS project_name,
+          usage.category, SUM(usage.charged_tasks) AS charged_tasks,
+          SUM(usage.cost) AS cost
+         FROM (
+          SELECT project_id, 'promptTracking' AS category,
+            COUNT(*) AS charged_tasks, COALESCE(SUM(request_cost_usd), 0) AS cost
+          FROM crawl_jobs
+          WHERE workspace_id = ? AND request_cost_usd > 0
+            AND COALESCE(submitted_at, created_at) >= ?
+            AND COALESCE(submitted_at, created_at) < ?
+          GROUP BY project_id
+          UNION ALL
+          SELECT project_id, 'promptTracking', SUM(charged_runs), SUM(provider_cost_usd)
+          FROM deleted_prompt_usage_daily
+          WHERE workspace_id = ? AND usage_date >= substr(?, 1, 10)
+            AND usage_date < substr(?, 1, 10)
+          GROUP BY project_id
+          UNION ALL
+          SELECT project_id, 'productEnrichment', COUNT(*), COALESCE(SUM(request_cost_usd), 0)
+          FROM product_enrichment_jobs
+          WHERE workspace_id = ? AND request_cost_usd > 0
+            AND COALESCE(submitted_at, created_at) >= ?
+            AND COALESCE(submitted_at, created_at) < ?
+          GROUP BY project_id
+          UNION ALL
+          SELECT job.project_id, 'entityExtraction', COUNT(*),
+            COALESCE(SUM(chunk.estimated_cost_usd), 0)
+          FROM entity_extraction_chunks chunk
+          JOIN entity_extraction_jobs job ON job.id = chunk.job_id
+          WHERE job.workspace_id = ? AND chunk.status = 'completed'
+            AND chunk.completed_at >= ? AND chunk.completed_at < ?
+          GROUP BY job.project_id
+          UNION ALL
+          SELECT project_id, 'entityExtraction', SUM(charged_tasks), SUM(estimated_cost_usd)
+          FROM deleted_entity_extraction_usage_daily
+          WHERE workspace_id = ? AND usage_date >= substr(?, 1, 10)
+            AND usage_date < substr(?, 1, 10)
+          GROUP BY project_id
+         ) usage
+         LEFT JOIN projects project ON project.id = usage.project_id
+         WHERE (? IS NULL OR usage.project_id = ?)
+         GROUP BY usage.project_id, usage.category
+         ORDER BY project_name, usage.category`,
       )
-        .bind(principal.workspaceId)
-        .first<{ charged_runs: number; provider_cost_usd: number }>(),
+        .bind(
+          principal.workspaceId, dates.startTimestamp, dates.endExclusiveTimestamp,
+          principal.workspaceId, dates.startTimestamp, dates.endExclusiveTimestamp,
+          principal.workspaceId, dates.startTimestamp, dates.endExclusiveTimestamp,
+          principal.workspaceId, dates.startTimestamp, dates.endExclusiveTimestamp,
+          principal.workspaceId, dates.startTimestamp, dates.endExclusiveTimestamp,
+          scopedProjectId, scopedProjectId,
+        )
+        .all<{
+          project_id: string;
+          project_name: string;
+          category: "promptTracking" | "productEnrichment" | "entityExtraction";
+          charged_tasks: number;
+          cost: number;
+        }>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT SUM(charged_runs) AS charged_runs,
-          SUM(provider_cost_usd) AS provider_cost_usd FROM (
-          SELECT COUNT(*) AS charged_runs,
-            COALESCE(SUM(chunk.estimated_cost_usd), 0) AS provider_cost_usd
+        `SELECT id, name, product_enrichment_warning_usd, entity_extraction_warning_usd
+         FROM projects WHERE workspace_id = ? AND deleted_at IS NULL
+           AND (? IS NULL OR id = ?)
+         ORDER BY name`,
+      )
+        .bind(principal.workspaceId, scopedProjectId, scopedProjectId)
+        .all<{
+          id: string;
+          name: string;
+          product_enrichment_warning_usd: number;
+          entity_extraction_warning_usd: number;
+        }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT project_id, COUNT(*) AS charged_tasks,
+          COALESCE(SUM(request_cost_usd), 0) AS cost
+         FROM product_enrichment_jobs
+         WHERE workspace_id = ? AND request_cost_usd > 0
+           AND COALESCE(submitted_at, created_at) >= strftime('%Y-%m-01T00:00:00.000Z', 'now')
+         GROUP BY project_id`,
+      ).bind(principal.workspaceId).all<{ project_id: string; charged_tasks: number; cost: number }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT project_id, SUM(charged_tasks) AS charged_tasks, SUM(cost) AS cost FROM (
+          SELECT job.project_id, COUNT(*) AS charged_tasks,
+            COALESCE(SUM(chunk.estimated_cost_usd), 0) AS cost
           FROM entity_extraction_chunks chunk
           JOIN entity_extraction_jobs job ON job.id = chunk.job_id
           WHERE job.workspace_id = ? AND chunk.status = 'completed'
             AND chunk.completed_at >= strftime('%Y-%m-01T00:00:00.000Z', 'now')
+          GROUP BY job.project_id
           UNION ALL
-          SELECT COALESCE(SUM(charged_tasks), 0),
-            COALESCE(SUM(estimated_cost_usd), 0)
+          SELECT project_id, SUM(charged_tasks), SUM(estimated_cost_usd)
           FROM deleted_entity_extraction_usage_daily
           WHERE workspace_id = ? AND usage_date >= strftime('%Y-%m-01', 'now')
-        ) usage`,
-      )
-        .bind(principal.workspaceId, principal.workspaceId)
-        .first<{ charged_runs: number; provider_cost_usd: number }>(),
-      c.env.CONTROL_DB.prepare(
-        `SELECT product_enrichment_warning_usd, entity_extraction_warning_usd
-         FROM workspaces WHERE id = ?`,
-      )
-        .bind(principal.workspaceId)
-        .first<{
-          product_enrichment_warning_usd: number;
-          entity_extraction_warning_usd: number;
-        }>(),
+          GROUP BY project_id
+        ) usage GROUP BY project_id`,
+      ).bind(principal.workspaceId, principal.workspaceId)
+        .all<{ project_id: string; charged_tasks: number; cost: number }>(),
     ]);
     const promptReport = buildBillingReport(promptRows.results, dates);
     const enrichmentReport = buildBillingReport(enrichmentRows.results, dates);
     const entityReport = buildBillingReport(entityRows.results, dates);
     const mergedReport = mergeBillingReports(promptReport, enrichmentReport, entityReport);
-    const threshold = Number(workspaceSettings?.product_enrichment_warning_usd ?? 10);
-    const workspaceMonthToDateCost = Number(workspaceEnrichment?.provider_cost_usd ?? 0);
-    const entityThreshold = Number(workspaceSettings?.entity_extraction_warning_usd ?? 5);
-    const entityMonthToDateCost = Number(workspaceEntityExtraction?.provider_cost_usd ?? 0);
+    const breakdown = new Map<string, {
+      projectId: string;
+      projectName: string;
+      totalCost: number;
+      chargedTasks: number;
+      promptTrackingCost: number;
+      productEnrichmentCost: number;
+      entityExtractionCost: number;
+    }>();
+    for (const row of projectUsageRows.results) {
+      const current = breakdown.get(row.project_id) ?? {
+        projectId: row.project_id,
+        projectName: row.project_name,
+        totalCost: 0,
+        chargedTasks: 0,
+        promptTrackingCost: 0,
+        productEnrichmentCost: 0,
+        entityExtractionCost: 0,
+      };
+      const cost = Number(row.cost ?? 0);
+      current.totalCost += cost;
+      current.chargedTasks += Number(row.charged_tasks ?? 0);
+      current[`${row.category}Cost`] = cost;
+      breakdown.set(row.project_id, current);
+    }
+    const enrichmentByProject = new Map(monthlyEnrichmentRows.results.map((row) => [row.project_id, row]));
+    const entityByProject = new Map(monthlyEntityRows.results.map((row) => [row.project_id, row]));
+    const projectAlerts = projectSettings.results.flatMap((project) => {
+      const enrichment = enrichmentByProject.get(project.id);
+      const entities = entityByProject.get(project.id);
+      const productThreshold = Number(project.product_enrichment_warning_usd);
+      const entityThreshold = Number(project.entity_extraction_warning_usd);
+      const productCost = Number(enrichment?.cost ?? 0);
+      const entityCost = Number(entities?.cost ?? 0);
+      return [
+        {
+          projectId: project.id,
+          projectName: project.name,
+          category: "productEnrichment",
+          monthToDateTasks: Number(enrichment?.charged_tasks ?? 0),
+          monthToDateCost: productCost,
+          threshold: productThreshold,
+          exceeded: productThreshold > 0 && productCost >= productThreshold,
+          estimated: false,
+        },
+        {
+          projectId: project.id,
+          projectName: project.name,
+          category: "entityExtraction",
+          monthToDateTasks: Number(entities?.charged_tasks ?? 0),
+          monthToDateCost: entityCost,
+          threshold: entityThreshold,
+          exceeded: entityThreshold > 0 && entityCost >= entityThreshold,
+          estimated: true,
+        },
+      ];
+    });
     return c.json({
       data: {
         period: input.period,
+        projectId: scopedProjectId,
         currency: "USD",
         range: mergedReport.range,
         summary: mergedReport.summary,
         series: mergedReport.series,
-        enrichmentWarning: {
-          workspaceMonthToDateTasks: Number(workspaceEnrichment?.charged_runs ?? 0),
-          workspaceMonthToDateCost,
-          threshold,
-          exceeded: threshold > 0 && workspaceMonthToDateCost >= threshold,
-        },
-        entityExtractionWarning: {
-          workspaceMonthToDateTasks: Number(workspaceEntityExtraction?.charged_runs ?? 0),
-          workspaceMonthToDateCost: entityMonthToDateCost,
-          threshold: entityThreshold,
-          exceeded: entityThreshold > 0 && entityMonthToDateCost >= entityThreshold,
-          costIsEstimated: true,
-        },
+        projectBreakdown: [...breakdown.values()].sort((left, right) => right.totalCost - left.totalCost),
+        projectAlerts,
       },
     });
   },
@@ -2899,7 +3038,6 @@ analyticsRoutes.get(
     const lastOccurrence = occurrencePage.at(-1);
     const market = await loadProductMarket(
       c.env,
-      principal.workspaceId,
       input.projectId,
       identity,
       dates,

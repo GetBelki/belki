@@ -1313,6 +1313,47 @@ body {
   min-height: 24px;
 }
 
+.switch {
+  background: #d4d4d8;
+  border: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  flex: 0 0 auto;
+  height: 22px;
+  padding: 2px;
+  transition: background 140ms ease;
+  width: 38px;
+}
+
+.switch > span {
+  background: #ffffff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px #00000024;
+  display: block;
+  height: 18px;
+  transform: translateX(0);
+  transition: transform 140ms ease;
+  width: 18px;
+}
+
+.switch.is-checked {
+  background: #18181b;
+}
+
+.switch.is-checked > span {
+  transform: translateX(16px);
+}
+
+.switch:focus-visible {
+  outline: 2px solid #71717a;
+  outline-offset: 2px;
+}
+
+.switch:disabled {
+  cursor: not-allowed;
+  opacity: .48;
+}
+
 .select-content {
   border-color: #d4d4d8;
   border-radius: 6px;
@@ -4128,6 +4169,204 @@ a.evidence-source:hover strong {
   padding: 2px;
 }
 
+.settings-tabs {
+  align-items: center;
+  border-bottom: 1px solid #e4e4e7;
+  display: flex;
+  gap: 24px;
+  margin-bottom: 16px;
+}
+
+.settings-tabs button {
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #71717a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  margin-bottom: -1px;
+  padding: 11px 1px;
+}
+
+.settings-tabs button.active {
+  border-bottom-color: #18181b;
+  color: #18181b;
+}
+
+.settings-surface {
+  background: #ffffff;
+  border: 1px solid #e4e4e7;
+  border-radius: 8px;
+}
+
+.settings-section {
+  padding: 20px;
+}
+
+.settings-section + .settings-section {
+  border-top: 1px solid #e4e4e7;
+}
+
+.settings-section-heading {
+  align-items: flex-start;
+  display: flex;
+  gap: 20px;
+  justify-content: space-between;
+  margin-bottom: 16px;
+}
+
+.settings-section h2 {
+  color: #18181b;
+  font-size: 14px;
+  margin: 0 0 4px;
+}
+
+.settings-section p {
+  color: #71717a;
+  font-size: 11px;
+  line-height: 17px;
+  margin: 0;
+}
+
+.settings-project-summary {
+  align-items: center;
+  display: grid;
+  gap: 11px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+}
+
+.settings-project-summary > div {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-project-summary strong,
+.settings-feature-row strong,
+.settings-webhook-list strong,
+.settings-health-list strong {
+  color: #27272a;
+  font-size: 12px;
+}
+
+.settings-project-summary span,
+.settings-feature-row span,
+.settings-webhook-list span,
+.settings-health-list span {
+  color: #71717a;
+  font-size: 10px;
+}
+
+.settings-feature-list,
+.settings-webhook-list,
+.settings-health-list {
+  border-top: 1px solid #f4f4f5;
+}
+
+.settings-feature-row,
+.settings-webhook-list > div,
+.settings-health-list > div {
+  align-items: center;
+  display: flex;
+  gap: 18px;
+  justify-content: space-between;
+  min-height: 64px;
+  padding: 12px 0;
+}
+
+.settings-feature-row + .settings-feature-row,
+.settings-webhook-list > div + div,
+.settings-health-list > div + div {
+  border-top: 1px solid #f4f4f5;
+}
+
+.settings-feature-row > div,
+.settings-webhook-list > div > div {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  min-width: 0;
+}
+
+.settings-webhook-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-health-list > div {
+  justify-content: flex-start;
+}
+
+.settings-health-list svg {
+  color: #16a34a;
+  height: 17px;
+  width: 17px;
+}
+
+.settings-health-list span {
+  display: flex;
+  flex-direction: column;
+}
+
+.settings-feature-skeleton {
+  height: 150px;
+}
+
+.settings-retention-line {
+  background: #fafafa;
+}
+
+.billing-header-controls {
+  align-items: stretch;
+  display: flex;
+  gap: 8px;
+}
+
+.billing-header-controls .select-trigger {
+  min-width: 180px;
+}
+
+.billing-project-table,
+.billing-alert-settings {
+  margin-top: 16px;
+}
+
+.billing-alert-settings form {
+  padding: 0 20px 20px;
+}
+
+.billing-alert-fields {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.billing-alert-fields > div {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.billing-alert-actions {
+  align-items: center;
+  display: flex;
+  gap: 16px;
+  justify-content: space-between;
+  margin-top: 14px;
+}
+
+.billing-alert-actions span {
+  color: #71717a;
+  font-size: 10px;
+}
+
+.billing-alert-skeleton {
+  height: 100px;
+  margin: 0 20px 20px;
+}
+
 .billing-period-toggle button {
   background: transparent;
   border: 0;
@@ -4504,6 +4743,34 @@ a.evidence-source:hover strong {
 }
 
 @media (max-width: 760px) {
+  .billing-header-controls {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .billing-header-controls .select-trigger,
+  .billing-header-controls .billing-period-toggle {
+    width: 100%;
+  }
+
+  .billing-alert-fields {
+    grid-template-columns: 1fr;
+  }
+
+  .billing-alert-actions,
+  .settings-section-heading {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .settings-section-heading .button {
+    width: 100%;
+  }
+
+  .settings-tabs {
+    gap: 16px;
+  }
+
   .product-market-control {
     grid-template-columns: 1fr;
   }
