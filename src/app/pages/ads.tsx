@@ -374,8 +374,8 @@ export function AdsPage() {
       <Card>
         <CardHeader title="Recent creatives" description="Latest distinct ads, including their retained image assets and copy." />
         <CardContent>
-          {query.isPending ? <div className="ad-creative-grid"><Skeleton /><Skeleton /><Skeleton /></div>
-            : data?.creatives.length ? <div className="ad-creative-grid">{data.creatives.map((creative) => <CreativeCard creative={creative} key={creative.creativeKey} />)}</div>
+          {query.isPending ? <div className="ad-creative-grid ad-creative-grid-cards"><Skeleton /><Skeleton /><Skeleton /></div>
+            : data?.creatives.length ? <div className="ad-creative-grid ad-creative-grid-cards">{data.creatives.map((creative) => <CreativeCard creative={creative} key={creative.creativeKey} />)}</div>
             : <EmptyState title="No creatives found" description="Captured ad creatives will appear here." />}
         </CardContent>
       </Card>
