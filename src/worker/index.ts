@@ -1,5 +1,6 @@
 import { Hono } from "hono";
 import type {
+  AdAssetQueueMessage,
   ExportQueueMessage,
   EntityExtractionQueueMessage,
   JobQueueMessage,
@@ -11,6 +12,7 @@ import type {
 } from "../shared/contracts";
 import { automationRoutes } from "./routes/automation";
 import { analyticsRoutes } from "./routes/analytics";
+import { adsRoutes } from "./routes/ads";
 import { authRoutes } from "./routes/auth";
 import { coreRoutes } from "./routes/core";
 import type { AppEnv } from "./lib/app";
@@ -48,6 +50,7 @@ import {
   entityExtractionBatch,
   reconcileEntityExtractionJobs,
 } from "./automation/entity-extraction";
+import { adAssetBatch } from "./automation/ad-assets";
 
 const app = new Hono<AppEnv>();
 
@@ -186,6 +189,7 @@ app.use("/api/v1/*", authMiddleware);
 app.route("/api/v1", authRoutes);
 app.route("/api/v1", coreRoutes);
 app.route("/api/v1", analyticsRoutes);
+app.route("/api/v1", adsRoutes);
 app.route("/api/v1", automationRoutes);
 
 app.notFound((c) => {
@@ -241,6 +245,9 @@ async function queue(
         env,
         batch as MessageBatch<EntityExtractionQueueMessage>,
       );
+      return;
+    case "ai-tracker-ad-assets":
+      await adAssetBatch(env, batch as MessageBatch<AdAssetQueueMessage>);
       return;
     default:
       batch.ackAll();

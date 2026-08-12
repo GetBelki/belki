@@ -4,6 +4,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, describe, expect, it } from "vitest";
 import { StructuredAnswer } from "../src/app/components/structured-answer";
 import type {
+  AdEvidence,
   ProductEvidence,
   StructuredEvidenceItem,
 } from "../src/app/lib/snapshot-evidence";
@@ -31,6 +32,23 @@ const product: ProductEvidence = {
   rating_max: 5,
   images: ["https://example.test/product.jpg"],
   product_ids: [],
+};
+
+const adEvidence: AdEvidence = {
+  id: "ad-row-1",
+  snapshot_item_id: "ad-1",
+  advertiser_key: "ZG9tYWluOnNoYXJlZ3JpZC5jb20",
+  advertiser_name: "ShareGrid Platforms, LLC",
+  advertiser_canonical_url: "https://www.sharegrid.com/",
+  advertiser_domain: "sharegrid.com",
+  title: "Rent Cameras + Lenses from ShareGrid",
+  snippet: "Join the camera sharing community!",
+  canonical_url: "https://www.sharegrid.com/",
+  destination_domain: "sharegrid.com",
+  image_url: "/api/v1/ads/assets/image?projectId=project",
+  favicon_url: "/api/v1/ads/assets/favicon?projectId=project",
+  rank_group: 1,
+  rank_absolute: 4,
 };
 
 function item(
@@ -180,6 +198,50 @@ describe("StructuredAnswer", () => {
     expect(within(navigation!).getByRole("link", { name: /Source title/ })).toBeInTheDocument();
     expect(screen.getByText("Local cafe")).toBeInTheDocument();
     expect(screen.getByText("4.7/5 · 21 reviews · +49 123")).toBeInTheDocument();
+  });
+
+  it("renders sponsored ads in stream order with retained assets", () => {
+    renderWithRouter(
+      <StructuredAnswer
+        items={[
+          item("text-1", "chat_gpt_text", 0, {}, "Before ad"),
+          item("ad-1", "chat_gpt_ad", 1, {
+            title: "Rent Cameras + Lenses from ShareGrid",
+            url: "https://www.sharegrid.com/?utm_source=chatgptads",
+            advertiser: { name: "ShareGrid Platforms, LLC" },
+          }),
+          item("text-2", "chat_gpt_text", 2, {}, "After ad"),
+        ]}
+        products={[]}
+        ads={[adEvidence]}
+        fallbackMarkdown="Fallback"
+      />,
+    );
+
+    const answer = screen.getByText("Before ad").closest(".structured-answer");
+    expect(Array.from(answer!.children)[1]).toHaveTextContent("Sponsored");
+    expect(screen.getByText("ShareGrid Platforms, LLC")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /Open ad/ }))
+      .toHaveAttribute("href", "https://www.sharegrid.com/");
+    expect(screen.getByRole("link", { name: "Advertiser activity" }))
+      .toHaveAttribute("href", `/ads/${adEvidence.advertiser_key}`);
+  });
+
+  it("removes ad tracking parameters when normalized evidence is unavailable", () => {
+    renderWithRouter(
+      <StructuredAnswer
+        items={[item("ad-1", "chat_gpt_ad", 0, {
+          title: "Example ad",
+          url: "https://example.test/landing?utm_source=chatgptads&adgroup=123",
+          advertiser: { name: "Example" },
+        })]}
+        products={[]}
+        fallbackMarkdown="Fallback"
+      />,
+    );
+
+    expect(screen.getByRole("link", { name: /Open ad/ }))
+      .toHaveAttribute("href", "https://example.test/landing");
   });
 
   it("falls back to the combined Markdown for legacy captures", () => {

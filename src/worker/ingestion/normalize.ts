@@ -13,6 +13,7 @@ import { getShard } from "../lib/shards";
 import { promptPurgeRequested } from "../lib/prompt-purges";
 import { parseAdvancedPayload } from "./dataforseo-schema";
 import { enqueueEntityExtractionForSnapshot } from "../automation/entity-extraction";
+import { normalizeAdItem } from "../lib/ads";
 
 interface JobRow {
   id: string;
@@ -428,6 +429,50 @@ export async function normalizeSnapshot(
           safeText(JSON.stringify(item), 200_000) ?? "{}",
         ),
     );
+    if (item.type === "chat_gpt_ad") {
+      const ad = normalizeAdItem(item);
+      if (ad) {
+        statements.push(
+          shard
+            .prepare(
+              `INSERT INTO snapshot_ads (
+                id, snapshot_id, snapshot_item_id, ordinal, rank_group,
+                rank_absolute, advertiser_identity, advertiser_key,
+                advertiser_name, advertiser_raw_url, advertiser_canonical_url,
+                advertiser_hostname, advertiser_domain, title, snippet, raw_url,
+                canonical_url, destination_hostname, destination_domain,
+                image_source_url, favicon_source_url, creative_identity, creative_key
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            )
+            .bind(
+              crypto.randomUUID(),
+              snapshotId,
+              itemId,
+              ordinal,
+              ad.rankGroup,
+              ad.rankAbsolute,
+              ad.advertiserIdentity,
+              ad.advertiserKey,
+              ad.advertiserName,
+              ad.advertiserRawUrl,
+              ad.advertiserCanonicalUrl,
+              ad.advertiserHostname,
+              ad.advertiserDomain,
+              ad.title,
+              ad.snippet,
+              ad.rawUrl,
+              ad.canonicalUrl,
+              ad.destinationHostname,
+              ad.destinationDomain,
+              ad.imageSourceUrl,
+              ad.faviconSourceUrl,
+              ad.creativeIdentity,
+              ad.creativeKey,
+            ),
+        );
+      }
+      return;
+    }
     if (item.type !== "chat_gpt_products") return;
     (item.items ?? []).forEach((product, productOrdinal) => {
       const merchants = productText(product.merchants);

@@ -428,6 +428,7 @@ export function SnapshotDetailPage() {
     products,
     domains,
     items,
+    ads,
     brandMentions,
     detectedEntities,
   } = detail.data;
@@ -436,6 +437,7 @@ export function SnapshotDetailPage() {
   const citedDomains = domains.filter((domain) => Number(domain.cited_count) > 0);
   const retrievedDomains = domains.filter((domain) => Number(domain.retrieved_count) > 0);
   const hasStructuredProducts = items.some((item) => item.type === "chat_gpt_products");
+  const adsCount = ads.length || items.filter((item) => item.type === "chat_gpt_ad").length;
 
   return (
     <div className="page snapshot-evidence-page">
@@ -476,6 +478,7 @@ export function SnapshotDetailPage() {
         <div><span>Fan-out queries</span><strong>{fanOutQueries.length}</strong></div>
         <div><span>Detected entities</span><strong>{detectedEntities.length}</strong></div>
         <div><span>Shopping products</span><strong>{products.length}</strong></div>
+        <div><span>Ads</span><strong>{adsCount}</strong></div>
       </div>
 
       <div className="evidence-layout">
@@ -486,6 +489,7 @@ export function SnapshotDetailPage() {
               <StructuredAnswer
                 items={items}
                 products={products}
+                ads={ads}
                 fallbackMarkdown={snapshot.answer_markdown || "No answer text was returned."}
               />
             </CardContent>

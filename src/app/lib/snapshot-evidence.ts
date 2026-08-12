@@ -62,6 +62,23 @@ export interface ProductEvidence extends EvidenceRow {
   product_ids: unknown[];
 }
 
+export interface AdEvidence extends EvidenceRow {
+  id: string;
+  snapshot_item_id: string;
+  advertiser_key: string;
+  advertiser_name: string | null;
+  advertiser_canonical_url: string | null;
+  advertiser_domain: string | null;
+  title: string | null;
+  snippet: string | null;
+  canonical_url: string | null;
+  destination_domain: string | null;
+  image_url: string | null;
+  favicon_url: string | null;
+  rank_group: number | null;
+  rank_absolute: number | null;
+}
+
 export interface SnapshotDetail {
   snapshot: SnapshotRecord;
   sources: EvidenceRow[];
@@ -70,6 +87,7 @@ export interface SnapshotDetail {
   products: ProductEvidence[];
   domains: EvidenceRow[];
   items: StructuredEvidenceItem[];
+  ads: AdEvidence[];
   brandMentions: Array<{
     id: string;
     kind: "owned" | "competitor";

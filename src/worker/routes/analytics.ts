@@ -779,7 +779,7 @@ async function analyticsReadModelReady(
     env.CONTROL_DB.prepare(
       `SELECT status
        FROM analytics_read_model_projects
-       WHERE project_id = ? AND schema_version = 1`,
+       WHERE project_id = ? AND schema_version = 2`,
     )
       .bind(projectId)
       .first<{ status: string }>();
@@ -3389,6 +3389,7 @@ analyticsRoutes.get(
       products,
       domains,
       items,
+      ads,
       trackedBrands,
       detectedEntities,
       crawlJob,
@@ -3447,6 +3448,17 @@ analyticsRoutes.get(
           )
           .bind(id)
           .all<Record<string, unknown> & { payload_json: string }>(),
+        shard
+          .prepare(
+            `SELECT id, snapshot_item_id, ordinal, rank_group, rank_absolute,
+              advertiser_identity, advertiser_key, advertiser_name,
+              advertiser_canonical_url, advertiser_domain, title, snippet,
+              canonical_url, destination_domain, image_source_url,
+              favicon_source_url, creative_key
+             FROM snapshot_ads WHERE snapshot_id = ? ORDER BY ordinal`,
+          )
+          .bind(id)
+          .all<Record<string, string | number | null>>(),
         c.env.CONTROL_DB.prepare(
           `SELECT id, kind, name, aliases_json
            FROM tracked_brands WHERE project_id = ? ORDER BY kind DESC, name`,
@@ -3514,6 +3526,33 @@ analyticsRoutes.get(
         {},
       ),
     }));
+    const adSourceUrls = [...new Set(ads.results.flatMap((ad) => [
+      ad.image_source_url,
+      ad.favicon_source_url,
+    ]).filter((value): value is string => typeof value === "string" && Boolean(value)))];
+    const adAssets = adSourceUrls.length
+      ? await c.env.CONTROL_DB.prepare(
+          `SELECT source_url, asset_key, status FROM ad_assets
+           WHERE source_url IN (${adSourceUrls.map(() => "?").join(",")})`,
+        )
+          .bind(...adSourceUrls)
+          .all<{ source_url: string; asset_key: string; status: string }>()
+      : { results: [] as Array<{ source_url: string; asset_key: string; status: string }> };
+    const adAssetMap = new Map(adAssets.results.map((asset) => [asset.source_url, asset]));
+    const adAssetUrl = (sourceUrl: unknown) => {
+      if (typeof sourceUrl !== "string") return null;
+      const asset = adAssetMap.get(sourceUrl);
+      if (!asset || asset.status !== "ready") return null;
+      const key = asset.asset_key.split("/").at(-1);
+      return key
+        ? `/api/v1/ads/assets/${key}?projectId=${encodeURIComponent(index.project_id)}`
+        : null;
+    };
+    const structuredAds = ads.results.map((ad) => ({
+      ...ad,
+      image_url: adAssetUrl(ad.image_source_url),
+      favicon_url: adAssetUrl(ad.favicon_source_url),
+    }));
     const answerMarkdown =
       typeof structuredSnapshot?.answer_markdown === "string"
         ? structuredSnapshot.answer_markdown
@@ -3535,6 +3574,7 @@ analyticsRoutes.get(
         products: structuredProducts,
         domains: domains.results,
         items: structuredItems,
+        ads: structuredAds,
         brandMentions,
         detectedEntities: detectedEntities.results.map((entity) => ({
           ...entity,

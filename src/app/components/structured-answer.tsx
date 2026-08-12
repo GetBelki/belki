@@ -4,6 +4,7 @@ import {
   ExternalLink,
   Image as ImageIcon,
   MapPin,
+  Megaphone,
   ShoppingBag,
 } from "lucide-react";
 import { useRef } from "react";
@@ -16,6 +17,7 @@ import {
   productDestination,
   productImage,
   safeExternalUrl,
+  type AdEvidence,
   type ProductEvidence,
   type StructuredEvidenceItem,
 } from "../lib/snapshot-evidence";
@@ -416,18 +418,102 @@ function ImageBlock({ item }: { item: StructuredEvidenceItem }) {
   );
 }
 
+function cleanAdDestination(value: unknown): string | null {
+  const safe = safeExternalUrl(value);
+  if (!safe) return null;
+  const url = new URL(safe);
+  const tracking = new Set([
+    "adgroup", "adgroupid", "campaign", "campaignid", "creative",
+    "creativeid", "keyword", "matchtype", "network", "device",
+  ]);
+  for (const key of [...url.searchParams.keys()]) {
+    if (key.toLowerCase().startsWith("utm_") || tracking.has(key.toLowerCase())) {
+      url.searchParams.delete(key);
+    }
+  }
+  return url.href;
+}
+
+function AdBlock({
+  item,
+  ads,
+}: {
+  item: StructuredEvidenceItem;
+  ads: AdEvidence[];
+}) {
+  const payload = asRecord(item.payload);
+  const advertiser = asRecord(payload?.advertiser);
+  const stored = ads.find((ad) => ad.snapshot_item_id === item.id);
+  const advertiserName = stored?.advertiser_name
+    ?? text(advertiser?.name)
+    ?? stored?.advertiser_domain
+    ?? text(payload?.domain)
+    ?? "Advertiser";
+  const title = stored?.title ?? text(payload?.title) ?? "Sponsored result";
+  const snippet = stored?.snippet ?? text(payload?.snippet);
+  const destination = stored?.canonical_url
+    ?? cleanAdDestination(payload?.url)
+    ?? stored?.advertiser_canonical_url
+    ?? cleanAdDestination(advertiser?.url);
+  const domain = stored?.destination_domain
+    ?? stored?.advertiser_domain
+    ?? text(payload?.domain);
+  const image = stored?.image_url ?? null;
+  const favicon = stored?.favicon_url ?? null;
+  return (
+    <section className="structured-ad-block" aria-label={`Sponsored ad from ${advertiserName}`}>
+      <div className="structured-block-heading">
+        <span><Megaphone size={14} /> Sponsored</span>
+        {item.rank_absolute ? <Badge>Position {item.rank_absolute}</Badge> : null}
+      </div>
+      <article className="ad-card">
+        <div className="ad-card-image">
+          {image ? <img src={image} alt="" loading="lazy" /> : <Megaphone size={24} />}
+        </div>
+        <div className="ad-card-body">
+          <div className="ad-advertiser">
+            {favicon ? <img src={favicon} alt="" loading="lazy" /> : null}
+            <strong>{advertiserName}</strong>
+            {domain ? <span>{domain}</span> : null}
+          </div>
+          <h3>{title}</h3>
+          {snippet ? <p>{snippet}</p> : null}
+          <div className="ad-card-actions">
+            {destination ? (
+              <Button asChild variant="secondary">
+                <a href={destination} target="_blank" rel="noreferrer">
+                  Open ad <ExternalLink size={13} />
+                </a>
+              </Button>
+            ) : null}
+            {stored?.advertiser_key ? (
+              <Link className="ad-performance-link" to={`/ads/${stored.advertiser_key}`}>
+                Advertiser activity
+              </Link>
+            ) : null}
+          </div>
+        </div>
+      </article>
+    </section>
+  );
+}
+
 function StructuredBlock({
   item,
   products,
+  ads,
 }: {
   item: StructuredEvidenceItem;
   products: ProductEvidence[];
+  ads: AdEvidence[];
 }) {
   switch (item.type) {
     case "chat_gpt_products":
       return <ProductBlock item={item} products={products} />;
     case "chat_gpt_images":
       return <ImageBlock item={item} />;
+    case "chat_gpt_ad":
+      return <AdBlock item={item} ads={ads} />;
     case "chat_gpt_navigation_list":
       return <LinkListBlock item={item} />;
     case "chat_gpt_local_businesses":
@@ -442,17 +528,19 @@ function StructuredBlock({
 export function StructuredAnswer({
   items,
   products,
+  ads = [],
   fallbackMarkdown,
 }: {
   items: StructuredEvidenceItem[];
   products: ProductEvidence[];
+  ads?: AdEvidence[];
   fallbackMarkdown: string;
 }) {
   if (!items.length) return <MarkdownAnswer markdown={fallbackMarkdown} />;
   return (
     <div className="structured-answer">
       {items.map((item) => (
-        <StructuredBlock key={item.id} item={item} products={products} />
+        <StructuredBlock key={item.id} item={item} products={products} ads={ads} />
       ))}
     </div>
   );

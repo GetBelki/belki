@@ -50,6 +50,12 @@ const ProductAnalyticsPage = lazy(() =>
     default: module.ProductAnalyticsPage,
   })),
 );
+const AdsPage = lazy(() =>
+  import("./pages/ads").then((module) => ({ default: module.AdsPage })),
+);
+const AdvertiserDetailPage = lazy(() =>
+  import("./pages/ads").then((module) => ({ default: module.AdvertiserDetailPage })),
+);
 const AlertsPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.AlertsPage })),
 );
@@ -116,6 +122,8 @@ export function App() {
             <Route path="/citations/:domain" element={<CitationSourceDetailPage />} />
             <Route path="/brands" element={<BrandsPage />} />
             <Route path="/products" element={<ProductsPage />} />
+            <Route path="/ads" element={<AdsPage />} />
+            <Route path="/ads/:advertiserKey" element={<AdvertiserDetailPage />} />
             <Route path="/shopping" element={<ShoppingPage />} />
             <Route
               path="/shopping/:productKey"
