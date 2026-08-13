@@ -3938,7 +3938,7 @@ analyticsRoutes.get(
 
     const dates = relatedQueryRange(input.period);
     const search = input.search
-      ? `%${normalizeRelatedQuery(input.search).replaceAll("%", "\\%").replaceAll("_", "\\_")}%`
+      ? normalizeRelatedQuery(input.search)
       : null;
     const cursor = decodeCursor<{
       appearances: number;
@@ -3949,7 +3949,7 @@ analyticsRoutes.get(
       "related.project_id = ?",
       "related.captured_at >= ?",
       "related.captured_at < ?",
-      ...(search ? ["related.normalized_query LIKE ? ESCAPE '\\'"] : []),
+      ...(search ? ["INSTR(related.normalized_query, ?) > 0"] : []),
     ];
     const bindings: Array<string | number> = [
       input.projectId,
