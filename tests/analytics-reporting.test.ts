@@ -9,6 +9,10 @@ import {
   productIdentity,
   productIdentityFromKey,
   productKey,
+  normalizeRelatedQuery,
+  relatedQueryFromKey,
+  relatedQueryKey,
+  relatedQueryLabel,
   summarizeProductPrices,
 } from "../src/worker/lib/reporting";
 import {
@@ -27,6 +31,29 @@ const base = {
   merchants: "Example Shop",
   registrable_domain: "example.com",
 };
+
+describe("related query reporting", () => {
+  it("extracts provider fan-out labels from supported payload shapes", () => {
+    expect(relatedQueryLabel("  Best CRM  ")).toBe("Best CRM");
+    expect(relatedQueryLabel({ query: "CRM for startups" })).toBe(
+      "CRM for startups",
+    );
+    expect(relatedQueryLabel({ keyword: "CRM pricing" })).toBe("CRM pricing");
+    expect(relatedQueryLabel({ unknown: "ignored" })).toBeNull();
+  });
+
+  it("normalizes Unicode, case, and whitespace for exact identity", () => {
+    expect(normalizeRelatedQuery("  ＢＥＳＴ\n  CRM  ")).toBe("best crm");
+  });
+
+  it("round-trips Unicode identities through URL-safe keys", () => {
+    const normalized = normalizeRelatedQuery("Beste CRM für Händler");
+    const key = relatedQueryKey(normalized);
+    expect(key).toMatch(/^[A-Za-z0-9_-]+$/u);
+    expect(relatedQueryFromKey(key)).toBe(normalized);
+    expect(relatedQueryFromKey("not/a/key")).toBeNull();
+  });
+});
 
 describe("shopping report product identity", () => {
   it("prefers the provider product id", () => {

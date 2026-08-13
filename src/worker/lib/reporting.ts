@@ -17,6 +17,47 @@ export function productIdentity(product: {
   )}`;
 }
 
+export function relatedQueryLabel(value: unknown): string | null {
+  if (typeof value === "string") return value.trim() || null;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const record = value as Record<string, unknown>;
+  for (const key of ["query", "keyword", "text", "title"] as const) {
+    if (typeof record[key] === "string" && record[key].trim()) {
+      return record[key].trim();
+    }
+  }
+  return null;
+}
+
+export function normalizeRelatedQuery(value: string): string {
+  return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
+}
+
+export function relatedQueryKey(normalizedQuery: string): string {
+  const bytes = new TextEncoder().encode(normalizedQuery);
+  let binary = "";
+  for (const byte of bytes) binary += String.fromCharCode(byte);
+  return btoa(binary)
+    .replaceAll("+", "-")
+    .replaceAll("/", "_")
+    .replace(/=+$/u, "");
+}
+
+export function relatedQueryFromKey(key: string): string | null {
+  if (!/^[A-Za-z0-9_-]+$/u.test(key)) return null;
+  try {
+    const padded = `${key.replaceAll("-", "+").replaceAll("_", "/")}${"=".repeat(
+      (4 - (key.length % 4)) % 4,
+    )}`;
+    const binary = atob(padded);
+    return new TextDecoder("utf-8", { fatal: true, ignoreBOM: false }).decode(
+      Uint8Array.from(binary, (character) => character.charCodeAt(0)),
+    );
+  } catch {
+    return null;
+  }
+}
+
 export function productKey(product: Parameters<typeof productIdentity>[0]): string {
   const bytes = new TextEncoder().encode(productIdentity(product));
   let binary = "";

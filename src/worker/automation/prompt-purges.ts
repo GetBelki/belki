@@ -496,6 +496,12 @@ export async function processPromptPurge(env: Env, purgeJobId: string): Promise<
       "DELETE FROM analytics_product_occurrences WHERE tracked_query_id = ?",
     ).bind(job.tracked_query_id),
     env.CONTROL_DB.prepare(
+      "DELETE FROM analytics_related_query_occurrences WHERE tracked_query_id = ?",
+    ).bind(job.tracked_query_id),
+    env.CONTROL_DB.prepare(
+      "DELETE FROM analytics_retrieval_occurrences WHERE tracked_query_id = ?",
+    ).bind(job.tracked_query_id),
+    env.CONTROL_DB.prepare(
       "DELETE FROM analytics_snapshot_facts WHERE tracked_query_id = ?",
     ).bind(job.tracked_query_id),
     env.CONTROL_DB.prepare(

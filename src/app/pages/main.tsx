@@ -730,9 +730,27 @@ export function PromptsPage() {
   const canEdit = session.user.role !== "viewer";
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
-  const [dialogOpen, setDialogOpen] = useState(false);
+  const suggestedPrompt = canEdit ? searchParams.get("add") ?? "" : "";
+  const suggestedLocation = searchParams.get("addLocation");
+  const initialLocationCode =
+    suggestedLocation &&
+    LOCATION_OPTIONS.some((option) => option.value === suggestedLocation)
+      ? suggestedLocation
+      : "2840";
+  const suggestedLanguage = searchParams.get("addLanguage");
+  const initialLanguageCode =
+    suggestedLanguage &&
+    languagesForLocation(initialLocationCode).some(
+      (language) => language.value === suggestedLanguage,
+    )
+      ? suggestedLanguage
+      : languagesForLocation(initialLocationCode)[0]?.value ?? "en";
+  const [dialogOpen, setDialogOpen] = useState(Boolean(projectId && suggestedPrompt));
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
+  const [singlePromptText, setSinglePromptText] = useState(
+    suggestedPrompt.slice(0, 2_000),
+  );
   const [bulkResult, setBulkResult] = useState<{
     createdCount: number;
     skippedCount: number;
@@ -749,8 +767,8 @@ export function PromptsPage() {
   }>(
     () => ({ scope: "", ids: new Set() }),
   );
-  const [locationCode, setLocationCode] = useState("2840");
-  const [languageCode, setLanguageCode] = useState("en");
+  const [locationCode, setLocationCode] = useState(initialLocationCode);
+  const [languageCode, setLanguageCode] = useState(initialLanguageCode);
   const languageOptions = languagesForLocation(locationCode);
   const bulkPromptCount = bulkText
     .split(/\r?\n/)
@@ -918,6 +936,7 @@ export function PromptsPage() {
   const openPromptDialog = () => {
     setError("");
     setBulkResult(null);
+    setSinglePromptText("");
     setDialogOpen(true);
   };
   const handleDialogOpenChange = (open: boolean) => {
@@ -925,6 +944,7 @@ export function PromptsPage() {
     if (!open) {
       setBulkMode(false);
       setBulkText("");
+      setSinglePromptText("");
       setCreateTags([]);
       setError("");
     }
@@ -1426,6 +1446,8 @@ export function PromptsPage() {
             <textarea
               className="textarea"
               name="queryText"
+              value={singlePromptText}
+              onChange={(event) => setSinglePromptText(event.target.value)}
               required
               maxLength={2000}
               placeholder="What are the best project management tools for remote teams?"
