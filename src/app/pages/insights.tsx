@@ -2324,31 +2324,33 @@ export function UsersPage() {
     });
   };
   return (
-    <div className="page">
+    <div className="page users-page">
       <PageHeader title={`${session.workspace.name} users`} description="Role-based access for owners, admins, editors, and viewers." action={<Button onClick={() => { setInvitation(null); setSendInviteEmail(true); invite.reset(); setOpen(true); }}><UserPlus size={15}/> Invite user</Button>} />
-      <Card>
-        <CardHeader title="Members" description="People who currently have access to this workspace." />
-        {users.isPending ? <TableSkeleton /> : users.data?.length ? <DataTable columns={[{key:"user",label:"User"},{key:"role",label:"Role"},{key:"status",label:"Status"},{key:"last",label:"Last login"},{key:"action",label:""}]} rows={users.data.map((user) => ({
+      <Card className="workspace-access-card">
+        <section className="workspace-access-section">
+          <CardHeader title="Members" description="People who currently have access to this workspace." />
+          {users.isPending ? <TableSkeleton /> : users.data?.length ? <DataTable columns={[{key:"user",label:"User"},{key:"role",label:"Role"},{key:"status",label:"Status"},{key:"last",label:"Last login"},{key:"action",label:""}]} rows={users.data.map((user) => ({
           id:user.id,
           user:<div className="primary-cell"><strong>{user.display_name}</strong><span>{user.email}</span></div>,
           role:<Badge tone={user.role === "owner" ? "info" : "neutral"}>{user.role}</Badge>,
           status:<Badge tone={user.status === "active" ? "success" : "danger"}>{user.status}</Badge>,
           last:dateTime(user.last_login_at),
           action: session.user.role === "owner" && user.role !== "owner" && user.id !== session.user.id
-            ? <div className="table-actions"><Button variant="ghost" onClick={() => setPendingAction({ kind: "remove", id: user.id, label: user.display_name })}><Trash2 size={14}/> Remove</Button></div>
+            ? <div className="table-actions"><Button className="destructive-ghost" variant="ghost" onClick={() => setPendingAction({ kind: "remove", id: user.id, label: user.display_name })}><Trash2 size={14}/> Remove</Button></div>
             : null,
-        }))} /> : <EmptyState title="No workspace members" description="Invite someone to give them access." />}
-      </Card>
-      <Card>
-        <CardHeader title="Pending invitations" description="Invitations waiting to be accepted. Revoking one immediately invalidates its link." />
-        {pendingInvitations.isPending ? <TableSkeleton rows={2} columns={4} /> : pendingInvitations.data?.length ? <DataTable columns={[{key:"user",label:"Invitee"},{key:"role",label:"Role"},{key:"status",label:"Status"},{key:"expires",label:"Expires"},{key:"action",label:""}]} rows={pendingInvitations.data.map((item) => ({
+          }))} /> : <EmptyState title="No workspace members" description="Invite someone to give them access." />}
+        </section>
+        <section className="workspace-access-section">
+          <CardHeader title="Pending invitations" description="Invitations waiting to be accepted. Revoking one immediately invalidates its link." />
+          {pendingInvitations.isPending ? <TableSkeleton rows={2} columns={4} /> : pendingInvitations.data?.length ? <DataTable columns={[{key:"user",label:"Invitee"},{key:"role",label:"Role"},{key:"status",label:"Status"},{key:"expires",label:"Expires"},{key:"action",label:""}]} rows={pendingInvitations.data.map((item) => ({
           id:item.id,
           user:<div className="primary-cell"><strong>{item.email}</strong><span>Invitation sent {dateTime(item.created_at)}</span></div>,
           role:<Badge>{item.role}</Badge>,
           status:<Badge tone="warning">Pending</Badge>,
           expires:dateTime(item.expires_at),
-          action:<div className="table-actions"><Button variant="ghost" onClick={() => setPendingAction({ kind: "revoke", id: item.id, label: item.email })}><Trash2 size={14}/> Revoke</Button></div>,
+          action:<div className="table-actions"><Button className="destructive-ghost" variant="ghost" onClick={() => setPendingAction({ kind: "revoke", id: item.id, label: item.email })}><Trash2 size={14}/> Revoke</Button></div>,
         }))} /> : <EmptyState title="No pending invitations" description="New invitations will appear here until they are accepted or expire." />}
+        </section>
       </Card>
       <Dialog open={open} onOpenChange={setOpen} title="Invite workspace user" description="Invite links expire after 24 hours and are always shown once.">
         {invitation ? (

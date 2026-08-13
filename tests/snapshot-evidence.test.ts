@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  adVisibilityCounts,
   fanOutLabel,
   formatProviderCost,
   googleShoppingUrl,
@@ -113,5 +114,23 @@ describe("snapshot evidence helpers", () => {
     expect(productIdentityFromKey(productAnalyticsKey(product))).toBe(
       productIdentity(product),
     );
+  });
+
+  it("separates rendered and hidden ads while treating legacy ads as rendered", () => {
+    const item = (id: string, isRendered?: boolean) => ({
+      id,
+      ordinal: 0,
+      type: "chat_gpt_ad",
+      rank_group: 1,
+      rank_absolute: 1,
+      markdown: null,
+      payload: isRendered === undefined ? {} : { is_rendered: isRendered },
+    });
+    expect(adVisibilityCounts([], [
+      item("hidden-1", false),
+      item("hidden-2", false),
+      item("rendered", true),
+      item("legacy"),
+    ])).toEqual({ rendered: 2, served: 4, hidden: 2 });
   });
 });

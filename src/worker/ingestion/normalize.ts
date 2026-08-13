@@ -441,8 +441,9 @@ export async function normalizeSnapshot(
                 advertiser_name, advertiser_raw_url, advertiser_canonical_url,
                 advertiser_hostname, advertiser_domain, title, snippet, raw_url,
                 canonical_url, destination_hostname, destination_domain,
-                image_source_url, favicon_source_url, creative_identity, creative_key
-              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+                image_source_url, favicon_source_url, creative_identity, creative_key,
+                is_rendered
+              ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             )
             .bind(
               crypto.randomUUID(),
@@ -468,6 +469,7 @@ export async function normalizeSnapshot(
               ad.faviconSourceUrl,
               ad.creativeIdentity,
               ad.creativeKey,
+              ad.isRendered ? 1 : 0,
             ),
         );
       }

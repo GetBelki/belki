@@ -70,6 +70,7 @@ export function normalizeAdDestination(value: string | null | undefined) {
 export interface NormalizedAd {
   rankGroup: number | null;
   rankAbsolute: number | null;
+  isRendered: boolean;
   advertiserIdentity: string;
   advertiserKey: string;
   advertiserName: string | null;
@@ -117,6 +118,10 @@ export function normalizeAdItem(value: unknown): NormalizedAd | null {
   return {
     rankGroup: number(item.rank_group),
     rankAbsolute: number(item.rank_absolute),
+    // DataForSEO only recently added this field. Existing snapshots without it
+    // represent ads we historically treated as visible, so preserve that
+    // behavior while honoring explicit false values from new payloads.
+    isRendered: item.is_rendered !== false,
     advertiserIdentity,
     advertiserKey: base64Url(advertiserIdentity),
     advertiserName,

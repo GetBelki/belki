@@ -89,6 +89,7 @@ interface AdReadModelRow {
   favicon_source_url: string | null;
   creative_identity: string;
   creative_key: string;
+  is_rendered: number;
 }
 
 async function loadSnapshotAds(
@@ -111,14 +112,17 @@ async function loadSnapshotAds(
     statements.push(
       shard
         .prepare(
-          `INSERT OR IGNORE INTO snapshot_ads (
+          `INSERT INTO snapshot_ads (
             id, snapshot_id, snapshot_item_id, ordinal, rank_group,
             rank_absolute, advertiser_identity, advertiser_key,
             advertiser_name, advertiser_raw_url, advertiser_canonical_url,
             advertiser_hostname, advertiser_domain, title, snippet, raw_url,
             canonical_url, destination_hostname, destination_domain,
-            image_source_url, favicon_source_url, creative_identity, creative_key
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+            image_source_url, favicon_source_url, creative_identity, creative_key,
+            is_rendered
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(snapshot_item_id) DO UPDATE SET
+            is_rendered = excluded.is_rendered`,
         )
         .bind(
           crypto.randomUUID(), snapshotId, item.id, item.ordinal,
@@ -127,7 +131,7 @@ async function loadSnapshotAds(
           ad.advertiserHostname, ad.advertiserDomain, ad.title, ad.snippet,
           ad.rawUrl, ad.canonicalUrl, ad.destinationHostname,
           ad.destinationDomain, ad.imageSourceUrl, ad.faviconSourceUrl,
-          ad.creativeIdentity, ad.creativeKey,
+          ad.creativeIdentity, ad.creativeKey, ad.isRendered ? 1 : 0,
         ),
     );
   }
@@ -138,7 +142,8 @@ async function loadSnapshotAds(
         advertiser_identity, advertiser_key, advertiser_name, advertiser_raw_url,
         advertiser_canonical_url, advertiser_hostname, advertiser_domain, title,
         snippet, raw_url, canonical_url, destination_hostname, destination_domain,
-        image_source_url, favicon_source_url, creative_identity, creative_key
+        image_source_url, favicon_source_url, creative_identity, creative_key,
+        is_rendered
        FROM snapshot_ads WHERE snapshot_id = ? ORDER BY ordinal`,
     )
     .bind(snapshotId)
@@ -288,9 +293,10 @@ export async function syncAnalyticsReadModel(
         snapshot_id, project_id, tracked_query_id, shard_id, captured_at,
         metric_date, cited_domains_count, retrieved_domains_count, citation_count,
         brand_mentioned_runs, brand_mentions_count, products_count, ads_count,
-        ads_indexed_at, related_queries_count, related_queries_indexed_at,
+        rendered_ads_count, ads_indexed_at, ad_render_status_indexed_at,
+        related_queries_count, related_queries_indexed_at,
         provider_cost_usd, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(snapshot_id) DO UPDATE SET
         cited_domains_count = excluded.cited_domains_count,
         retrieved_domains_count = excluded.retrieved_domains_count,
@@ -299,7 +305,9 @@ export async function syncAnalyticsReadModel(
         brand_mentions_count = excluded.brand_mentions_count,
         products_count = excluded.products_count,
         ads_count = excluded.ads_count,
+        rendered_ads_count = excluded.rendered_ads_count,
         ads_indexed_at = excluded.ads_indexed_at,
+        ad_render_status_indexed_at = excluded.ad_render_status_indexed_at,
         related_queries_count = excluded.related_queries_count,
         related_queries_indexed_at = excluded.related_queries_indexed_at,
         provider_cost_usd = excluded.provider_cost_usd,
@@ -318,6 +326,8 @@ export async function syncAnalyticsReadModel(
       brandMentionsCount,
       products.results.length,
       ads.length,
+      ads.filter((ad) => ad.is_rendered === 1).length,
+      updatedAt,
       updatedAt,
       relatedQueries.size,
       updatedAt,
@@ -328,7 +338,7 @@ export async function syncAnalyticsReadModel(
     env.CONTROL_DB.prepare(
       `INSERT INTO analytics_read_model_projects (
         project_id, status, schema_version, last_ingested_at, updated_at
-      ) VALUES (?, 'pending', 4, ?, ?)
+      ) VALUES (?, 'pending', 5, ?, ?)
       ON CONFLICT(project_id) DO UPDATE SET
         last_ingested_at = excluded.last_ingested_at,
         schema_version = MAX(schema_version, excluded.schema_version),
@@ -463,8 +473,8 @@ export async function syncAnalyticsReadModel(
           advertiser_domain, title, snippet, raw_url, canonical_url,
           destination_hostname, destination_domain, image_source_url,
           favicon_source_url, creative_identity, creative_key, relationship,
-          matched_tracked_brand_id, rank_group, rank_absolute
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          matched_tracked_brand_id, rank_group, rank_absolute, is_rendered
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         ad.id, payload.snapshotId, ad.snapshot_item_id, payload.projectId,
         payload.trackedQueryId, snapshot.captured_at, ad.advertiser_identity,
@@ -475,7 +485,7 @@ export async function syncAnalyticsReadModel(
         ad.image_source_url, ad.favicon_source_url, ad.creative_identity,
         ad.creative_key, adRelationships.get(ad.id)?.relationship ?? "untracked",
         adRelationships.get(ad.id)?.trackedBrandId ?? null,
-        ad.rank_group, ad.rank_absolute,
+        ad.rank_group, ad.rank_absolute, ad.is_rendered,
       ),
     );
   }

@@ -10,6 +10,7 @@ const ad = {
   type: "chat_gpt_ad",
   rank_group: 1,
   rank_absolute: 4,
+  is_rendered: true,
   title: "Create Online Payment Form",
   snippet: "Create online payment forms and receive payments instantly.",
   url: "https://www.jotform.com/online-payments/?utm_source=chatgptads&utm_medium=cpc&adgroup=0519e1",
@@ -30,7 +31,23 @@ describe("ChatGPT ad normalization", () => {
     expect(normalized?.advertiserIdentity).toBe("domain:jotform.com");
     expect(normalized?.canonicalUrl).toBe("https://www.jotform.com/online-payments");
     expect(normalized?.rankAbsolute).toBe(4);
+    expect(normalized?.isRendered).toBe(true);
     expect(decodeAdKey(normalized!.advertiserKey)).toBe("domain:jotform.com");
+  });
+
+  it("preserves explicit hidden placements and defaults legacy ads to rendered", () => {
+    expect(normalizeAdItem({ ...ad, is_rendered: false })?.isRendered).toBe(false);
+    const legacyAd: Record<string, unknown> = { ...ad };
+    delete legacyAd.is_rendered;
+    expect(normalizeAdItem(legacyAd)?.isRendered).toBe(true);
+  });
+
+  it("counts the provider fixture as one rendered and two hidden ads", () => {
+    const ads = [false, false, true].map((is_rendered, index) =>
+      normalizeAdItem({ ...ad, rank_group: index + 1, is_rendered }),
+    );
+    expect(ads.filter((item) => item?.isRendered).length).toBe(1);
+    expect(ads.filter((item) => item && !item.isRendered).length).toBe(2);
   });
 
   it("accepts provider JSON containing escaped slashes", () => {

@@ -51,6 +51,7 @@ const adEvidence: AdEvidence = {
   favicon_fallback_url: "https://api.dataforseo.com/cdn/i/fallback:0",
   rank_group: 1,
   rank_absolute: 4,
+  is_rendered: true,
 };
 
 function item(
@@ -227,6 +228,24 @@ describe("StructuredAnswer", () => {
       .toHaveAttribute("href", "https://www.sharegrid.com/");
     expect(screen.getByRole("link", { name: "Advertiser activity" }))
       .toHaveAttribute("href", `/ads/${adEvidence.advertiser_key}`);
+  });
+
+  it("does not render an ad card when the served placement was hidden", () => {
+    renderWithRouter(
+      <StructuredAnswer
+        items={[
+          item("text-1", "chat_gpt_text", 0, {}, "Visible answer"),
+          item("ad-1", "chat_gpt_ad", 1, { is_rendered: false, title: "Hidden ad" }),
+        ]}
+        products={[]}
+        ads={[{ ...adEvidence, is_rendered: false }]}
+        fallbackMarkdown="Fallback"
+      />,
+    );
+
+    expect(screen.getByText("Visible answer")).toBeInTheDocument();
+    expect(screen.queryByText("Hidden ad")).not.toBeInTheDocument();
+    expect(screen.queryByText("Sponsored")).not.toBeInTheDocument();
   });
 
   it("removes ad tracking parameters when normalized evidence is unavailable", () => {

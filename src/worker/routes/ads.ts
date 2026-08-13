@@ -154,7 +154,8 @@ interface CreativeRow {
   favicon_asset_key: string | null;
   favicon_asset_status: string | null;
   favicon_source_url: string | null;
-  appearances: number;
+  rendered_appearances: number;
+  served_appearances: number;
   first_seen: string;
   latest_seen: string;
   average_position: number | null;
@@ -181,7 +182,12 @@ function serializeCreative(row: CreativeRow, projectId: string) {
     imageFallbackUrl,
     faviconUrl: assetUrl(row.favicon_asset_key, row.favicon_asset_status, projectId, row.favicon_source_url),
     faviconFallbackUrl,
-    appearances: Number(row.appearances),
+    appearances: Number(row.rendered_appearances),
+    servedAppearances: Number(row.served_appearances),
+    hiddenAppearances: Number(row.served_appearances) - Number(row.rendered_appearances),
+    renderRate: Number(row.served_appearances)
+      ? (Number(row.rendered_appearances) / Number(row.served_appearances)) * 100
+      : 0,
     firstSeen: row.first_seen,
     latestSeen: row.latest_seen,
     averagePosition: row.average_position === null ? null : Number(row.average_position),
@@ -207,54 +213,80 @@ adsRoutes.get(
       WHERE ${filtered.where}`;
     const [summary, completedRuns, trends, completedTrends, advertisers, creatives, state] = await Promise.all([
       c.env.CONTROL_DB.prepare(
-        `SELECT COUNT(*) AS appearances, COUNT(DISTINCT ad.snapshot_id) AS ad_snapshots,
-          COUNT(DISTINCT ad.advertiser_identity) AS advertisers,
-          COUNT(DISTINCT ad.creative_identity) AS creatives ${fromSql}`,
+        `SELECT SUM(ad.is_rendered) AS rendered_appearances,
+          COUNT(*) AS served_appearances,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.snapshot_id END) AS rendered_snapshots,
+          COUNT(DISTINCT ad.snapshot_id) AS served_snapshots,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.advertiser_identity END) AS rendered_advertisers,
+          COUNT(DISTINCT ad.advertiser_identity) AS served_advertisers,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.creative_identity END) AS rendered_creatives,
+          COUNT(DISTINCT ad.creative_identity) AS served_creatives ${fromSql}`,
       ).bind(...filtered.bindings).first<{
-        appearances: number; ad_snapshots: number; advertisers: number; creatives: number;
+        rendered_appearances: number; served_appearances: number;
+        rendered_snapshots: number; served_snapshots: number;
+        rendered_advertisers: number; served_advertisers: number;
+        rendered_creatives: number; served_creatives: number;
       }>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT COUNT(*) AS count, COALESCE(SUM(fact.ads_count), 0) AS ad_appearances,
-          COUNT(DISTINCT CASE WHEN fact.ads_count > 0 THEN fact.snapshot_id END) AS ad_snapshots
+        `SELECT COUNT(*) AS count,
+          COALESCE(SUM(fact.rendered_ads_count), 0) AS rendered_appearances,
+          COALESCE(SUM(fact.ads_count), 0) AS served_appearances,
+          COUNT(DISTINCT CASE WHEN fact.rendered_ads_count > 0 THEN fact.snapshot_id END) AS rendered_snapshots,
+          COUNT(DISTINCT CASE WHEN fact.ads_count > 0 THEN fact.snapshot_id END) AS served_snapshots
          FROM analytics_snapshot_facts fact
          JOIN tracked_queries query ON query.id = fact.tracked_query_id
          WHERE ${completed.where}`,
       ).bind(...completed.bindings).first<{
-        count: number; ad_appearances: number; ad_snapshots: number;
+        count: number; rendered_appearances: number; served_appearances: number;
+        rendered_snapshots: number; served_snapshots: number;
       }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT substr(ad.captured_at, 1, 10) AS date,
-          COUNT(*) AS appearances, COUNT(DISTINCT ad.snapshot_id) AS ad_snapshots
+          SUM(ad.is_rendered) AS rendered_appearances,
+          COUNT(*) AS served_appearances,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.snapshot_id END) AS rendered_snapshots,
+          COUNT(DISTINCT ad.snapshot_id) AS served_snapshots
          ${fromSql} GROUP BY substr(ad.captured_at, 1, 10) ORDER BY date`,
       ).bind(...filtered.bindings).all<{
-        date: string; appearances: number; ad_snapshots: number;
+        date: string; rendered_appearances: number; served_appearances: number;
+        rendered_snapshots: number; served_snapshots: number;
       }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT substr(fact.captured_at, 1, 10) AS date, COUNT(*) AS completed,
-          COALESCE(SUM(fact.ads_count), 0) AS ad_appearances,
-          COUNT(DISTINCT CASE WHEN fact.ads_count > 0 THEN fact.snapshot_id END) AS ad_snapshots
+          COALESCE(SUM(fact.rendered_ads_count), 0) AS rendered_appearances,
+          COALESCE(SUM(fact.ads_count), 0) AS served_appearances,
+          COUNT(DISTINCT CASE WHEN fact.rendered_ads_count > 0 THEN fact.snapshot_id END) AS rendered_snapshots,
+          COUNT(DISTINCT CASE WHEN fact.ads_count > 0 THEN fact.snapshot_id END) AS served_snapshots
          FROM analytics_snapshot_facts fact
          JOIN tracked_queries query ON query.id = fact.tracked_query_id
          WHERE ${completed.where}
          GROUP BY substr(fact.captured_at, 1, 10) ORDER BY date`,
       ).bind(...completed.bindings).all<{
-        date: string; completed: number; ad_appearances: number; ad_snapshots: number;
+        date: string; completed: number; rendered_appearances: number;
+        served_appearances: number; rendered_snapshots: number; served_snapshots: number;
       }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT ad.advertiser_identity, ad.advertiser_key,
           MAX(COALESCE(ad.advertiser_name, ad.advertiser_domain)) AS advertiser_name,
           MAX(ad.advertiser_domain) AS advertiser_domain,
           MAX(ad.relationship) AS relationship,
-          COUNT(*) AS appearances, COUNT(DISTINCT ad.snapshot_id) AS snapshots,
-          COUNT(DISTINCT ad.tracked_query_id) AS prompts,
-          COUNT(DISTINCT ad.creative_identity) AS creatives,
-          MIN(ad.captured_at) AS first_seen, MAX(ad.captured_at) AS latest_seen,
+          SUM(ad.is_rendered) AS rendered_appearances,
+          COUNT(*) AS served_appearances,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.snapshot_id END) AS rendered_snapshots,
+          COUNT(DISTINCT ad.snapshot_id) AS served_snapshots,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.tracked_query_id END) AS rendered_prompts,
+          COUNT(DISTINCT ad.tracked_query_id) AS served_prompts,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.creative_identity END) AS rendered_creatives,
+          COUNT(DISTINCT ad.creative_identity) AS served_creatives,
+          MIN(CASE WHEN ad.is_rendered = 1 THEN ad.captured_at END) AS first_rendered,
+          MAX(CASE WHEN ad.is_rendered = 1 THEN ad.captured_at END) AS latest_rendered,
+          MIN(ad.captured_at) AS first_served, MAX(ad.captured_at) AS latest_served,
           MAX(favicon.asset_key) AS favicon_asset_key,
           MAX(favicon.status) AS favicon_asset_status,
           MAX(ad.favicon_source_url) AS favicon_source_url
          ${fromSql}
          GROUP BY ad.advertiser_identity, ad.advertiser_key
-         ORDER BY appearances DESC, latest_seen DESC LIMIT 100`,
+         ORDER BY rendered_appearances DESC, served_appearances DESC, latest_served DESC LIMIT 100`,
       ).bind(...filtered.bindings).all<Record<string, string | number | null>>(),
       c.env.CONTROL_DB.prepare(
         `SELECT ad.creative_identity, ad.creative_key, ad.advertiser_key,
@@ -269,27 +301,39 @@ adsRoutes.get(
           MAX(favicon.asset_key) AS favicon_asset_key,
           MAX(favicon.status) AS favicon_asset_status,
           MAX(ad.favicon_source_url) AS favicon_source_url,
-          COUNT(*) AS appearances, MIN(ad.captured_at) AS first_seen,
-          MAX(ad.captured_at) AS latest_seen, AVG(ad.rank_absolute) AS average_position
+          SUM(ad.is_rendered) AS rendered_appearances,
+          COUNT(*) AS served_appearances, MIN(ad.captured_at) AS first_seen,
+          MAX(ad.captured_at) AS latest_seen,
+          AVG(CASE WHEN ad.is_rendered = 1 THEN ad.rank_absolute END) AS average_position
          ${fromSql}
          GROUP BY ad.creative_identity, ad.creative_key, ad.advertiser_key
-         ORDER BY latest_seen DESC, appearances DESC LIMIT 24`,
+         ORDER BY rendered_appearances DESC, served_appearances DESC, latest_seen DESC LIMIT 24`,
       ).bind(...filtered.bindings).all<CreativeRow>(),
       c.env.CONTROL_DB.prepare(
-        "SELECT status FROM analytics_read_model_projects WHERE project_id = ? AND schema_version = 4",
+        "SELECT status FROM analytics_read_model_projects WHERE project_id = ? AND schema_version = 5",
       ).bind(input.projectId).first<{ status: string }>(),
     ]);
     const canUseSnapshotTotals = !input.search && !input.relationship;
-    const indexedAppearances = Number(summary?.appearances ?? 0);
-    const snapshotAppearances = Number(completedRuns?.ad_appearances ?? 0);
-    const totalAppearances = canUseSnapshotTotals
-      ? Math.max(indexedAppearances, snapshotAppearances)
-      : indexedAppearances;
-    const indexedSnapshots = Number(summary?.ad_snapshots ?? 0);
-    const snapshotAdSnapshots = Number(completedRuns?.ad_snapshots ?? 0);
-    const totalAdSnapshots = canUseSnapshotTotals
-      ? Math.max(indexedSnapshots, snapshotAdSnapshots)
-      : indexedSnapshots;
+    const indexedRenderedAppearances = Number(summary?.rendered_appearances ?? 0);
+    const indexedServedAppearances = Number(summary?.served_appearances ?? 0);
+    const snapshotRenderedAppearances = Number(completedRuns?.rendered_appearances ?? 0);
+    const snapshotServedAppearances = Number(completedRuns?.served_appearances ?? 0);
+    const totalRenderedAppearances = canUseSnapshotTotals
+      ? Math.max(indexedRenderedAppearances, snapshotRenderedAppearances)
+      : indexedRenderedAppearances;
+    const totalServedAppearances = canUseSnapshotTotals
+      ? Math.max(indexedServedAppearances, snapshotServedAppearances)
+      : indexedServedAppearances;
+    const indexedRenderedSnapshots = Number(summary?.rendered_snapshots ?? 0);
+    const indexedServedSnapshots = Number(summary?.served_snapshots ?? 0);
+    const snapshotRenderedSnapshots = Number(completedRuns?.rendered_snapshots ?? 0);
+    const snapshotServedSnapshots = Number(completedRuns?.served_snapshots ?? 0);
+    const totalRenderedSnapshots = canUseSnapshotTotals
+      ? Math.max(indexedRenderedSnapshots, snapshotRenderedSnapshots)
+      : indexedRenderedSnapshots;
+    const totalServedSnapshots = canUseSnapshotTotals
+      ? Math.max(indexedServedSnapshots, snapshotServedSnapshots)
+      : indexedServedSnapshots;
     const completedCount = Number(completedRuns?.count ?? 0);
     const byDate = new Map(trends.results.map((row) => [row.date, row]));
     const completedByDate = new Map(completedTrends.results.map((row) => [row.date, row]));
@@ -301,32 +345,53 @@ adsRoutes.get(
       const row = byDate.get(date);
       const completedRow = completedByDate.get(date);
       const dailyCompleted = Number(completedRow?.completed ?? 0);
-      const dailyAppearances = canUseSnapshotTotals
-        ? Math.max(Number(row?.appearances ?? 0), Number(completedRow?.ad_appearances ?? 0))
-        : Number(row?.appearances ?? 0);
-      const dailyAdSnapshots = canUseSnapshotTotals
-        ? Math.max(Number(row?.ad_snapshots ?? 0), Number(completedRow?.ad_snapshots ?? 0))
-        : Number(row?.ad_snapshots ?? 0);
+      const dailyRendered = canUseSnapshotTotals
+        ? Math.max(Number(row?.rendered_appearances ?? 0), Number(completedRow?.rendered_appearances ?? 0))
+        : Number(row?.rendered_appearances ?? 0);
+      const dailyServed = canUseSnapshotTotals
+        ? Math.max(Number(row?.served_appearances ?? 0), Number(completedRow?.served_appearances ?? 0))
+        : Number(row?.served_appearances ?? 0);
+      const dailyRenderedSnapshots = canUseSnapshotTotals
+        ? Math.max(Number(row?.rendered_snapshots ?? 0), Number(completedRow?.rendered_snapshots ?? 0))
+        : Number(row?.rendered_snapshots ?? 0);
+      const dailyServedSnapshots = canUseSnapshotTotals
+        ? Math.max(Number(row?.served_snapshots ?? 0), Number(completedRow?.served_snapshots ?? 0))
+        : Number(row?.served_snapshots ?? 0);
       trend.push({
         date,
-        appearances: dailyAppearances,
-        adSnapshots: dailyAdSnapshots,
+        appearances: dailyRendered,
+        servedAppearances: dailyServed,
+        hiddenAppearances: dailyServed - dailyRendered,
+        adSnapshots: dailyRenderedSnapshots,
+        servedAdSnapshots: dailyServedSnapshots,
         completedResponses: dailyCompleted,
         appearanceRate: dailyCompleted
-          ? (dailyAdSnapshots / dailyCompleted) * 100
+          ? (dailyRenderedSnapshots / dailyCompleted) * 100
+          : 0,
+        servedAppearanceRate: dailyCompleted
+          ? (dailyServedSnapshots / dailyCompleted) * 100
           : 0,
       });
     }
     return c.json({ data: {
       period: input.period,
-      indexing: state?.status !== "ready" || snapshotAppearances > indexedAppearances,
+      indexing: state?.status !== "ready" ||
+        snapshotServedAppearances > indexedServedAppearances ||
+        snapshotRenderedAppearances > indexedRenderedAppearances,
       summary: {
         appearanceRate: completedCount
-          ? (totalAdSnapshots / completedCount) * 100
+          ? (totalRenderedSnapshots / completedCount) * 100
           : 0,
-        appearances: totalAppearances,
-        activeAdvertisers: Number(summary?.advertisers ?? 0),
-        uniqueCreatives: Number(summary?.creatives ?? 0),
+        servedAppearanceRate: completedCount
+          ? (totalServedSnapshots / completedCount) * 100
+          : 0,
+        appearances: totalRenderedAppearances,
+        servedAppearances: totalServedAppearances,
+        hiddenAppearances: totalServedAppearances - totalRenderedAppearances,
+        activeAdvertisers: Number(summary?.rendered_advertisers ?? 0),
+        servedAdvertisers: Number(summary?.served_advertisers ?? 0),
+        uniqueCreatives: Number(summary?.rendered_creatives ?? 0),
+        servedCreatives: Number(summary?.served_creatives ?? 0),
         completedResponses: completedCount,
       },
       trend,
@@ -335,13 +400,26 @@ adsRoutes.get(
         name: String(row.advertiser_name ?? row.advertiser_domain ?? "Unknown advertiser"),
         domain: row.advertiser_domain,
         relationship: row.relationship,
-        appearances: Number(row.appearances),
-        adShare: totalAppearances ? (Number(row.appearances) / totalAppearances) * 100 : 0,
-        snapshots: Number(row.snapshots),
-        prompts: Number(row.prompts),
-        creatives: Number(row.creatives),
-        firstSeen: row.first_seen,
-        latestSeen: row.latest_seen,
+        appearances: Number(row.rendered_appearances),
+        servedAppearances: Number(row.served_appearances),
+        hiddenAppearances: Number(row.served_appearances) - Number(row.rendered_appearances),
+        renderRate: Number(row.served_appearances)
+          ? (Number(row.rendered_appearances) / Number(row.served_appearances)) * 100
+          : 0,
+        adShare: totalRenderedAppearances
+          ? (Number(row.rendered_appearances) / totalRenderedAppearances) * 100
+          : 0,
+        snapshots: Number(row.rendered_snapshots),
+        servedSnapshots: Number(row.served_snapshots),
+        prompts: Number(row.rendered_prompts),
+        servedPrompts: Number(row.served_prompts),
+        creatives: Number(row.rendered_creatives),
+        servedCreatives: Number(row.served_creatives),
+        firstSeen: row.first_rendered,
+        latestSeen: row.latest_rendered,
+        firstServed: row.first_served,
+        latestServed: row.latest_served,
+        servedOnly: Number(row.rendered_appearances) === 0,
         faviconUrl: assetUrl(
           row.favicon_asset_key === null ? null : String(row.favicon_asset_key),
           row.favicon_asset_status === null ? null : String(row.favicon_asset_status),
@@ -376,18 +454,28 @@ adsRoutes.get(
         `SELECT MAX(ad.advertiser_name) AS advertiser_name,
           MAX(ad.advertiser_domain) AS advertiser_domain,
           MAX(ad.advertiser_canonical_url) AS advertiser_url,
-          MAX(ad.relationship) AS relationship, COUNT(*) AS appearances,
-          COUNT(DISTINCT ad.snapshot_id) AS snapshots,
-          COUNT(DISTINCT ad.tracked_query_id) AS prompts,
-          COUNT(DISTINCT ad.creative_identity) AS creatives,
-          MIN(ad.captured_at) AS first_seen, MAX(ad.captured_at) AS latest_seen,
+          MAX(ad.relationship) AS relationship,
+          SUM(ad.is_rendered) AS rendered_appearances,
+          COUNT(*) AS served_appearances,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.snapshot_id END) AS rendered_snapshots,
+          COUNT(DISTINCT ad.snapshot_id) AS served_snapshots,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.tracked_query_id END) AS rendered_prompts,
+          COUNT(DISTINCT ad.tracked_query_id) AS served_prompts,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.creative_identity END) AS rendered_creatives,
+          COUNT(DISTINCT ad.creative_identity) AS served_creatives,
+          MIN(CASE WHEN ad.is_rendered = 1 THEN ad.captured_at END) AS first_rendered,
+          MAX(CASE WHEN ad.is_rendered = 1 THEN ad.captured_at END) AS latest_rendered,
+          MIN(ad.captured_at) AS first_served, MAX(ad.captured_at) AS latest_served,
           MAX(favicon.asset_key) AS favicon_asset_key,
           MAX(favicon.status) AS favicon_asset_status,
           MAX(ad.favicon_source_url) AS favicon_source_url ${fromSql}`,
       ).bind(...filtered.bindings).first<Record<string, string | number | null>>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT substr(ad.captured_at, 1, 10) AS date, COUNT(*) AS appearances,
-          COUNT(DISTINCT ad.snapshot_id) AS snapshots ${fromSql}
+        `SELECT substr(ad.captured_at, 1, 10) AS date,
+          SUM(ad.is_rendered) AS rendered_appearances,
+          COUNT(*) AS served_appearances,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.snapshot_id END) AS rendered_snapshots,
+          COUNT(DISTINCT ad.snapshot_id) AS served_snapshots ${fromSql}
          GROUP BY substr(ad.captured_at, 1, 10) ORDER BY date`,
       ).bind(...filtered.bindings).all<Record<string, string | number>>(),
       c.env.CONTROL_DB.prepare(
@@ -403,29 +491,35 @@ adsRoutes.get(
           MAX(favicon.asset_key) AS favicon_asset_key,
           MAX(favicon.status) AS favicon_asset_status,
           MAX(ad.favicon_source_url) AS favicon_source_url,
-          COUNT(*) AS appearances, MIN(ad.captured_at) AS first_seen,
-          MAX(ad.captured_at) AS latest_seen, AVG(ad.rank_absolute) AS average_position
+          SUM(ad.is_rendered) AS rendered_appearances,
+          COUNT(*) AS served_appearances, MIN(ad.captured_at) AS first_seen,
+          MAX(ad.captured_at) AS latest_seen,
+          AVG(CASE WHEN ad.is_rendered = 1 THEN ad.rank_absolute END) AS average_position
          ${fromSql}
          GROUP BY ad.creative_identity, ad.creative_key, ad.advertiser_key
-         ORDER BY latest_seen DESC, appearances DESC LIMIT 100`,
+         ORDER BY rendered_appearances DESC, served_appearances DESC, latest_seen DESC LIMIT 100`,
       ).bind(...filtered.bindings).all<CreativeRow>(),
       c.env.CONTROL_DB.prepare(
         `SELECT ad.tracked_query_id, MAX(query.query_text) AS query_text,
           MAX(query.location_code) AS location_code,
           MAX(query.language_code) AS language_code,
-          COUNT(*) AS appearances, COUNT(DISTINCT ad.snapshot_id) AS snapshots,
-          MAX(ad.captured_at) AS latest_seen,
+          SUM(ad.is_rendered) AS rendered_appearances,
+          COUNT(*) AS served_appearances,
+          COUNT(DISTINCT CASE WHEN ad.is_rendered = 1 THEN ad.snapshot_id END) AS rendered_snapshots,
+          COUNT(DISTINCT ad.snapshot_id) AS served_snapshots,
+          MAX(CASE WHEN ad.is_rendered = 1 THEN ad.captured_at END) AS latest_rendered,
+          MAX(ad.captured_at) AS latest_served,
           (SELECT latest.snapshot_id FROM analytics_ad_occurrences latest
            WHERE latest.project_id = ad.project_id
              AND latest.tracked_query_id = ad.tracked_query_id
              AND latest.advertiser_identity = ad.advertiser_identity
-           ORDER BY latest.captured_at DESC LIMIT 1) AS latest_snapshot_id
+           ORDER BY latest.is_rendered DESC, latest.captured_at DESC LIMIT 1) AS latest_snapshot_id
          ${fromSql}
          GROUP BY ad.tracked_query_id, ad.project_id, ad.advertiser_identity
-         ORDER BY latest_seen DESC LIMIT 100`,
+         ORDER BY rendered_appearances DESC, latest_served DESC LIMIT 100`,
       ).bind(...filtered.bindings).all<Record<string, string | number>>(),
     ]);
-    if (!summary || Number(summary.appearances ?? 0) === 0) {
+    if (!summary || Number(summary.served_appearances ?? 0) === 0) {
       throw new ApiError(404, "advertiser_not_found", "Advertiser not found.");
     }
     const promptIds = prompts.results.map((row) => String(row.tracked_query_id));
@@ -458,17 +552,30 @@ adsRoutes.get(
           input.projectId,
           summary.favicon_source_url === null ? null : String(summary.favicon_source_url),
         ),
-        appearances: Number(summary.appearances),
-        snapshots: Number(summary.snapshots),
-        prompts: Number(summary.prompts),
-        creatives: Number(summary.creatives),
-        firstSeen: summary.first_seen,
-        latestSeen: summary.latest_seen,
+        appearances: Number(summary.rendered_appearances),
+        servedAppearances: Number(summary.served_appearances),
+        hiddenAppearances: Number(summary.served_appearances) - Number(summary.rendered_appearances),
+        renderRate: Number(summary.served_appearances)
+          ? (Number(summary.rendered_appearances) / Number(summary.served_appearances)) * 100
+          : 0,
+        snapshots: Number(summary.rendered_snapshots),
+        servedSnapshots: Number(summary.served_snapshots),
+        prompts: Number(summary.rendered_prompts),
+        servedPrompts: Number(summary.served_prompts),
+        creatives: Number(summary.rendered_creatives),
+        servedCreatives: Number(summary.served_creatives),
+        firstSeen: summary.first_rendered,
+        latestSeen: summary.latest_rendered,
+        firstServed: summary.first_served,
+        latestServed: summary.latest_served,
       },
       trend: trends.results.map((row) => ({
         date: row.date,
-        appearances: Number(row.appearances),
-        snapshots: Number(row.snapshots),
+        appearances: Number(row.rendered_appearances),
+        servedAppearances: Number(row.served_appearances),
+        hiddenAppearances: Number(row.served_appearances) - Number(row.rendered_appearances),
+        snapshots: Number(row.rendered_snapshots),
+        servedSnapshots: Number(row.served_snapshots),
       })),
       creatives: creatives.results.map((row) => serializeCreative(row, input.projectId)),
       prompts: prompts.results.map((row) => ({
@@ -476,9 +583,15 @@ adsRoutes.get(
         query: row.query_text,
         locationCode: Number(row.location_code),
         languageCode: row.language_code,
-        appearances: Number(row.appearances),
-        snapshots: Number(row.snapshots),
-        latestSeen: row.latest_seen,
+        appearances: Number(row.rendered_appearances),
+        servedAppearances: Number(row.served_appearances),
+        hiddenAppearances: Number(row.served_appearances) - Number(row.rendered_appearances),
+        renderRate: Number(row.served_appearances)
+          ? (Number(row.rendered_appearances) / Number(row.served_appearances)) * 100
+          : 0,
+        snapshots: Number(row.rendered_snapshots),
+        servedSnapshots: Number(row.served_snapshots),
+        latestSeen: row.latest_rendered ?? row.latest_served,
         latestSnapshotId: row.latest_snapshot_id,
         tags: tags.get(String(row.tracked_query_id)) ?? [],
       })),

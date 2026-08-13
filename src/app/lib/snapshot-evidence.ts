@@ -79,6 +79,25 @@ export interface AdEvidence extends EvidenceRow {
   favicon_fallback_url?: string | null;
   rank_group: number | null;
   rank_absolute: number | null;
+  is_rendered: boolean;
+}
+
+export function adVisibilityCounts(
+  ads: AdEvidence[],
+  items: StructuredEvidenceItem[],
+): { rendered: number; served: number; hidden: number } {
+  const visibility = ads.length
+    ? ads.map((ad) => ad.is_rendered !== false)
+    : items
+        .filter((item) => item.type === "chat_gpt_ad")
+        .map((item) => {
+          const payload = item.payload && typeof item.payload === "object"
+            ? item.payload as Record<string, unknown>
+            : null;
+          return payload?.is_rendered !== false;
+        });
+  const rendered = visibility.filter(Boolean).length;
+  return { rendered, served: visibility.length, hidden: visibility.length - rendered };
 }
 
 export interface SnapshotDetail {

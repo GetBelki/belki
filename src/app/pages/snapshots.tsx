@@ -6,6 +6,7 @@ import {
   ExternalLink,
   FileJson,
   Globe2,
+  EyeOff,
   RefreshCw,
   Search,
   ShoppingBag,
@@ -31,6 +32,7 @@ import { ENTITY_GROUPS, entityGroup, normalizeEntityName } from "../lib/entity-g
 import { localeLabel } from "../lib/locale-catalog";
 import { isRunInProgress, runStatusLabel } from "../lib/run-status";
 import {
+  adVisibilityCounts,
   fanOutLabel,
   safeExternalUrl,
   type EvidenceRow,
@@ -437,7 +439,7 @@ export function SnapshotDetailPage() {
   const citedDomains = domains.filter((domain) => Number(domain.cited_count) > 0);
   const retrievedDomains = domains.filter((domain) => Number(domain.retrieved_count) > 0);
   const hasStructuredProducts = items.some((item) => item.type === "chat_gpt_products");
-  const adsCount = ads.length || items.filter((item) => item.type === "chat_gpt_ad").length;
+  const adVisibility = adVisibilityCounts(ads, items);
 
   return (
     <div className="page snapshot-evidence-page">
@@ -478,7 +480,11 @@ export function SnapshotDetailPage() {
         <div><span>Fan-out queries</span><strong>{fanOutQueries.length}</strong></div>
         <div><span>Detected entities</span><strong>{detectedEntities.length}</strong></div>
         <div><span>Shopping products</span><strong>{products.length}</strong></div>
-        <div><span>Ads</span><strong>{adsCount}</strong></div>
+        <div className="ad-visibility-stat">
+          <span>Ads</span>
+          <strong>{adVisibility.rendered} rendered</strong>
+          <small>{adVisibility.served} served</small>
+        </div>
       </div>
 
       <div className="evidence-layout">
@@ -492,6 +498,13 @@ export function SnapshotDetailPage() {
                 ads={ads}
                 fallbackMarkdown={snapshot.answer_markdown || "No answer text was returned."}
               />
+              {adVisibility.hidden > 0 ? (
+                <div className="hidden-ads-note">
+                  <EyeOff size={14} />
+                  {adVisibility.hidden} additional {adVisibility.hidden === 1 ? "ad was" : "ads were"}
+                  {" "}served in the response but not shown to the user.
+                </div>
+              ) : null}
             </CardContent>
           </Card>
 
