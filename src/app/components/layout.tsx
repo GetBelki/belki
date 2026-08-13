@@ -19,13 +19,19 @@ import { APP_NAME } from "../lib/branding";
 import { projectChangeDestination } from "../lib/project-navigation";
 import { AppIcon } from "./app-icon";
 import { DomainFavicon } from "./domain-favicon";
-import { BillingIcon, PromptsIcon, SourcesIcon } from "./navigation-icons";
+import {
+  BillingIcon,
+  PromptsIcon,
+  RelatedQueriesIcon,
+  SourcesIcon,
+} from "./navigation-icons";
 import { Button, Select } from "./ui";
 import { cn } from "../lib/utils";
 
 const NAVIGATION = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
   { to: "/prompts", label: "Prompts", icon: PromptsIcon },
+  { to: "/related-queries", label: "Related queries", icon: RelatedQueriesIcon },
   { to: "/citations", label: "Citation Sources", icon: SourcesIcon },
   { to: "/brands", label: "Entities", icon: ScanSearch },
   { to: "/ads", label: "Ads", icon: Megaphone },

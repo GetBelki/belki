@@ -25,6 +25,9 @@ runs per month.
 - **Prompts and snapshots:** daily or weekly scheduled prompts, manual refreshes,
   bulk creation, tags, locale settings, captured answers, tables, citations,
   retrieved results, and fan-out queries.
+- **Related queries:** recurring fan-out searches across prompts, tracking status,
+  response history, and contextual cited and retrieved URLs—with one-click prompt
+  creation for valuable untracked topics.
 - **Citation sources:** citation rate, source share, domain trends, source detail,
   and links back to the exact captured response.
 - **Entities:** cross-industry discovery of brands, companies, people, and places;
@@ -143,7 +146,7 @@ flowchart TD
   Ads -->|Yes| Assets[Mirror creative and favicon assets to R2]
   Shopping -->|Yes| ProductInfo[Capture Google Shopping market snapshot]
 
-  Rollup --> Dashboard[Overview, prompts, sources, billing, and alerts]
+  Rollup --> Dashboard[Overview, prompts, related queries, sources, billing, and alerts]
   NER --> Dashboard
   Assets --> Dashboard
   ProductInfo --> Dashboard

@@ -15,6 +15,16 @@ const OverviewPage = lazy(() =>
 const PromptsPage = lazy(() =>
   import("./pages/main").then((module) => ({ default: module.PromptsPage })),
 );
+const RelatedQueriesPage = lazy(() =>
+  import("./pages/related-queries").then((module) => ({
+    default: module.RelatedQueriesPage,
+  })),
+);
+const RelatedQueryDetailPage = lazy(() =>
+  import("./pages/related-queries").then((module) => ({
+    default: module.RelatedQueryDetailPage,
+  })),
+);
 const PromptLibraryPage = lazy(() => import("./pages/prompt-library"));
 const SnapshotExplorerPage = lazy(() =>
   import("./pages/snapshots").then((module) => ({ default: module.SnapshotExplorerPage })),
@@ -101,6 +111,11 @@ export function App() {
           <Route element={<AppLayout />}>
             <Route index element={<OverviewPage />} />
             <Route path="/prompts" element={<PromptsPage />} />
+            <Route path="/related-queries" element={<RelatedQueriesPage />} />
+            <Route
+              path="/related-queries/:queryKey"
+              element={<RelatedQueryDetailPage />}
+            />
             <Route path="/prompts/library" element={<PromptLibraryPage />} />
             <Route path="/prompts/:queryId" element={<QuerySnapshotsPage />} />
             <Route

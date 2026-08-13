@@ -94,3 +94,17 @@ export function PromptsIcon(props: NavigationIconProps) {
     </IconFrame>
   );
 }
+
+export function RelatedQueriesIcon(props: NavigationIconProps) {
+  return (
+    <IconFrame {...props}>
+      <path d="M11 5L18 5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M10 10L14.5 14.5" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M5 11L5 18" strokeLinecap="round" strokeLinejoin="round" />
+      <circle cx="6.44444" cy="6.44444" r="4.44444" />
+      <circle cx="5" cy="20" r="2" />
+      <circle cx="16" cy="16" r="2" />
+      <circle cx="20" cy="5" r="2" />
+    </IconFrame>
+  );
+}

@@ -1,4 +1,9 @@
-import { productIdentity, productKey } from "../lib/reporting";
+import {
+  normalizeRelatedQuery,
+  productIdentity,
+  productKey,
+  relatedQueryLabel,
+} from "../lib/reporting";
 import { getShard } from "../lib/shards";
 import { jsonParse, nowIso } from "../lib/http";
 import { matchedBrandTerms, normalizeBrand, normalizeHostname } from "../lib/domain";
@@ -12,6 +17,7 @@ interface SnapshotReadModelRow {
   captured_at: string;
   provider_cost_usd: number | null;
   answer_markdown: string | null;
+  fan_out_queries_json: string;
 }
 
 interface OwnedBrandRow {
@@ -29,6 +35,15 @@ interface CitationReadModelRow {
   raw_url: string | null;
   title: string | null;
   source_name: string | null;
+}
+
+interface RetrievalReadModelRow {
+  ordinal: number;
+  registrable_domain: string | null;
+  canonical_url: string | null;
+  raw_url: string | null;
+  title: string | null;
+  description: string | null;
 }
 
 interface ProductReadModelRow {
@@ -144,12 +159,12 @@ export async function syncAnalyticsReadModel(
   payload: AnalyticsReadModelPayload,
 ): Promise<void> {
   const shard = getShard(env, shardId);
-  const [snapshot, citations, retrievedDomains, products, trackedBrands, project, ads] =
+  const [snapshot, citations, retrievals, products, trackedBrands, project, ads] =
     await Promise.all([
       shard
         .prepare(
           `SELECT id, project_id, tracked_query_id, captured_at, provider_cost_usd,
-            answer_markdown
+            answer_markdown, fan_out_queries_json
            FROM snapshots WHERE id = ?`,
         )
         .bind(payload.snapshotId)
@@ -165,12 +180,14 @@ export async function syncAnalyticsReadModel(
         .all<CitationReadModelRow>(),
       shard
         .prepare(
-          `SELECT COUNT(DISTINCT registrable_domain) AS count
+          `SELECT ordinal, registrable_domain, canonical_url, raw_url, title,
+            description
            FROM snapshot_search_results
-           WHERE snapshot_id = ? AND registrable_domain IS NOT NULL`,
+           WHERE snapshot_id = ?
+           ORDER BY ordinal`,
         )
         .bind(payload.snapshotId)
-        .first<{ count: number }>(),
+        .all<RetrievalReadModelRow>(),
       shard
         .prepare(
           `SELECT id, ordinal, rank_absolute, provider_product_id, merchants, title,
@@ -242,14 +259,38 @@ export async function syncAnalyticsReadModel(
   const citedDomainsCount = new Set(
     citations.results.map((citation) => citation.registrable_domain),
   ).size;
+  const retrievedDomainsCount = new Set(
+    retrievals.results
+      .map((retrieval) => retrieval.registrable_domain)
+      .filter((domain): domain is string => Boolean(domain)),
+  ).size;
+  const relatedQueries = new Map<
+    string,
+    { ordinal: number; queryText: string }
+  >();
+  const storedFanOutQueries = jsonParse<unknown>(
+    snapshot.fan_out_queries_json,
+    [],
+  );
+  const fanOutQueries = Array.isArray(storedFanOutQueries)
+    ? storedFanOutQueries
+    : [];
+  for (const [ordinal, value] of fanOutQueries.entries()) {
+    const queryText = relatedQueryLabel(value);
+    if (!queryText) continue;
+    const normalizedQuery = normalizeRelatedQuery(queryText);
+    if (!normalizedQuery || relatedQueries.has(normalizedQuery)) continue;
+    relatedQueries.set(normalizedQuery, { ordinal, queryText });
+  }
   const statements: D1PreparedStatement[] = [
     env.CONTROL_DB.prepare(
       `INSERT INTO analytics_snapshot_facts (
         snapshot_id, project_id, tracked_query_id, shard_id, captured_at,
         metric_date, cited_domains_count, retrieved_domains_count, citation_count,
         brand_mentioned_runs, brand_mentions_count, products_count, ads_count,
-        ads_indexed_at, provider_cost_usd, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ads_indexed_at, related_queries_count, related_queries_indexed_at,
+        provider_cost_usd, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(snapshot_id) DO UPDATE SET
         cited_domains_count = excluded.cited_domains_count,
         retrieved_domains_count = excluded.retrieved_domains_count,
@@ -259,6 +300,8 @@ export async function syncAnalyticsReadModel(
         products_count = excluded.products_count,
         ads_count = excluded.ads_count,
         ads_indexed_at = excluded.ads_indexed_at,
+        related_queries_count = excluded.related_queries_count,
+        related_queries_indexed_at = excluded.related_queries_indexed_at,
         provider_cost_usd = excluded.provider_cost_usd,
         updated_at = excluded.updated_at`,
     ).bind(
@@ -269,12 +312,14 @@ export async function syncAnalyticsReadModel(
       snapshot.captured_at,
       payload.metricDate,
       citedDomainsCount,
-      Number(retrievedDomains?.count ?? 0),
+      retrievedDomainsCount,
       citations.results.length,
       brandMentionedRuns,
       brandMentionsCount,
       products.results.length,
       ads.length,
+      updatedAt,
+      relatedQueries.size,
       updatedAt,
       snapshot.provider_cost_usd,
       updatedAt,
@@ -283,7 +328,7 @@ export async function syncAnalyticsReadModel(
     env.CONTROL_DB.prepare(
       `INSERT INTO analytics_read_model_projects (
         project_id, status, schema_version, last_ingested_at, updated_at
-      ) VALUES (?, 'pending', 3, ?, ?)
+      ) VALUES (?, 'pending', 4, ?, ?)
       ON CONFLICT(project_id) DO UPDATE SET
         last_ingested_at = excluded.last_ingested_at,
         schema_version = MAX(schema_version, excluded.schema_version),
@@ -298,7 +343,54 @@ export async function syncAnalyticsReadModel(
     env.CONTROL_DB.prepare(
       "DELETE FROM analytics_ad_occurrences WHERE snapshot_id = ?",
     ).bind(payload.snapshotId),
+    env.CONTROL_DB.prepare(
+      "DELETE FROM analytics_related_query_occurrences WHERE snapshot_id = ?",
+    ).bind(payload.snapshotId),
+    env.CONTROL_DB.prepare(
+      "DELETE FROM analytics_retrieval_occurrences WHERE snapshot_id = ?",
+    ).bind(payload.snapshotId),
   ];
+
+  for (const [normalizedQuery, relatedQuery] of relatedQueries) {
+    statements.push(
+      env.CONTROL_DB.prepare(
+        `INSERT INTO analytics_related_query_occurrences (
+          snapshot_id, normalized_query, project_id, tracked_query_id,
+          captured_at, ordinal, query_text
+        ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        payload.snapshotId,
+        normalizedQuery,
+        payload.projectId,
+        payload.trackedQueryId,
+        snapshot.captured_at,
+        relatedQuery.ordinal,
+        relatedQuery.queryText,
+      ),
+    );
+  }
+
+  for (const retrieval of retrievals.results) {
+    statements.push(
+      env.CONTROL_DB.prepare(
+        `INSERT INTO analytics_retrieval_occurrences (
+          snapshot_id, ordinal, project_id, tracked_query_id, captured_at,
+          registrable_domain, canonical_url, raw_url, title, description
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ).bind(
+        payload.snapshotId,
+        retrieval.ordinal,
+        payload.projectId,
+        payload.trackedQueryId,
+        snapshot.captured_at,
+        retrieval.registrable_domain,
+        retrieval.canonical_url,
+        retrieval.raw_url,
+        retrieval.title,
+        retrieval.description,
+      ),
+    );
+  }
 
   for (const citation of citations.results) {
     statements.push(

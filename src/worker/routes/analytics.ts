@@ -25,6 +25,9 @@ import {
   productIdentity,
   productIdentityFromKey,
   productKey,
+  normalizeRelatedQuery,
+  relatedQueryFromKey,
+  relatedQueryKey,
   summarizeProductPrices,
   type BillingDailyRow,
   type BrandMentionDailyRow,
@@ -103,6 +106,28 @@ const ShoppingProductDetailSchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).default(10),
   marketLocationCode: z.coerce.number().int().optional(),
   marketLanguageCode: z.string().trim().min(1).max(20).optional(),
+});
+const RelatedQueryPeriodSchema = z.enum(["7d", "30d", "90d", "365d"]);
+const RelatedQueriesSchema = z.object({
+  projectId: z.string().uuid(),
+  period: RelatedQueryPeriodSchema.default("30d"),
+  search: z.string().trim().max(200).optional(),
+  cursor: z.string().max(4096).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+const RelatedQueryParamSchema = z.object({
+  queryKey: z.string().trim().min(1).max(4096).regex(/^[A-Za-z0-9_-]+$/u),
+});
+const RelatedQueryDetailSchema = z.object({
+  projectId: z.string().uuid(),
+  period: RelatedQueryPeriodSchema.default("30d"),
+});
+const RelatedQueryPageSchema = RelatedQueryDetailSchema.extend({
+  cursor: z.string().max(4096).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(10),
+});
+const RelatedQuerySourcesSchema = RelatedQueryPageSchema.extend({
+  kind: z.enum(["cited", "retrieved"]),
 });
 
 function chunks<T>(values: T[], size = 75): T[][] {
@@ -804,7 +829,7 @@ async function analyticsReadModelReady(
     env.CONTROL_DB.prepare(
       `SELECT status
        FROM analytics_read_model_projects
-       WHERE project_id = ? AND schema_version = 3`,
+       WHERE project_id = ? AND schema_version = 4`,
     )
       .bind(projectId)
       .first<{ status: string }>();
@@ -820,6 +845,48 @@ async function analyticsReadModelReady(
     }
     throw error;
   }
+}
+
+function relatedQueryRange(period: z.infer<typeof RelatedQueryPeriodSchema>) {
+  const dates = productAnalyticsDateRange(period);
+  return {
+    from: dates.startTimestamp,
+    to: dates.endExclusiveTimestamp,
+  };
+}
+
+interface TrackedRelatedQueryRow {
+  id: string;
+  query_text: string;
+  location_code: number;
+  language_code: string;
+}
+
+async function trackedRelatedQueries(env: Env, projectId: string) {
+  const rows = await env.CONTROL_DB.prepare(
+    `SELECT id, query_text, location_code, language_code
+     FROM tracked_queries
+     WHERE project_id = ? AND deleted_at IS NULL
+     ORDER BY created_at, id`,
+  )
+    .bind(projectId)
+    .all<TrackedRelatedQueryRow>();
+  const byNormalizedQuery = new Map<string, TrackedRelatedQueryRow>();
+  for (const row of rows.results) {
+    const normalized = normalizeRelatedQuery(row.query_text);
+    if (normalized && !byNormalizedQuery.has(normalized)) {
+      byNormalizedQuery.set(normalized, row);
+    }
+  }
+  return byNormalizedQuery;
+}
+
+function decodedRelatedQuery(key: string): string {
+  const normalized = relatedQueryFromKey(key);
+  if (!normalized || normalizeRelatedQuery(normalized) !== normalized) {
+    throw new ApiError(404, "related_query_not_found", "Related query not found.");
+  }
+  return normalized;
 }
 
 async function loadReadModelBrandMentions(
@@ -3830,6 +3897,490 @@ analyticsRoutes.get(
         answerChanged: current.answer_hash !== previous.answer_hash,
         modelChanged: current.model !== previous.model,
         productBlockChanged: current.has_product_block !== previous.has_product_block,
+      },
+    });
+  },
+);
+
+analyticsRoutes.get(
+  "/analytics/related-queries",
+  zValidator("query", RelatedQueriesSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const input = c.req.valid("query");
+    await assertProjectAccess(
+      c.env,
+      principal.workspaceId,
+      input.projectId,
+      c.get("timing"),
+    );
+    const ready = await analyticsReadModelReady(
+      c.env,
+      input.projectId,
+      c.get("timing"),
+    );
+    if (!ready) {
+      return c.json({
+        data: {
+          period: input.period,
+          indexing: true,
+          summary: {
+            appearances: 0,
+            uniqueQueries: 0,
+            responsesWithQueries: 0,
+            completedResponses: 0,
+          },
+          queries: [],
+        },
+        page: { nextCursor: null, total: 0 },
+      });
+    }
+
+    const dates = relatedQueryRange(input.period);
+    const search = input.search
+      ? `%${normalizeRelatedQuery(input.search).replaceAll("%", "\\%").replaceAll("_", "\\_")}%`
+      : null;
+    const cursor = decodeCursor<{
+      appearances: number;
+      lastSeen: string;
+      normalizedQuery: string;
+    }>(input.cursor, "related-query-list");
+    const where = [
+      "related.project_id = ?",
+      "related.captured_at >= ?",
+      "related.captured_at < ?",
+      ...(search ? ["related.normalized_query LIKE ? ESCAPE '\\'"] : []),
+    ];
+    const bindings: Array<string | number> = [
+      input.projectId,
+      dates.from,
+      dates.to,
+      ...(search ? [search] : []),
+    ];
+    const countBindings = [...bindings];
+    const having = cursor
+      ? `HAVING COUNT(*) < ?
+        OR (COUNT(*) = ? AND MAX(related.captured_at) < ?)
+        OR (COUNT(*) = ? AND MAX(related.captured_at) = ?
+          AND related.normalized_query > ?)`
+      : "";
+    if (cursor) {
+      bindings.push(
+        cursor.appearances,
+        cursor.appearances,
+        cursor.lastSeen,
+        cursor.appearances,
+        cursor.lastSeen,
+        cursor.normalizedQuery,
+      );
+    }
+    const [rows, summary, filteredTotal, tracked] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `SELECT related.normalized_query,
+          COUNT(*) AS appearances,
+          COUNT(DISTINCT related.tracked_query_id) AS parent_prompts,
+          MIN(related.captured_at) AS first_seen,
+          MAX(related.captured_at) AS last_seen,
+          (
+            SELECT latest.query_text
+            FROM analytics_related_query_occurrences latest
+            WHERE latest.project_id = related.project_id
+              AND latest.normalized_query = related.normalized_query
+              AND latest.captured_at >= ? AND latest.captured_at < ?
+            ORDER BY latest.captured_at DESC, latest.snapshot_id DESC
+            LIMIT 1
+          ) AS query_text
+         FROM analytics_related_query_occurrences related
+         WHERE ${where.join(" AND ")}
+         GROUP BY related.normalized_query
+         ${having}
+         ORDER BY appearances DESC, last_seen DESC, related.normalized_query
+         LIMIT ?`,
+      )
+        .bind(dates.from, dates.to, ...bindings, input.limit + 1)
+        .all<{
+          normalized_query: string;
+          query_text: string;
+          appearances: number;
+          parent_prompts: number;
+          first_seen: string;
+          last_seen: string;
+        }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT
+          COUNT(*) AS appearances,
+          COUNT(DISTINCT normalized_query) AS unique_queries,
+          COUNT(DISTINCT snapshot_id) AS responses_with_queries,
+          (SELECT COUNT(*) FROM analytics_snapshot_facts fact
+            WHERE fact.project_id = ? AND fact.captured_at >= ? AND fact.captured_at < ?
+          ) AS completed_responses
+         FROM analytics_related_query_occurrences
+         WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
+      )
+        .bind(
+          input.projectId, dates.from, dates.to,
+          input.projectId, dates.from, dates.to,
+        )
+        .first<{
+          appearances: number;
+          unique_queries: number;
+          responses_with_queries: number;
+          completed_responses: number;
+        }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS count FROM (
+          SELECT 1
+          FROM analytics_related_query_occurrences related
+          WHERE ${where.join(" AND ")}
+          GROUP BY related.normalized_query
+        )`,
+      )
+        .bind(...countBindings)
+        .first<{ count: number }>(),
+      trackedRelatedQueries(c.env, input.projectId),
+    ]);
+    const hasMore = rows.results.length > input.limit;
+    const visible = rows.results.slice(0, input.limit);
+    const last = visible.at(-1);
+    return c.json({
+      data: {
+        period: input.period,
+        indexing: false,
+        summary: {
+          appearances: Number(summary?.appearances ?? 0),
+          uniqueQueries: Number(summary?.unique_queries ?? 0),
+          responsesWithQueries: Number(summary?.responses_with_queries ?? 0),
+          completedResponses: Number(summary?.completed_responses ?? 0),
+        },
+        queries: visible.map((row) => {
+          const trackedPrompt = tracked.get(row.normalized_query) ?? null;
+          return {
+            queryKey: relatedQueryKey(row.normalized_query),
+            query: row.query_text,
+            appearances: Number(row.appearances),
+            parentPrompts: Number(row.parent_prompts),
+            firstSeen: row.first_seen,
+            lastSeen: row.last_seen,
+            trackedPrompt: trackedPrompt
+              ? { id: trackedPrompt.id, query: trackedPrompt.query_text }
+              : null,
+          };
+        }),
+      },
+      page: {
+        total: Number(filteredTotal?.count ?? 0),
+        nextCursor: hasMore && last
+          ? encodeCursor("related-query-list", {
+              appearances: Number(last.appearances),
+              lastSeen: last.last_seen,
+              normalizedQuery: last.normalized_query,
+            })
+          : null,
+      },
+    });
+  },
+);
+
+analyticsRoutes.get(
+  "/analytics/related-queries/:queryKey",
+  zValidator("param", RelatedQueryParamSchema),
+  zValidator("query", RelatedQueryDetailSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const input = c.req.valid("query");
+    const normalizedQuery = decodedRelatedQuery(c.req.valid("param").queryKey);
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId, c.get("timing"));
+    const ready = await analyticsReadModelReady(c.env, input.projectId, c.get("timing"));
+    if (!ready) return c.json({ data: { indexing: true } });
+    const dates = relatedQueryRange(input.period);
+    const [summary, parentPrompts, tracked] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS appearances,
+          COUNT(DISTINCT tracked_query_id) AS parent_prompts,
+          MIN(captured_at) AS first_seen,
+          MAX(captured_at) AS last_seen,
+          (SELECT latest.query_text
+           FROM analytics_related_query_occurrences latest
+           WHERE latest.project_id = ? AND latest.normalized_query = ?
+             AND latest.captured_at >= ? AND latest.captured_at < ?
+           ORDER BY latest.captured_at DESC, latest.snapshot_id DESC LIMIT 1
+          ) AS query_text
+         FROM analytics_related_query_occurrences
+         WHERE project_id = ? AND normalized_query = ?
+           AND captured_at >= ? AND captured_at < ?`,
+      )
+        .bind(
+          input.projectId, normalizedQuery, dates.from, dates.to,
+          input.projectId, normalizedQuery, dates.from, dates.to,
+        )
+        .first<{
+          appearances: number;
+          parent_prompts: number;
+          first_seen: string | null;
+          last_seen: string | null;
+          query_text: string | null;
+        }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT query.id, query.query_text, query.location_code, query.language_code,
+          COUNT(*) AS appearances, MAX(related.captured_at) AS last_seen,
+          (SELECT latest.snapshot_id
+           FROM analytics_related_query_occurrences latest
+           WHERE latest.project_id = ? AND latest.normalized_query = ?
+             AND latest.tracked_query_id = query.id
+             AND latest.captured_at >= ? AND latest.captured_at < ?
+           ORDER BY latest.captured_at DESC, latest.snapshot_id DESC LIMIT 1
+          ) AS latest_snapshot_id
+         FROM analytics_related_query_occurrences related
+         JOIN tracked_queries query ON query.id = related.tracked_query_id
+         WHERE related.project_id = ? AND related.normalized_query = ?
+           AND related.captured_at >= ? AND related.captured_at < ?
+         GROUP BY query.id
+         ORDER BY appearances DESC, last_seen DESC, query.id`,
+      )
+        .bind(
+          input.projectId, normalizedQuery, dates.from, dates.to,
+          input.projectId, normalizedQuery, dates.from, dates.to,
+        )
+        .all<{
+          id: string;
+          query_text: string;
+          location_code: number;
+          language_code: string;
+          appearances: number;
+          last_seen: string;
+          latest_snapshot_id: string;
+        }>(),
+      trackedRelatedQueries(c.env, input.projectId),
+    ]);
+    const fallback = summary?.query_text
+      ? null
+      : await c.env.CONTROL_DB.prepare(
+          `SELECT query_text
+           FROM analytics_related_query_occurrences
+           WHERE project_id = ? AND normalized_query = ?
+           ORDER BY captured_at DESC, snapshot_id DESC LIMIT 1`,
+        )
+          .bind(input.projectId, normalizedQuery)
+          .first<{ query_text: string }>();
+    const queryText = summary?.query_text ?? fallback?.query_text;
+    if (!queryText) {
+      throw new ApiError(404, "related_query_not_found", "Related query not found.");
+    }
+    const trackedPrompt = tracked.get(normalizedQuery) ?? null;
+    const latestParent = parentPrompts.results
+      .slice()
+      .sort((left, right) => right.last_seen.localeCompare(left.last_seen))[0] ?? null;
+    return c.json({
+      data: {
+        indexing: false,
+        period: input.period,
+        queryKey: relatedQueryKey(normalizedQuery),
+        query: queryText,
+        summary: {
+          appearances: Number(summary?.appearances ?? 0),
+          parentPrompts: Number(summary?.parent_prompts ?? 0),
+          firstSeen: summary?.first_seen ?? null,
+          lastSeen: summary?.last_seen ?? null,
+        },
+        trackedPrompt: trackedPrompt
+          ? { id: trackedPrompt.id, query: trackedPrompt.query_text }
+          : null,
+        suggestedLocale: latestParent
+          ? { locationCode: latestParent.location_code, languageCode: latestParent.language_code }
+          : null,
+        parentPrompts: parentPrompts.results.map((row) => ({
+          id: row.id,
+          query: row.query_text,
+          locationCode: row.location_code,
+          languageCode: row.language_code,
+          appearances: Number(row.appearances),
+          lastSeen: row.last_seen,
+          latestSnapshotId: row.latest_snapshot_id,
+        })),
+      },
+    });
+  },
+);
+
+analyticsRoutes.get(
+  "/analytics/related-queries/:queryKey/occurrences",
+  zValidator("param", RelatedQueryParamSchema),
+  zValidator("query", RelatedQueryPageSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const input = c.req.valid("query");
+    const normalizedQuery = decodedRelatedQuery(c.req.valid("param").queryKey);
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId, c.get("timing"));
+    const ready = await analyticsReadModelReady(c.env, input.projectId, c.get("timing"));
+    if (!ready) return c.json({ data: [], page: { nextCursor: null, total: 0 } });
+    const dates = relatedQueryRange(input.period);
+    const cursor = decodeCursor<{ capturedAt: string; snapshotId: string }>(
+      input.cursor,
+      "related-query-occurrences",
+    );
+    const cursorClause = cursor
+      ? "AND (related.captured_at < ? OR (related.captured_at = ? AND related.snapshot_id < ?))"
+      : "";
+    const cursorBindings = cursor
+      ? [cursor.capturedAt, cursor.capturedAt, cursor.snapshotId]
+      : [];
+    const [rows, total] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `SELECT related.snapshot_id, related.query_text, related.captured_at,
+          query.id AS prompt_id, query.query_text AS prompt_text,
+          query.location_code, query.language_code,
+          fact.citation_count, fact.retrieved_domains_count
+         FROM analytics_related_query_occurrences related
+         JOIN tracked_queries query ON query.id = related.tracked_query_id
+         JOIN analytics_snapshot_facts fact ON fact.snapshot_id = related.snapshot_id
+         WHERE related.project_id = ? AND related.normalized_query = ?
+           AND related.captured_at >= ? AND related.captured_at < ?
+           ${cursorClause}
+         ORDER BY related.captured_at DESC, related.snapshot_id DESC
+         LIMIT ?`,
+      )
+        .bind(
+          input.projectId, normalizedQuery, dates.from, dates.to,
+          ...cursorBindings, input.limit + 1,
+        )
+        .all<{
+          snapshot_id: string;
+          query_text: string;
+          captured_at: string;
+          prompt_id: string;
+          prompt_text: string;
+          location_code: number;
+          language_code: string;
+          citation_count: number;
+          retrieved_domains_count: number;
+        }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS count
+         FROM analytics_related_query_occurrences
+         WHERE project_id = ? AND normalized_query = ?
+           AND captured_at >= ? AND captured_at < ?`,
+      )
+        .bind(input.projectId, normalizedQuery, dates.from, dates.to)
+        .first<{ count: number }>(),
+    ]);
+    const hasMore = rows.results.length > input.limit;
+    const visible = rows.results.slice(0, input.limit);
+    const last = visible.at(-1);
+    return c.json({
+      data: visible.map((row) => ({
+        snapshotId: row.snapshot_id,
+        capturedAt: row.captured_at,
+        query: row.query_text,
+        prompt: {
+          id: row.prompt_id,
+          query: row.prompt_text,
+          locationCode: row.location_code,
+          languageCode: row.language_code,
+        },
+        citationCount: Number(row.citation_count),
+        retrievedDomainsCount: Number(row.retrieved_domains_count),
+      })),
+      page: {
+        total: Number(total?.count ?? 0),
+        nextCursor: hasMore && last
+          ? encodeCursor("related-query-occurrences", {
+              capturedAt: last.captured_at,
+              snapshotId: last.snapshot_id,
+            })
+          : null,
+      },
+    });
+  },
+);
+
+analyticsRoutes.get(
+  "/analytics/related-queries/:queryKey/sources",
+  zValidator("param", RelatedQueryParamSchema),
+  zValidator("query", RelatedQuerySourcesSchema),
+  async (c) => {
+    const principal = c.get("principal");
+    const input = c.req.valid("query");
+    const normalizedQuery = decodedRelatedQuery(c.req.valid("param").queryKey);
+    await assertProjectAccess(c.env, principal.workspaceId, input.projectId, c.get("timing"));
+    const ready = await analyticsReadModelReady(c.env, input.projectId, c.get("timing"));
+    if (!ready) return c.json({ data: [], page: { nextCursor: null, total: 0 } });
+    const dates = relatedQueryRange(input.period);
+    const cursor = decodeCursor<{ offset: number }>(
+      input.cursor,
+      `related-query-sources-${input.kind}`,
+    );
+    const offset = Number(cursor?.offset ?? 0);
+    const sourceTable = input.kind === "cited"
+      ? "analytics_citation_occurrences"
+      : "analytics_retrieval_occurrences";
+    const [rows, total] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `WITH matching_snapshots AS (
+          SELECT snapshot_id
+          FROM analytics_related_query_occurrences
+          WHERE project_id = ? AND normalized_query = ?
+            AND captured_at >= ? AND captured_at < ?
+        )
+        SELECT COALESCE(source.canonical_url, source.raw_url) AS url,
+          MAX(source.registrable_domain) AS domain,
+          MAX(source.title) AS title,
+          COUNT(*) AS appearances,
+          COUNT(DISTINCT source.snapshot_id) AS responses,
+          MAX(source.captured_at) AS last_seen
+        FROM ${sourceTable} source
+        JOIN matching_snapshots matching ON matching.snapshot_id = source.snapshot_id
+        WHERE COALESCE(source.canonical_url, source.raw_url) IS NOT NULL
+        GROUP BY COALESCE(source.canonical_url, source.raw_url)
+        ORDER BY appearances DESC, last_seen DESC, url
+        LIMIT ? OFFSET ?`,
+      )
+        .bind(
+          input.projectId, normalizedQuery, dates.from, dates.to,
+          input.limit + 1, offset,
+        )
+        .all<{
+          url: string;
+          domain: string | null;
+          title: string | null;
+          appearances: number;
+          responses: number;
+          last_seen: string;
+        }>(),
+      c.env.CONTROL_DB.prepare(
+        `WITH matching_snapshots AS (
+          SELECT snapshot_id
+          FROM analytics_related_query_occurrences
+          WHERE project_id = ? AND normalized_query = ?
+            AND captured_at >= ? AND captured_at < ?
+        )
+        SELECT COUNT(*) AS count FROM (
+          SELECT 1
+          FROM ${sourceTable} source
+          JOIN matching_snapshots matching ON matching.snapshot_id = source.snapshot_id
+          WHERE COALESCE(source.canonical_url, source.raw_url) IS NOT NULL
+          GROUP BY COALESCE(source.canonical_url, source.raw_url)
+        )`,
+      )
+        .bind(input.projectId, normalizedQuery, dates.from, dates.to)
+        .first<{ count: number }>(),
+    ]);
+    const hasMore = rows.results.length > input.limit;
+    return c.json({
+      data: rows.results.slice(0, input.limit).map((row) => ({
+        url: row.url,
+        domain: row.domain,
+        title: row.title,
+        appearances: Number(row.appearances),
+        responses: Number(row.responses),
+        lastSeen: row.last_seen,
+      })),
+      page: {
+        total: Number(total?.count ?? 0),
+        nextCursor: hasMore
+          ? encodeCursor(`related-query-sources-${input.kind}`, {
+              offset: offset + input.limit,
+            })
+          : null,
       },
     });
   },

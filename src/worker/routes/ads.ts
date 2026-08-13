@@ -276,7 +276,7 @@ adsRoutes.get(
          ORDER BY latest_seen DESC, appearances DESC LIMIT 24`,
       ).bind(...filtered.bindings).all<CreativeRow>(),
       c.env.CONTROL_DB.prepare(
-        "SELECT status FROM analytics_read_model_projects WHERE project_id = ? AND schema_version = 3",
+        "SELECT status FROM analytics_read_model_projects WHERE project_id = ? AND schema_version = 4",
       ).bind(input.projectId).first<{ status: string }>(),
     ]);
     const canUseSnapshotTotals = !input.search && !input.relationship;

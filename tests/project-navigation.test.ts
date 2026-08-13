@@ -16,6 +16,12 @@ describe("project navigation", () => {
     expect(projectChangeDestination("/citations/reddit.com")).toBe("/citations");
   });
 
+  it("returns to related queries when changing project from a query detail", () => {
+    expect(projectChangeDestination("/related-queries/query-key")).toBe(
+      "/related-queries",
+    );
+  });
+
   it("returns to shopping when changing project from a product detail", () => {
     expect(projectChangeDestination("/shopping/product-key")).toBe("/shopping");
   });
@@ -26,6 +32,7 @@ describe("project navigation", () => {
     "/prompts/library",
     "/snapshots",
     "/citations",
+    "/related-queries",
     "/brands",
     "/shopping",
     "/settings",
