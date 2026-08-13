@@ -16,6 +16,7 @@ import {
   Send,
   ServerCog,
   ShoppingBag,
+  Trash2,
   UserPlus,
   Webhook,
 } from "lucide-react";
@@ -61,7 +62,7 @@ import {
   TableSkeleton,
 } from "../components/ui";
 import { useApp } from "../context";
-import { api, apiPage, patch, post, type Project } from "../lib/api";
+import { api, apiPage, patch, post, remove, type Project } from "../lib/api";
 import { ENTITY_GROUPS, entityGroup, type EntityGroupKey } from "../lib/entity-groups";
 import { LOCATION_OPTIONS } from "../lib/locale-catalog";
 import { formatPrice, formatProviderCost, productDestination } from "../lib/snapshot-evidence";
@@ -2254,20 +2255,65 @@ export function ExportsPage() {
 }
 
 export function UsersPage() {
+  const { session } = useApp();
+  const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const [sendInviteEmail, setSendInviteEmail] = useState(true);
+  const [pendingAction, setPendingAction] = useState<
+    | { kind: "remove"; id: string; label: string }
+    | { kind: "revoke"; id: string; label: string }
+    | null
+  >(null);
   const [invitation, setInvitation] = useState<{
     link: string;
     emailDelivery: "failed" | "not_requested" | "sent";
   } | null>(null);
-  const users = useQuery({ queryKey: ["users"], queryFn: () => api<Array<Record<string, string>>>("/users") });
+  const users = useQuery({
+    queryKey: ["users"],
+    queryFn: () => api<Array<{
+      id: string;
+      email: string;
+      display_name: string;
+      status: string;
+      last_login_at: string | null;
+      role: "owner" | "admin" | "editor" | "viewer";
+      created_at: string;
+    }>>("/users"),
+  });
+  const pendingInvitations = useQuery({
+    queryKey: ["invitations"],
+    queryFn: () => api<Array<{
+      id: string;
+      email: string;
+      role: "admin" | "editor" | "viewer";
+      expires_at: string;
+      created_at: string;
+    }>>("/auth/invitations"),
+  });
   const invite = useMutation({
     mutationFn: (body: { email: string; role: string; sendEmail: boolean }) =>
       post<{
         link: string;
         emailDelivery: "failed" | "not_requested" | "sent";
       }>("/auth/invitations", body),
-    onSuccess: (data) => setInvitation(data),
+    onSuccess: (data) => {
+      setInvitation(data);
+      void queryClient.invalidateQueries({ queryKey: ["invitations"] });
+    },
+  });
+  const removeUser = useMutation({
+    mutationFn: (id: string) => remove(`/users/${id}`),
+    onSuccess: () => {
+      setPendingAction(null);
+      void queryClient.invalidateQueries({ queryKey: ["users"] });
+    },
+  });
+  const revokeInvitation = useMutation({
+    mutationFn: (id: string) => remove(`/auth/invitations/${id}`),
+    onSuccess: () => {
+      setPendingAction(null);
+      void queryClient.invalidateQueries({ queryKey: ["invitations"] });
+    },
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const data = new FormData(event.currentTarget);
@@ -2279,8 +2325,31 @@ export function UsersPage() {
   };
   return (
     <div className="page">
-      <PageHeader title="Workspace users" description="Role-based access for owners, admins, editors, and viewers." action={<Button onClick={() => { setInvitation(null); setSendInviteEmail(true); invite.reset(); setOpen(true); }}><UserPlus size={15}/> Invite user</Button>} />
-      <Card>{users.data?.length ? <DataTable columns={[{key:"user",label:"User"},{key:"role",label:"Role"},{key:"status",label:"Status"},{key:"last",label:"Last login"}]} rows={users.data.map((user) => ({id:user.id,user:<div className="primary-cell"><strong>{user.display_name}</strong><span>{user.email}</span></div>,role:<Badge tone={user.role === "owner" ? "info" : "neutral"}>{user.role}</Badge>,status:<Badge tone="success">{user.status}</Badge>,last:dateTime(user.last_login_at)}))} /> : null}</Card>
+      <PageHeader title={`${session.workspace.name} users`} description="Role-based access for owners, admins, editors, and viewers." action={<Button onClick={() => { setInvitation(null); setSendInviteEmail(true); invite.reset(); setOpen(true); }}><UserPlus size={15}/> Invite user</Button>} />
+      <Card>
+        <CardHeader title="Members" description="People who currently have access to this workspace." />
+        {users.isPending ? <TableSkeleton /> : users.data?.length ? <DataTable columns={[{key:"user",label:"User"},{key:"role",label:"Role"},{key:"status",label:"Status"},{key:"last",label:"Last login"},{key:"action",label:""}]} rows={users.data.map((user) => ({
+          id:user.id,
+          user:<div className="primary-cell"><strong>{user.display_name}</strong><span>{user.email}</span></div>,
+          role:<Badge tone={user.role === "owner" ? "info" : "neutral"}>{user.role}</Badge>,
+          status:<Badge tone={user.status === "active" ? "success" : "danger"}>{user.status}</Badge>,
+          last:dateTime(user.last_login_at),
+          action: session.user.role === "owner" && user.role !== "owner" && user.id !== session.user.id
+            ? <div className="table-actions"><Button variant="ghost" onClick={() => setPendingAction({ kind: "remove", id: user.id, label: user.display_name })}><Trash2 size={14}/> Remove</Button></div>
+            : null,
+        }))} /> : <EmptyState title="No workspace members" description="Invite someone to give them access." />}
+      </Card>
+      <Card>
+        <CardHeader title="Pending invitations" description="Invitations waiting to be accepted. Revoking one immediately invalidates its link." />
+        {pendingInvitations.isPending ? <TableSkeleton rows={2} columns={4} /> : pendingInvitations.data?.length ? <DataTable columns={[{key:"user",label:"Invitee"},{key:"role",label:"Role"},{key:"status",label:"Status"},{key:"expires",label:"Expires"},{key:"action",label:""}]} rows={pendingInvitations.data.map((item) => ({
+          id:item.id,
+          user:<div className="primary-cell"><strong>{item.email}</strong><span>Invitation sent {dateTime(item.created_at)}</span></div>,
+          role:<Badge>{item.role}</Badge>,
+          status:<Badge tone="warning">Pending</Badge>,
+          expires:dateTime(item.expires_at),
+          action:<div className="table-actions"><Button variant="ghost" onClick={() => setPendingAction({ kind: "revoke", id: item.id, label: item.email })}><Trash2 size={14}/> Revoke</Button></div>,
+        }))} /> : <EmptyState title="No pending invitations" description="New invitations will appear here until they are accepted or expire." />}
+      </Card>
       <Dialog open={open} onOpenChange={setOpen} title="Invite workspace user" description="Invite links expire after 24 hours and are always shown once.">
         {invitation ? (
           <div className="success-panel">
@@ -2315,6 +2384,32 @@ export function UsersPage() {
             </Button>
           </form>
         )}
+      </Dialog>
+      <Dialog
+        open={Boolean(pendingAction)}
+        onOpenChange={(isOpen) => { if (!isOpen) setPendingAction(null); }}
+        title={pendingAction?.kind === "remove" ? "Remove workspace user?" : "Revoke invitation?"}
+        description={pendingAction?.kind === "remove"
+          ? `${pendingAction.label} will immediately lose access to ${session.workspace.name}.`
+          : `The invitation link for ${pendingAction?.label ?? "this user"} will stop working immediately.`}
+      >
+        <div className="dialog-actions">
+          <Button variant="ghost" onClick={() => setPendingAction(null)}>Cancel</Button>
+          <Button
+            variant="danger"
+            disabled={removeUser.isPending || revokeInvitation.isPending}
+            onClick={() => {
+              if (!pendingAction) return;
+              if (pendingAction.kind === "remove") removeUser.mutate(pendingAction.id);
+              else revokeInvitation.mutate(pendingAction.id);
+            }}
+          >
+            <Trash2 size={15}/>
+            {pendingAction?.kind === "remove" ? "Remove user" : "Revoke invitation"}
+          </Button>
+        </div>
+        {removeUser.isError ? <p className="form-error">{removeUser.error.message}</p> : null}
+        {revokeInvitation.isError ? <p className="form-error">{revokeInvitation.error.message}</p> : null}
       </Dialog>
     </div>
   );

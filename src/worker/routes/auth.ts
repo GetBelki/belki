@@ -40,6 +40,7 @@ interface LoginRow {
 
 export const authRoutes = new Hono<AppEnv>();
 const UserParamSchema = z.object({ id: z.string().uuid() });
+const InvitationParamSchema = z.object({ id: z.string().uuid() });
 
 authRoutes.get("/status", async (c) => {
   const owner = await c.env.CONTROL_DB.prepare(
@@ -145,7 +146,15 @@ authRoutes.post("/auth/login", zValidator("json", LoginSchema), async (c) => {
 
 authRoutes.get("/auth/session", async (c) => {
   const principal = c.get("principal");
-  const projects = await listProjects(c.env.CONTROL_DB, principal.workspaceId);
+  const [projects, workspace] = await Promise.all([
+    listProjects(c.env.CONTROL_DB, principal.workspaceId),
+    c.env.CONTROL_DB.prepare("SELECT id, name FROM workspaces WHERE id = ?")
+      .bind(principal.workspaceId)
+      .first<{ id: string; name: string }>(),
+  ]);
+  if (!workspace) {
+    throw new ApiError(500, "workspace_not_found", "The current workspace could not be loaded.");
+  }
   return c.json({
     data: {
       user: {
@@ -155,6 +164,7 @@ authRoutes.get("/auth/session", async (c) => {
         role: principal.role,
       },
       workspaceId: principal.workspaceId,
+      workspace,
       projects,
       csrfTokenPresent: Boolean(getCookie(c, "ai_tracker_csrf")),
     },
@@ -249,6 +259,58 @@ authRoutes.post(
       }
     }
     return c.json({ data: { id, link, expiresAt: expires, emailDelivery } }, 201);
+  },
+);
+
+authRoutes.get("/auth/invitations", async (c) => {
+  const principal = requireRole(c, "admin");
+  const invitations = await c.env.CONTROL_DB.prepare(
+    `SELECT id, email, role, expires_at, created_at
+     FROM auth_tokens
+     WHERE workspace_id = ?
+       AND purpose = 'invite'
+       AND consumed_at IS NULL
+       AND expires_at > ?
+     ORDER BY created_at DESC`,
+  )
+    .bind(principal.workspaceId, nowIso())
+    .all();
+  return c.json({ data: invitations.results });
+});
+
+authRoutes.delete(
+  "/auth/invitations/:id",
+  zValidator("param", InvitationParamSchema),
+  async (c) => {
+    const principal = requireRole(c, "admin");
+    const { id } = c.req.valid("param");
+    const invitation = await c.env.CONTROL_DB.prepare(
+      `SELECT email, role
+       FROM auth_tokens
+       WHERE id = ? AND workspace_id = ? AND purpose = 'invite' AND consumed_at IS NULL`,
+    )
+      .bind(id, principal.workspaceId)
+      .first<{ email: string; role: string }>();
+    if (!invitation) {
+      throw new ApiError(404, "invitation_not_found", "Pending invitation not found.");
+    }
+    const result = await c.env.CONTROL_DB.prepare(
+      "DELETE FROM auth_tokens WHERE id = ? AND workspace_id = ? AND purpose = 'invite' AND consumed_at IS NULL",
+    )
+      .bind(id, principal.workspaceId)
+      .run();
+    if (result.meta.changes === 0) {
+      throw new ApiError(409, "invitation_not_pending", "This invitation is no longer pending.");
+    }
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "membership.invitation_revoked",
+      resourceType: "auth_token",
+      resourceId: id,
+      metadata: invitation,
+    });
+    return c.json({ data: { id, revoked: true } });
   },
 );
 
@@ -421,6 +483,55 @@ authRoutes.patch(
     }
     await c.env.CONTROL_DB.batch(statements);
     return c.json({ data: { id } });
+  },
+);
+
+authRoutes.delete(
+  "/users/:id",
+  zValidator("param", UserParamSchema),
+  async (c) => {
+    const principal = requireRole(c, "owner");
+    const { id } = c.req.valid("param");
+    const target = await c.env.CONTROL_DB.prepare(
+      `SELECT u.email, u.display_name, m.role
+       FROM memberships m
+       JOIN users u ON u.id = m.user_id
+       WHERE m.workspace_id = ? AND m.user_id = ?`,
+    )
+      .bind(principal.workspaceId, id)
+      .first<{ email: string; display_name: string; role: string }>();
+    if (!target) throw new ApiError(404, "user_not_found", "Workspace user not found.");
+    if (target.role === "owner") {
+      throw new ApiError(403, "owner_protected", "The workspace owner cannot be removed.");
+    }
+    if (id === principal.userId) {
+      throw new ApiError(409, "self_remove", "You cannot remove your own account.");
+    }
+
+    const otherMembership = await c.env.CONTROL_DB.prepare(
+      "SELECT 1 AS found FROM memberships WHERE user_id = ? AND workspace_id <> ? LIMIT 1",
+    )
+      .bind(id, principal.workspaceId)
+      .first<{ found: number }>();
+    const statements = [
+      c.env.CONTROL_DB.prepare("DELETE FROM sessions WHERE user_id = ?").bind(id),
+      c.env.CONTROL_DB.prepare(
+        "DELETE FROM memberships WHERE workspace_id = ? AND user_id = ?",
+      ).bind(principal.workspaceId, id),
+    ];
+    if (!otherMembership) {
+      statements.push(c.env.CONTROL_DB.prepare("DELETE FROM users WHERE id = ?").bind(id));
+    }
+    await c.env.CONTROL_DB.batch(statements);
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "membership.removed",
+      resourceType: "user",
+      resourceId: id,
+      metadata: target,
+    });
+    return c.json({ data: { id, removed: true } });
   },
 );
 

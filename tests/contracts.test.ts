@@ -9,6 +9,7 @@ import {
   ProjectUpdateSchema,
   QueryInputSchema,
   SetupSchema,
+  WorkspaceUpdateSchema,
 } from "../src/shared/contracts";
 
 describe("API contracts", () => {
@@ -21,6 +22,13 @@ describe("API contracts", () => {
       password: "too-short",
     });
     expect(result.success).toBe(false);
+  });
+
+  it("trims workspace names and rejects blank names", () => {
+    expect(WorkspaceUpdateSchema.parse({ name: "  Acme team  " })).toEqual({
+      name: "Acme team",
+    });
+    expect(WorkspaceUpdateSchema.safeParse({ name: " " }).success).toBe(false);
   });
 
   it("rejects malformed schedules", () => {

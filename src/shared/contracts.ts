@@ -60,6 +60,10 @@ export const CompletePasswordResetSchema = z.object({
   password: z.string().min(12).max(256),
 });
 
+export const WorkspaceUpdateSchema = z.object({
+  name: z.string().trim().min(2).max(120),
+});
+
 export const ProjectInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
   primaryDomain: z.string().trim().max(253).optional().nullable(),

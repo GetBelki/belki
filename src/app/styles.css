@@ -561,13 +561,27 @@ button { border: 0; }
 }
 .sidebar-brand { align-items: center; color: white; display: flex; font-size: 16px; font-weight: 730; gap: 10px; margin: 0 7px 24px; }
 .mobile-close { background: transparent; color: white; display: none; margin-left: auto; padding: 5px; }
-.workspace-label, .sidebar-nav p {
+.workspace-label, .project-label, .sidebar-nav p {
   color: #777087;
   font-size: 10px;
   font-weight: 750;
   letter-spacing: .13em;
   margin: 0 8px 8px;
   text-transform: uppercase;
+}
+.workspace-summary {
+  display: flex;
+  flex-direction: column;
+  margin: 0 8px 14px;
+  min-width: 0;
+}
+.workspace-summary .workspace-label { margin: 0 0 4px; }
+.workspace-summary strong {
+  color: #eeeaf6;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .sidebar .select-trigger {
   background: #282335;
@@ -1045,11 +1059,17 @@ body {
 }
 
 .workspace-label,
+.project-label,
 .sidebar-nav p {
   color: #a1a1aa;
   font-size: 10px;
   font-weight: 600;
   letter-spacing: .08em;
+}
+
+.workspace-summary strong {
+  color: #18181b;
+  font-weight: 600;
 }
 
 .sidebar .select-trigger {
@@ -4266,6 +4286,23 @@ a.evidence-source:hover strong {
 .settings-health-list span {
   color: #71717a;
   font-size: 10px;
+}
+
+.settings-workspace-summary {
+  align-items: baseline;
+  display: flex;
+  gap: 16px;
+}
+
+.settings-workspace-summary span {
+  color: #71717a;
+  font-size: 11px;
+  min-width: 48px;
+}
+
+.settings-workspace-summary strong {
+  color: #27272a;
+  font-size: 13px;
 }
 
 .settings-feature-list,
