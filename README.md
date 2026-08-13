@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="public/favicon.svg" alt="Belki squirrel" width="72" height="72">
+  <img src="belki-logo.svg" alt="Belki logo" width="96" height="87">
 </p>
 
 <h1 align="center">Belki</h1>
