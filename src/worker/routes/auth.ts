@@ -25,6 +25,7 @@ import {
   verifyPassword,
 } from "../lib/crypto";
 import { ApiError, nowIso } from "../lib/http";
+import { sendInvitationEmail } from "../lib/email";
 import { listProjects } from "../lib/projects";
 import { z } from "zod";
 
@@ -202,10 +203,52 @@ authRoutes.post(
       action: "membership.invited",
       resourceType: "auth_token",
       resourceId: id,
-      metadata: { email: input.email, role: input.role },
+      metadata: { email: input.email, role: input.role, emailRequested: input.sendEmail },
     });
     const link = `${new URL(c.req.url).origin}/accept-invite?token=${encodeURIComponent(token)}`;
-    return c.json({ data: { id, link, expiresAt: expires } }, 201);
+    let emailDelivery: "failed" | "not_requested" | "sent" = "not_requested";
+    if (input.sendEmail) {
+      try {
+        const workspace = await c.env.CONTROL_DB.prepare(
+          "SELECT name FROM workspaces WHERE id = ?",
+        )
+          .bind(principal.workspaceId)
+          .first<{ name: string }>();
+        const result = await sendInvitationEmail(
+          c.env.EMAIL,
+          { email: c.env.EMAIL_FROM_ADDRESS, name: c.env.APP_NAME },
+          {
+            appName: c.env.APP_NAME,
+            inviteeEmail: input.email.toLowerCase(),
+            inviterName: principal.displayName,
+            workspaceName: workspace?.name ?? "your workspace",
+            role: input.role,
+            link,
+            expiresAt: expires,
+          },
+        );
+        emailDelivery = "sent";
+        console.log(
+          JSON.stringify({
+            level: "info",
+            message: "invitation_email_sent",
+            invitationId: id,
+            messageId: result.messageId,
+          }),
+        );
+      } catch (error) {
+        emailDelivery = "failed";
+        console.error(
+          JSON.stringify({
+            level: "error",
+            message: "invitation_email_failed",
+            invitationId: id,
+            error: error instanceof Error ? error.message : String(error),
+          }),
+        );
+      }
+    }
+    return c.json({ data: { id, link, expiresAt: expires, emailDelivery } }, 201);
   },
 );
 

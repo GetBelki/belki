@@ -17,7 +17,8 @@
     "DEFAULT_MONTHLY_RUN_CAP": "1000000",
     "RAW_RETENTION_DAYS": "730",
     "HTML_RETENTION_DAYS": "90",
-    "EXPORT_RETENTION_DAYS": "7"
+    "EXPORT_RETENTION_DAYS": "7",
+    "EMAIL_FROM_ADDRESS": "noreply@notifications.getbelki.com"
   },
   "secrets": {
     "required": [
@@ -74,6 +75,12 @@
     { "binding": "EVIDENCE_BUCKET", "bucket_name": "ai-tracker-evidence" }
   ],
   "ai": { "binding": "AI" },
+  "send_email": [
+    {
+      "name": "EMAIL",
+      "allowed_sender_addresses": ["noreply@notifications.getbelki.com"]
+    }
+  ],
   "queues": {
     "producers": [
       { "binding": "STANDARD_QUEUE", "queue": "ai-tracker-standard" },

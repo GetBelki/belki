@@ -46,6 +46,7 @@ export const LoginSchema = z.object({
 export const InviteSchema = z.object({
   email: z.string().trim().email().max(320),
   role: RoleSchema.exclude(["owner"]),
+  sendEmail: z.boolean().default(false),
 });
 
 export const AcceptInviteSchema = z.object({
