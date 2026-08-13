@@ -624,7 +624,7 @@ button { border: 0; }
   margin-left: 12px;
   text-decoration: none;
 }
-.mobile-brand svg {
+.mobile-brand .app-icon {
   flex: none;
 }
 .eyebrow { color: #8d839d; font-size: 9px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
@@ -1004,9 +1004,15 @@ body {
   width: 28px;
 }
 
-.brand-mark svg {
+.brand-mark .app-icon {
   height: 26px;
   width: 26px;
+}
+
+.app-icon {
+  display: block;
+  flex: none;
+  object-fit: contain;
 }
 
 .sidebar {
@@ -1795,6 +1801,10 @@ tbody tr:hover {
 .auth-story .brand-mark {
   background: transparent;
   color: #ffffff;
+}
+
+.auth-story .app-icon {
+  filter: invert(1);
 }
 
 .story-content > p,
