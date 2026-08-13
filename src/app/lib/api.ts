@@ -116,5 +116,9 @@ export interface Session {
     role: "owner" | "admin" | "editor" | "viewer";
   };
   workspaceId: string;
+  workspace: {
+    id: string;
+    name: string;
+  };
   projects: Project[];
 }

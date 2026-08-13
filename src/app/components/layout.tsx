@@ -68,7 +68,11 @@ export function AppLayout() {
             <X size={18} />
           </button>
         </div>
-        <div className="workspace-label">Workspace</div>
+        <div className="workspace-summary">
+          <span className="workspace-label">Workspace</span>
+          <strong title={session.workspace.name}>{session.workspace.name}</strong>
+        </div>
+        <div className="project-label">Project</div>
         <Select
           value={projectId ?? undefined}
           onValueChange={(value) => {

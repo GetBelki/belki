@@ -12,6 +12,7 @@ import {
   ProjectUpdateSchema,
   QueryInputSchema,
   QueryUpdateSchema,
+  WorkspaceUpdateSchema,
   type Schedule,
 } from "../../shared/contracts";
 import type { AppEnv } from "../lib/app";
@@ -86,6 +87,29 @@ function scheduleFromCurrent(row: {
 }
 
 export const coreRoutes = new Hono<AppEnv>();
+
+coreRoutes.patch(
+  "/settings/workspace",
+  zValidator("json", WorkspaceUpdateSchema),
+  async (c) => {
+    const principal = requireRole(c, "owner");
+    const { name } = c.req.valid("json");
+    await c.env.CONTROL_DB.prepare(
+      "UPDATE workspaces SET name = ?, updated_at = ? WHERE id = ?",
+    )
+      .bind(name, nowIso(), principal.workspaceId)
+      .run();
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "workspace.updated",
+      resourceType: "workspace",
+      resourceId: principal.workspaceId,
+      metadata: { name },
+    });
+    return c.json({ data: { id: principal.workspaceId, name } });
+  },
+);
 
 coreRoutes.get("/projects", async (c) => {
   const principal = c.get("principal");

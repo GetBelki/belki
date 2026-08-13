@@ -23,7 +23,7 @@ import {
   Switch,
 } from "../components/ui";
 import { useApp } from "../context";
-import { api, patch, post, type Project } from "../lib/api";
+import { api, patch, post, type Project, type Session } from "../lib/api";
 import { compact, formText, pluralize } from "../lib/utils";
 
 type SettingsView = "project" | "workspace" | "diagnostics";
@@ -56,6 +56,7 @@ export default function SettingsPage() {
     ? requestedView
     : "project";
   const [projectOpen, setProjectOpen] = useState(false);
+  const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
   const [webhookOpen, setWebhookOpen] = useState(false);
   const [webhookSecret, setWebhookSecret] = useState("");
@@ -113,6 +114,16 @@ export default function SettingsPage() {
       ]);
     },
   });
+  const updateWorkspace = useMutation({
+    mutationFn: (body: { name: string }) =>
+      patch<{ id: string; name: string }>("/settings/workspace", body),
+    onSuccess: (workspace) => {
+      queryClient.setQueryData<Session>(["session"], (current) => current
+        ? { ...current, workspaceId: workspace.id, workspace }
+        : current);
+      setWorkspaceOpen(false);
+    },
+  });
   const createWebhook = useMutation({
     mutationFn: (body: Record<string, string>) =>
       post<{ signingSecret: string }>("/webhook-destinations", body),
@@ -145,6 +156,11 @@ export default function SettingsPage() {
         primaryDomain: formText(data, "primaryDomain") || null,
       },
     });
+  };
+  const workspaceUpdateSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    updateWorkspace.mutate({ name: formText(data, "name") });
   };
   const webhookSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -273,6 +289,16 @@ export default function SettingsPage() {
         <div className="settings-surface" role="tabpanel">
           <section className="settings-section">
             <div className="settings-section-heading">
+              <div><h2>Workspace details</h2><p>This name appears in invitations and identifies the workspace throughout Belki.</p></div>
+              {session.user.role === "owner" ? <Button variant="secondary" onClick={() => { updateWorkspace.reset(); setWorkspaceOpen(true); }}><Pencil size={14}/> Edit</Button> : null}
+            </div>
+            <div className="settings-workspace-summary">
+              <span>Name</span>
+              <strong>{session.workspace.name}</strong>
+            </div>
+          </section>
+          <section className="settings-section">
+            <div className="settings-section-heading">
               <div><h2>Projects</h2><p>{pluralize(projects.length, "project")} in this workspace.</p></div>
               {canEditProject ? <Button onClick={() => setProjectOpen(true)}><Plus size={15}/> New project</Button> : null}
             </div>
@@ -336,6 +362,22 @@ export default function SettingsPage() {
         </div>
       ) : null}
 
+      <Dialog
+        open={workspaceOpen}
+        onOpenChange={setWorkspaceOpen}
+        title="Edit workspace"
+        description="This name is included in future invitation emails."
+      >
+        <form className="form-stack" onSubmit={workspaceUpdateSubmit}>
+          <Label>Workspace name</Label>
+          <Input name="name" defaultValue={session.workspace.name} minLength={2} maxLength={120} required />
+          {updateWorkspace.isError ? <p className="form-error">{updateWorkspace.error.message}</p> : null}
+          <div className="dialog-actions">
+            <Button type="button" variant="ghost" onClick={() => setWorkspaceOpen(false)}>Cancel</Button>
+            <Button disabled={updateWorkspace.isPending}>{updateWorkspace.isPending ? "Saving…" : "Save changes"}</Button>
+          </div>
+        </form>
+      </Dialog>
       <Dialog
         open={projectOpen}
         onOpenChange={setProjectOpen}
