@@ -22,9 +22,9 @@ export interface AnalyticsBackfillResult {
 }
 
 const BACKFILL_BATCH_SIZE = 50;
-// Version 4 indexes related queries and retrieved URLs from every source
-// snapshot. Re-running the source snapshots is idempotent.
-const ANALYTICS_SCHEMA_VERSION = 4;
+// Version 5 records whether each served ad was actually rendered. Re-running
+// source snapshots is idempotent and preserves legacy behavior for missing flags.
+const ANALYTICS_SCHEMA_VERSION = 5;
 
 export async function backfillAnalyticsReadModel(
   env: Env,
@@ -35,7 +35,7 @@ export async function backfillAnalyticsReadModel(
   // ordinary bounded backfill loop repair every source snapshot.
   await env.CONTROL_DB.prepare(
     `UPDATE analytics_snapshot_facts
-     SET related_queries_indexed_at = NULL
+     SET ad_render_status_indexed_at = NULL
      WHERE project_id IN (
        SELECT project.id
        FROM projects project
@@ -109,7 +109,7 @@ export async function backfillAnalyticsReadModel(
        FROM snapshot_index snapshot
        LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
        WHERE snapshot.project_id = ?
-         AND (fact.snapshot_id IS NULL OR fact.related_queries_indexed_at IS NULL)
+         AND (fact.snapshot_id IS NULL OR fact.ad_render_status_indexed_at IS NULL)
        ORDER BY snapshot.captured_at, snapshot.id
        LIMIT ?`,
     )
@@ -132,7 +132,7 @@ export async function backfillAnalyticsReadModel(
         FROM snapshot_index snapshot
         LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
         WHERE snapshot.project_id = ?
-          AND (fact.snapshot_id IS NULL OR fact.related_queries_indexed_at IS NULL)
+          AND (fact.snapshot_id IS NULL OR fact.ad_render_status_indexed_at IS NULL)
       ) AS has_more`,
     )
       .bind(project.project_id)

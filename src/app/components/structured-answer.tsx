@@ -529,7 +529,11 @@ function StructuredBlock({
     case "chat_gpt_images":
       return <ImageBlock item={item} />;
     case "chat_gpt_ad":
-      return <AdBlock item={item} ads={ads} />;
+      return ads.find((ad) => ad.snapshot_item_id === item.id)?.is_rendered === false ||
+        (item.payload && typeof item.payload === "object" &&
+          (item.payload as Record<string, unknown>).is_rendered === false)
+        ? null
+        : <AdBlock item={item} ads={ads} />;
     case "chat_gpt_navigation_list":
       return <LinkListBlock item={item} />;
     case "chat_gpt_local_businesses":

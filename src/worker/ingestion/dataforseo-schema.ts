@@ -55,6 +55,7 @@ const ItemSchema = z
     type: z.string(),
     rank_group: z.number().nullable().optional(),
     rank_absolute: z.number().nullable().optional(),
+    is_rendered: z.boolean().nullable().optional(),
     markdown: z.string().nullable().optional(),
     items: z.array(z.record(z.string(), z.unknown())).optional(),
     title: z.string().nullable().optional(),

@@ -36,7 +36,7 @@ import {
 import { useApp } from "../context";
 import { api } from "../lib/api";
 import { LOCATION_OPTIONS, localeLabel } from "../lib/locale-catalog";
-import { compact, dateTime, percent, pluralize } from "../lib/utils";
+import { compact, dateTime, percent } from "../lib/utils";
 
 type AdPeriod = "7d" | "30d" | "90d" | "365d";
 type AdRelationship = "owned" | "competitor" | "untracked";
@@ -56,6 +56,9 @@ interface AdCreative {
   faviconUrl: string | null;
   faviconFallbackUrl: string | null;
   appearances: number;
+  servedAppearances: number;
+  hiddenAppearances: number;
+  renderRate: number;
   firstSeen: string;
   latestSeen: string;
   averagePosition: number | null;
@@ -66,17 +69,25 @@ interface AdsOverview {
   indexing: boolean;
   summary: {
     appearanceRate: number;
+    servedAppearanceRate: number;
     appearances: number;
+    servedAppearances: number;
+    hiddenAppearances: number;
     activeAdvertisers: number;
+    servedAdvertisers: number;
     uniqueCreatives: number;
+    servedCreatives: number;
     completedResponses: number;
   };
   trend: Array<{
     date: string;
     appearances: number;
+    servedAppearances: number;
+    hiddenAppearances: number;
     adSnapshots: number;
     completedResponses: number;
     appearanceRate: number;
+    servedAppearanceRate: number;
   }>;
   advertisers: Array<{
     advertiserKey: string;
@@ -84,12 +95,18 @@ interface AdsOverview {
     domain: string | null;
     relationship: AdRelationship;
     appearances: number;
+    servedAppearances: number;
+    hiddenAppearances: number;
+    renderRate: number;
     adShare: number;
     snapshots: number;
     prompts: number;
     creatives: number;
-    firstSeen: string;
-    latestSeen: string;
+    firstSeen: string | null;
+    latestSeen: string | null;
+    firstServed: string;
+    latestServed: string;
+    servedOnly: boolean;
     faviconUrl: string | null;
   }>;
   creatives: AdCreative[];
@@ -104,13 +121,28 @@ interface AdvertiserDetail {
     relationship: AdRelationship;
     faviconUrl: string | null;
     appearances: number;
+    servedAppearances: number;
+    hiddenAppearances: number;
+    renderRate: number;
     snapshots: number;
+    servedSnapshots: number;
     prompts: number;
+    servedPrompts: number;
     creatives: number;
-    firstSeen: string;
-    latestSeen: string;
+    servedCreatives: number;
+    firstSeen: string | null;
+    latestSeen: string | null;
+    firstServed: string;
+    latestServed: string;
   };
-  trend: Array<{ date: string; appearances: number; snapshots: number }>;
+  trend: Array<{
+    date: string;
+    appearances: number;
+    servedAppearances: number;
+    hiddenAppearances: number;
+    snapshots: number;
+    servedSnapshots: number;
+  }>;
   creatives: AdCreative[];
   prompts: Array<{
     id: string;
@@ -118,7 +150,11 @@ interface AdvertiserDetail {
     locationCode: number;
     languageCode: string;
     appearances: number;
+    servedAppearances: number;
+    hiddenAppearances: number;
+    renderRate: number;
     snapshots: number;
+    servedSnapshots: number;
     latestSeen: string;
     latestSnapshotId: string;
     tags: Array<{ id: string; name: string }>;
@@ -202,7 +238,9 @@ function CreativeCard({ creative }: { creative: AdCreative }) {
             }}
           />
         ) : null}
-        <Badge>Sponsored</Badge>
+        <Badge tone={creative.appearances === 0 ? "warning" : "neutral"}>
+          {creative.appearances === 0 ? "Served only" : "Rendered"}
+        </Badge>
       </div>
       <div className="ad-creative-body">
         <AdvertiserIdentity
@@ -214,7 +252,7 @@ function CreativeCard({ creative }: { creative: AdCreative }) {
         <h3>{creative.title ?? "Untitled ad"}</h3>
         {creative.snippet ? <p>{creative.snippet}</p> : null}
         <div className="ad-creative-meta">
-          <span>{pluralize(creative.appearances, "appearance")}</span>
+          <span>{creative.appearances} rendered · {creative.hiddenAppearances} hidden</span>
           <span>Latest {dateTime(creative.latestSeen)}</span>
           {creative.averagePosition !== null
             ? <span>Avg. position {creative.averagePosition.toFixed(1)}</span>
@@ -261,7 +299,7 @@ export function AdsPage() {
   if (!projectId) return <NoProject />;
   const data = query.data;
   const projectHasAds = Number(currentProject?.ads_count ?? 0) > 0;
-  const hasTrendActivity = Boolean(data?.trend.some((row) => row.appearances > 0));
+  const hasTrendActivity = Boolean(data?.trend.some((row) => row.servedAppearances > 0));
   const noAdsDetected = !query.isPending
     && !query.isError
     && !data?.indexing
@@ -277,7 +315,7 @@ export function AdsPage() {
       <PageHeader
         eyebrow={PERIOD_OPTIONS.find((option) => option.value === period)?.label}
         title="Ads"
-        description="Advertisers and sponsored creatives observed in captured ChatGPT responses."
+        description="Rendered ChatGPT ads, with served-but-hidden placements retained for diagnostics."
         action={<div className="ads-period-select"><Select value={period} onValueChange={(value) => update("period", value)} options={PERIOD_OPTIONS} /></div>}
       />
       {noAdsDetected ? (
@@ -295,15 +333,15 @@ export function AdsPage() {
       <div className="ad-kpis">
         {query.isPending ? Array.from({ length: 4 }, (_, index) => <Skeleton key={index} className="ad-kpi" />) : (
           <>
-            <div className="ad-kpi"><span>Ad appearance rate</span><strong>{percent(data?.summary.appearanceRate ?? 0)}</strong><small>{compact(data?.summary.completedResponses ?? 0)} responses checked</small></div>
-            <div className="ad-kpi"><span>Ad appearances</span><strong>{compact(data?.summary.appearances ?? 0)}</strong><small>Every captured ad item</small></div>
-            <div className="ad-kpi"><span>Active advertisers</span><strong>{compact(data?.summary.activeAdvertisers ?? 0)}</strong><small>Seen in this period</small></div>
-            <div className="ad-kpi"><span>Unique creatives</span><strong>{compact(data?.summary.uniqueCreatives ?? 0)}</strong><small>Distinct copy and assets</small></div>
+            <div className="ad-kpi"><span>Rendered response rate</span><strong>{percent(data?.summary.appearanceRate ?? 0)}</strong><small>{percent(data?.summary.servedAppearanceRate ?? 0)} received an ad payload</small></div>
+            <div className="ad-kpi"><span>Rendered ads</span><strong>{compact(data?.summary.appearances ?? 0)}</strong><small>{compact(data?.summary.servedAppearances ?? 0)} served in total</small></div>
+            <div className="ad-kpi"><span>Served but hidden</span><strong>{compact(data?.summary.hiddenAppearances ?? 0)}</strong><small>Not visible to users</small></div>
+            <div className="ad-kpi"><span>Rendered advertisers</span><strong>{compact(data?.summary.activeAdvertisers ?? 0)}</strong><small>{compact(data?.summary.servedAdvertisers ?? 0)} served in total</small></div>
           </>
         )}
       </div>
       <Card className="ad-trend-card">
-        <CardHeader title="Ad activity trend" description="Daily share of completed responses containing an ad, with total ad appearances." />
+        <CardHeader title="Ad activity trend" description="Daily visible placements compared with ads served but hidden by ChatGPT." />
         <CardContent className={`ad-trend-chart${!query.isPending && !hasTrendActivity ? " ad-trend-empty" : ""}`}>
           {query.isPending ? <Skeleton className="chart-skeleton" /> : hasTrendActivity ? (
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
@@ -312,9 +350,10 @@ export function AdsPage() {
                 <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
                 <YAxis yAxisId="rate" domain={[0, 100]} tickFormatter={(value) => `${value}%`} tickLine={false} axisLine={false} width={52} />
                 <YAxis yAxisId="count" orientation="right" allowDecimals={false} tickLine={false} axisLine={false} width={34} />
-                <Tooltip formatter={(value, name) => name === "Appearance rate" ? `${Number(value).toFixed(1)}%` : Number(value)} />
-                <Line yAxisId="rate" type="monotone" dataKey="appearanceRate" name="Appearance rate" stroke="#18181b" strokeWidth={2.5} dot={{ r: 2 }} />
-                <Line yAxisId="count" type="monotone" dataKey="appearances" name="Ad appearances" stroke="#7c3aed" strokeWidth={2} dot={{ r: 2 }} />
+                <Tooltip formatter={(value, name) => name === "Rendered response rate" ? `${Number(value).toFixed(1)}%` : Number(value)} />
+                <Line yAxisId="rate" type="monotone" dataKey="appearanceRate" name="Rendered response rate" stroke="#18181b" strokeWidth={2.5} dot={{ r: 2 }} />
+                <Line yAxisId="count" type="monotone" dataKey="appearances" name="Rendered ads" stroke="#7c3aed" strokeWidth={2} dot={{ r: 2 }} />
+                <Line yAxisId="count" type="monotone" dataKey="hiddenAppearances" name="Served but hidden" stroke="#d97706" strokeWidth={2} dot={{ r: 2 }} />
               </LineChart>
             </ResponsiveContainer>
           ) : <EmptyState title="No ad activity" description="Ads will appear when a captured response contains a sponsored result." />}
@@ -342,14 +381,15 @@ export function AdsPage() {
         />
       </div>
       <Card>
-        <CardHeader title="Active advertisers" description="Advertisers observed during the selected period." />
+        <CardHeader title="Advertisers" description="Rendered-first activity, including advertisers whose ads were only served in the payload." />
         {query.isPending ? <TableSkeleton rows={6} columns={7} /> : data?.advertisers.length ? (
           <DataTable
             columns={[
               { key: "advertiser", label: "Advertiser" },
               { key: "relationship", label: "Relationship" },
-              { key: "share", label: "Ad share" },
-              { key: "appearances", label: "Appearances" },
+              { key: "renderRate", label: "Render rate" },
+              { key: "appearances", label: "Rendered" },
+              { key: "hidden", label: "Hidden" },
               { key: "creatives", label: "Creatives" },
               { key: "prompts", label: "Prompts" },
               { key: "latest", label: "Latest seen" },
@@ -359,11 +399,14 @@ export function AdsPage() {
               id: advertiser.advertiserKey,
               advertiser: <AdvertiserIdentity name={advertiser.name} domain={advertiser.domain} faviconUrl={advertiser.faviconUrl} />,
               relationship: <Badge>{relationshipLabel(advertiser.relationship)}</Badge>,
-              share: percent(advertiser.adShare),
+              renderRate: advertiser.servedOnly
+                ? <Badge tone="warning">Served only</Badge>
+                : percent(advertiser.renderRate),
               appearances: <strong>{compact(advertiser.appearances)}</strong>,
+              hidden: compact(advertiser.hiddenAppearances),
               creatives: compact(advertiser.creatives),
               prompts: compact(advertiser.prompts),
-              latest: dateTime(advertiser.latestSeen),
+              latest: dateTime(advertiser.latestSeen ?? advertiser.latestServed),
               open: <ChevronRight size={16} />,
             }))}
             onRowClick={(row) => void navigate(`/ads/${tableRowId(row)}`)}
@@ -414,7 +457,7 @@ export function AdvertiserDetailPage() {
       />
       <div className="ad-detail-tabs" role="tablist" aria-label="Advertiser activity views">
         <button aria-selected={detailView === "overview"} className={detailView === "overview" ? "active" : undefined} onClick={() => updateDetailParam("view", "")} role="tab" type="button">Overview</button>
-        <button aria-selected={detailView === "creatives"} className={detailView === "creatives" ? "active" : undefined} onClick={() => updateDetailParam("view", "creatives")} role="tab" type="button">Creatives <span>{compact(advertiser?.creatives ?? 0)}</span></button>
+        <button aria-selected={detailView === "creatives"} className={detailView === "creatives" ? "active" : undefined} onClick={() => updateDetailParam("view", "creatives")} role="tab" type="button">Creatives <span>{compact(advertiser?.servedCreatives ?? 0)}</span></button>
       </div>
       {detailView === "creatives" ? (
         <section className="ad-creatives-panel" role="tabpanel">
@@ -433,22 +476,23 @@ export function AdvertiserDetailPage() {
             {advertiser.website ? <a href={advertiser.website} target="_blank" rel="noreferrer">Website <ExternalLink size={13} /></a> : null}
           </div>
           <div className="ad-detail-metrics">
-            <div><span>Appearances</span><strong>{compact(advertiser.appearances)}</strong><small>{compact(advertiser.snapshots)} responses</small></div>
-            <div><span>Prompts</span><strong>{compact(advertiser.prompts)}</strong><small>Distinct tracked prompts</small></div>
-            <div><span>Creatives</span><strong>{compact(advertiser.creatives)}</strong><small>Distinct ad variants</small></div>
-            <div><span>Latest seen</span><strong className="ad-kpi-date">{dateTime(advertiser.latestSeen)}</strong><small>Observed, not campaign status</small></div>
+            <div><span>Rendered</span><strong>{compact(advertiser.appearances)}</strong><small>{compact(advertiser.snapshots)} visible responses</small></div>
+            <div><span>Served but hidden</span><strong>{compact(advertiser.hiddenAppearances)}</strong><small>{percent(advertiser.renderRate)} render rate</small></div>
+            <div><span>Rendered prompts</span><strong>{compact(advertiser.prompts)}</strong><small>{compact(advertiser.servedPrompts)} served in total</small></div>
+            <div><span>Latest rendered</span><strong className="ad-kpi-date">{dateTime(advertiser.latestSeen ?? advertiser.latestServed)}</strong><small>{advertiser.latestSeen ? "Visible to the user" : "Served only"}</small></div>
           </div>
         </CardContent></Card>
       ) : null}
-      <Card className="ad-trend-card"><CardHeader title="Appearance trend" description="Captured appearances for this advertiser." /><CardContent className="ad-trend-chart">
+      <Card className="ad-trend-card"><CardHeader title="Appearance trend" description="Rendered placements compared with served-but-hidden placements." /><CardContent className="ad-trend-chart">
         {query.isPending ? <Skeleton className="chart-skeleton" /> : query.data?.trend.length ? (
-          <ResponsiveContainer width="100%" height="100%" minWidth={0}><LineChart data={query.data.trend}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} /><YAxis allowDecimals={false} tickLine={false} axisLine={false} width={34} /><Tooltip /><Line type="monotone" dataKey="appearances" stroke="#18181b" strokeWidth={2.5} dot={{ r: 2 }} /></LineChart></ResponsiveContainer>
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}><LineChart data={query.data.trend}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} /><YAxis allowDecimals={false} tickLine={false} axisLine={false} width={34} /><Tooltip /><Line type="monotone" dataKey="appearances" name="Rendered" stroke="#18181b" strokeWidth={2.5} dot={{ r: 2 }} /><Line type="monotone" dataKey="hiddenAppearances" name="Served but hidden" stroke="#d97706" strokeWidth={2} dot={{ r: 2 }} /></LineChart></ResponsiveContainer>
         ) : <EmptyState title="No trend data" description="No appearances were captured in this period." />}
       </CardContent></Card>
-      <Card><CardHeader title="Prompts showing this advertiser" description="Tracked prompts where at least one ad from this advertiser appeared." />
+      <Card><CardHeader title="Prompts serving this advertiser" description="Tracked prompts where this advertiser was served, whether rendered or hidden." />
         {query.isPending ? <TableSkeleton rows={6} columns={6} /> : query.data?.prompts.length ? <DataTable columns={[
           { key: "prompt", label: "Prompt" }, { key: "locale", label: "Locale" },
-          { key: "tags", label: "Tags" }, { key: "appearances", label: "Appearances" },
+          { key: "tags", label: "Tags" }, { key: "appearances", label: "Rendered" },
+          { key: "hidden", label: "Hidden" },
           { key: "latest", label: "Latest seen" }, { key: "open", label: "" },
         ]} rows={query.data.prompts.map((prompt) => ({
           id: prompt.latestSnapshotId,
@@ -456,6 +500,9 @@ export function AdvertiserDetailPage() {
           locale: <span className="country-cell"><CountryFlag locationCode={prompt.locationCode} />{localeLabel(prompt.locationCode, prompt.languageCode)}</span>,
           tags: prompt.tags.length ? prompt.tags.map((tag) => <Badge key={tag.id}>{tag.name}</Badge>) : "—",
           appearances: <strong>{compact(prompt.appearances)}</strong>,
+          hidden: prompt.appearances === 0
+            ? <Badge tone="warning">{compact(prompt.hiddenAppearances)} served only</Badge>
+            : compact(prompt.hiddenAppearances),
           latest: dateTime(prompt.latestSeen),
           open: <Link to={`/snapshots/${prompt.latestSnapshotId}`} aria-label={`Open latest snapshot for ${prompt.query}`}><ChevronRight size={16} /></Link>,
         }))} /> : <EmptyState title="No prompts" description="No prompt appearances were captured in this period." />}

@@ -3731,6 +3731,7 @@ analyticsRoutes.get(
         ordinal: Number(item.ordinal),
         rank_group: ad.rankGroup,
         rank_absolute: ad.rankAbsolute,
+        is_rendered: ad.isRendered,
         advertiser_identity: ad.advertiserIdentity,
         advertiser_key: ad.advertiserKey,
         advertiser_name: ad.advertiserName,

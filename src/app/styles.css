@@ -1920,7 +1920,7 @@ tbody tr:hover {
 }
 
 .evidence-stats {
-  grid-template-columns: repeat(5, minmax(0, 1fr));
+  grid-template-columns: repeat(6, minmax(0, 1fr));
   margin-bottom: 20px;
 }
 
@@ -1957,6 +1957,42 @@ tbody tr:hover {
   font-size: 20px;
   font-weight: 650;
   line-height: 24px;
+}
+
+.evidence-stats .ad-visibility-stat small {
+  color: #71717a;
+  font-size: 10px;
+}
+
+.hidden-ads-note {
+  align-items: center;
+  background: #fafafa;
+  border-top: 1px solid #e4e4e7;
+  color: #71717a;
+  display: flex;
+  font-size: 11px;
+  gap: 7px;
+  margin-top: 18px;
+  padding: 12px 0 0;
+}
+
+.workspace-access-card {
+  overflow: hidden;
+}
+
+.workspace-access-section + .workspace-access-section {
+  border-top: 1px solid #e4e4e7;
+  margin-top: 12px;
+  padding-top: 12px;
+}
+
+.button-ghost.destructive-ghost {
+  color: #b91c1c;
+}
+
+.button-ghost.destructive-ghost:hover {
+  background: #fef2f2;
+  color: #991b1b;
 }
 
 .button-group {
