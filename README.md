@@ -157,12 +157,19 @@ flowchart TD
 - Node.js 24 or newer
 - pnpm 11
 - A Cloudflare account with Workers Paid
+- A Cloudflare Email Sending domain for optional invitation emails
 - DataForSEO credentials with ChatGPT LLM Scraper access
 - DataForSEO Merchant Google Product Info access for optional Shopping enrichment
 
 Workers Paid is required by the default topology because it declares one control
 database and 32 snapshot databases. Workers Free currently permits fewer D1
 databases than this architecture requires.
+
+The Worker includes an `EMAIL` binding restricted to
+`noreply@notifications.getbelki.com`. Invitations always return a copyable link;
+administrators can optionally submit the same invitation through Cloudflare Email
+Sending. Change `EMAIL_FROM_ADDRESS` and the binding's allowed sender together in
+`wrangler.jsonc` when deploying under another onboarded sending domain.
 
 ## Local development
 

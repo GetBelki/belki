@@ -2255,22 +2255,66 @@ export function ExportsPage() {
 
 export function UsersPage() {
   const [open, setOpen] = useState(false);
-  const [inviteLink, setInviteLink] = useState("");
+  const [sendInviteEmail, setSendInviteEmail] = useState(true);
+  const [invitation, setInvitation] = useState<{
+    link: string;
+    emailDelivery: "failed" | "not_requested" | "sent";
+  } | null>(null);
   const users = useQuery({ queryKey: ["users"], queryFn: () => api<Array<Record<string, string>>>("/users") });
   const invite = useMutation({
-    mutationFn: (body: Record<string, string>) => post<{ link: string }>("/auth/invitations", body),
-    onSuccess: (data) => setInviteLink(data.link),
+    mutationFn: (body: { email: string; role: string; sendEmail: boolean }) =>
+      post<{
+        link: string;
+        emailDelivery: "failed" | "not_requested" | "sent";
+      }>("/auth/invitations", body),
+    onSuccess: (data) => setInvitation(data),
   });
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault(); const data = new FormData(event.currentTarget);
-    invite.mutate({ email: formText(data, "email"), role: formText(data, "role") });
+    invite.mutate({
+      email: formText(data, "email"),
+      role: formText(data, "role"),
+      sendEmail: sendInviteEmail,
+    });
   };
   return (
     <div className="page">
-      <PageHeader title="Workspace users" description="Role-based access for owners, admins, editors, and viewers." action={<Button onClick={() => { setInviteLink(""); setOpen(true); }}><UserPlus size={15}/> Invite user</Button>} />
+      <PageHeader title="Workspace users" description="Role-based access for owners, admins, editors, and viewers." action={<Button onClick={() => { setInvitation(null); setSendInviteEmail(true); invite.reset(); setOpen(true); }}><UserPlus size={15}/> Invite user</Button>} />
       <Card>{users.data?.length ? <DataTable columns={[{key:"user",label:"User"},{key:"role",label:"Role"},{key:"status",label:"Status"},{key:"last",label:"Last login"}]} rows={users.data.map((user) => ({id:user.id,user:<div className="primary-cell"><strong>{user.display_name}</strong><span>{user.email}</span></div>,role:<Badge tone={user.role === "owner" ? "info" : "neutral"}>{user.role}</Badge>,status:<Badge tone="success">{user.status}</Badge>,last:dateTime(user.last_login_at)}))} /> : null}</Card>
-      <Dialog open={open} onOpenChange={setOpen} title="Invite workspace user" description="Invite links expire after 24 hours and are shown once.">
-        {inviteLink ? <div className="success-panel"><CheckCircle2/><p>Copy and send this link securely.</p><code className="invite-link">{inviteLink}</code><Button onClick={() => void navigator.clipboard.writeText(inviteLink)}>Copy link</Button></div> : <form className="form-stack" onSubmit={submit}><Label>Email</Label><Input name="email" type="email" required /><Label>Role</Label><select className="input" name="role"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="admin">Admin</option></select><Button disabled={invite.isPending}><Send size={15}/> Create invitation</Button></form>}
+      <Dialog open={open} onOpenChange={setOpen} title="Invite workspace user" description="Invite links expire after 24 hours and are always shown once.">
+        {invitation ? (
+          <div className="success-panel">
+            <CheckCircle2/>
+            <p>
+              {invitation.emailDelivery === "sent"
+                ? "Invitation email sent. You can also share the link directly."
+                : invitation.emailDelivery === "failed"
+                  ? "The invitation was created, but its email could not be sent. Share the link directly."
+                  : "Invitation created. Share the link directly."}
+            </p>
+            <code className="invite-link">{invitation.link}</code>
+            <Button onClick={() => void navigator.clipboard.writeText(invitation.link)}>Copy link</Button>
+          </div>
+        ) : (
+          <form className="form-stack" onSubmit={submit}>
+            <Label>Email</Label>
+            <Input name="email" type="email" autoComplete="email" required />
+            <Label>Role</Label>
+            <select className="input" name="role"><option value="viewer">Viewer</option><option value="editor">Editor</option><option value="admin">Admin</option></select>
+            <label className="checkbox-row">
+              <input
+                checked={sendInviteEmail}
+                onChange={(event) => setSendInviteEmail(event.target.checked)}
+                type="checkbox"
+              />
+              Send the invitation by email
+            </label>
+            {invite.isError ? <p className="form-error">{invite.error.message}</p> : null}
+            <Button disabled={invite.isPending}>
+              <Send size={15}/> {sendInviteEmail ? "Send invitation" : "Create invitation"}
+            </Button>
+          </form>
+        )}
       </Dialog>
     </div>
   );
