@@ -39,7 +39,7 @@ export async function processExport(env: Env, exportId: string): Promise<void> {
   const transform = new TransformStream<Uint8Array, Uint8Array>();
   const writer = transform.writable.getWriter();
   const compressed = transform.readable.pipeThrough(new CompressionStream("gzip"));
-  const key = `exports/${row.id}.${row.format}.gz`;
+  const key = `exports/${row.workspace_id}/${row.project_id ?? "workspace"}/${row.id}.${row.format}.gz`;
   let rowsWritten = 0;
   const encoder = new TextEncoder();
 

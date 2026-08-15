@@ -9,6 +9,10 @@ import {
   ProjectUpdateSchema,
   QueryInputSchema,
   SetupSchema,
+  SignupCodeRedeemSchema,
+  BillingCheckoutSchema,
+  BillingCancellationSchema,
+  BillingPlanChangeSchema,
   WorkspaceUpdateSchema,
 } from "../src/shared/contracts";
 
@@ -22,6 +26,32 @@ describe("API contracts", () => {
       password: "too-short",
     });
     expect(result.success).toBe(false);
+  });
+
+  it("validates invite-only workspace signup and public billing plans", () => {
+    expect(SignupCodeRedeemSchema.parse({
+      code: "a".repeat(32),
+      email: "  OWNER@example.com ",
+      workspaceName: " Agency ",
+      displayName: " Owner ",
+      password: "a-secure-password",
+    })).toMatchObject({
+      email: "OWNER@example.com",
+      workspaceName: "Agency",
+      timezone: "UTC",
+    });
+    expect(BillingCheckoutSchema.parse({ planKey: "studio" })).toEqual({ planKey: "studio" });
+    expect(BillingCheckoutSchema.safeParse({ planKey: "custom" }).success).toBe(false);
+    expect(BillingPlanChangeSchema.parse({ planKey: "agency" })).toEqual({
+      planKey: "agency",
+      replacePending: false,
+    });
+    expect(BillingPlanChangeSchema.parse({ planKey: "starter", replacePending: true })).toEqual({
+      planKey: "starter",
+      replacePending: true,
+    });
+    expect(BillingPlanChangeSchema.safeParse({ planKey: "self_hosted" }).success).toBe(false);
+    expect(BillingCancellationSchema.parse({})).toEqual({ replacePending: false });
   });
 
   it("trims workspace names and rejects blank names", () => {

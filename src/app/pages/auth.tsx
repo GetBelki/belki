@@ -84,6 +84,7 @@ export function SetupPage() {
 export function LoginPage() {
   const queryClient = useQueryClient();
   const [error, setError] = useState("");
+  const [resetRequested, setResetRequested] = useState(false);
   const login = useMutation({
     mutationFn: (body: { email: string; password: string }) => post("/auth/login", body),
     onSuccess: async () => {
@@ -97,15 +98,72 @@ export function LoginPage() {
     const data = new FormData(event.currentTarget);
     login.mutate({ email: formText(data, "email"), password: formText(data, "password") });
   };
+  const requestReset = useMutation({
+    mutationFn: (email: string) => post("/auth/password-reset/request", { email }),
+    onSuccess: () => setResetRequested(true),
+    onError: (value: Error) => setError(value.message),
+  });
+  const resetSubmit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    requestReset.mutate(formText(new FormData(event.currentTarget), "email"));
+  };
   return (
     <AuthShell title="Sign in" description="Continue to your ChatGPT visibility workspace.">
+      {resetRequested ? (
+        <div className="success-panel"><CheckCircle2/><p>If that account exists, a reset link has been sent.</p><Button onClick={() => setResetRequested(false)}>Back to sign in</Button></div>
+      ) : (
+        <>
+          <form className="form-stack" onSubmit={submit}>
+            <Label>Email</Label><Input name="email" type="email" autoComplete="email" required />
+            <Label>Password</Label><Input name="password" type="password" autoComplete="current-password" required />
+            {error ? <p className="form-error">{error}</p> : null}
+            <Button disabled={login.isPending} type="submit">
+              {login.isPending ? "Signing in…" : "Sign in"} <ArrowRight size={16} />
+            </Button>
+          </form>
+          <form className="form-stack" onSubmit={resetSubmit}>
+            <Label hint="We will email a one-hour link">Forgot password?</Label>
+            <Input name="email" type="email" placeholder="you@example.com" required />
+            <Button variant="secondary" disabled={requestReset.isPending}>Send reset link</Button>
+          </form>
+        </>
+      )}
+    </AuthShell>
+  );
+}
+
+export function SignupPage() {
+  const [params] = useSearchParams();
+  const [error, setError] = useState("");
+  const signup = useMutation({
+    mutationFn: (body: Record<string, unknown>) => post<{ checkoutRequired: boolean }>("/auth/signup/redeem", body),
+    onSuccess: ({ checkoutRequired }) => window.location.assign(checkoutRequired ? "/billing" : "/"),
+    onError: (value: Error) => setError(value.message),
+  });
+  const submit = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    signup.mutate({
+      code: params.get("code") ?? formText(data, "code"),
+      email: formText(data, "email"),
+      workspaceName: formText(data, "workspaceName"),
+      displayName: formText(data, "displayName"),
+      password: formText(data, "password"),
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
+    });
+  };
+  return (
+    <AuthShell title="Create your workspace" description="Signup is currently available with an email-bound invitation code.">
       <form className="form-stack" onSubmit={submit}>
-        <Label>Email</Label><Input name="email" type="email" autoComplete="email" required />
-        <Label>Password</Label><Input name="password" type="password" autoComplete="current-password" required />
+        {!params.get("code") ? <><Label>Signup code</Label><Input name="code" required minLength={32}/></> : null}
+        <Label>Email</Label><Input name="email" type="email" defaultValue={params.get("email") ?? ""} required/>
+        <div className="form-grid">
+          <div><Label>Workspace</Label><Input name="workspaceName" required/></div>
+          <div><Label>Your name</Label><Input name="displayName" required/></div>
+        </div>
+        <Label hint="12 characters minimum">Password</Label><Input name="password" type="password" minLength={12} required/>
         {error ? <p className="form-error">{error}</p> : null}
-        <Button disabled={login.isPending} type="submit">
-          {login.isPending ? "Signing in…" : "Sign in"} <ArrowRight size={16} />
-        </Button>
+        <Button disabled={signup.isPending}>{signup.isPending ? "Creating…" : "Continue to checkout"}<ArrowRight size={16}/></Button>
       </form>
     </AuthShell>
   );

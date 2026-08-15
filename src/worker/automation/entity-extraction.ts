@@ -2,7 +2,8 @@ import type { EntityExtractionQueueMessage } from "../../shared/contracts";
 import { sha256 } from "../lib/crypto";
 import { brandMentionText, normalizeBrand } from "../lib/domain";
 import { writeAudit } from "../lib/audit";
-import { jsonParse, nowIso } from "../lib/http";
+import { ApiError, jsonParse, nowIso } from "../lib/http";
+import { commitUsage, releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 import { getShard } from "../lib/shards";
 import {
   ENTITY_EXTRACTION_MODEL,
@@ -91,6 +92,15 @@ async function runChunk(
     .bind(job.id, chunkIndex, inputHash, now, now)
     .run();
 
+  const reservation = {
+    reservationId: `${job.id}:chunk:${chunkIndex}`,
+    sku: "entity_extraction" as const,
+    units: USAGE_UNITS.entity_extraction,
+    resourceType: "entity_extraction_chunk",
+    resourceId: `${job.id}:${chunkIndex}`,
+  };
+  await reserveUsage(env, job.workspace_id, reservation);
+  let inferenceCompleted = false;
   try {
     const knownBrands = brands.map((brand) => ({
       name: brand.name,
@@ -119,6 +129,8 @@ async function runChunk(
       seed: 731_991,
       max_tokens: 1_200,
     });
+    inferenceCompleted = true;
+    await commitUsage(env, job.workspace_id, reservation);
     if (typeof result === "string") {
       const parsed = parsedAiResponse(result);
       await env.CONTROL_DB.prepare(
@@ -150,6 +162,7 @@ async function runChunk(
       .run();
     return { entities: parsed.entities, inputTokens, outputTokens, estimatedCostUsd };
   } catch (error) {
+    if (!inferenceCompleted) await releaseUsage(env, job.workspace_id, reservation);
     await env.CONTROL_DB.prepare(
       `UPDATE entity_extraction_chunks SET status = 'failed', updated_at = ?
        WHERE job_id = ? AND chunk_index = ?`,
@@ -631,7 +644,11 @@ export async function entityExtractionBatch(
         jobId: message.body.jobId,
         error: errorMessage,
       }));
-      message.retry({ delaySeconds: Math.min(1_800, 30 * 2 ** message.attempts) });
+      if (error instanceof ApiError && ["usage_limit", "payment_required", "read_only"].includes(error.code)) {
+        message.ack();
+      } else {
+        message.retry({ delaySeconds: Math.min(1_800, 30 * 2 ** message.attempts) });
+      }
     }
   }
 }

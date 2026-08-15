@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2022"],
+    "moduleResolution": "bundler",
+    "types": ["node", "@cloudflare/vitest-pool-workers/types"]
+  },
+  "include": [
+    "vitest.workers.config.ts",
+    "tests-workers/**/*.ts",
+    "worker-configuration.d.ts",
+    "src/worker/durable-objects/workspace-usage-gate.ts",
+    "src/worker/lib/stripe.ts",
+    "src/shared/contracts.ts"
+  ]
+}

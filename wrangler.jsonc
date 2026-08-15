@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "ai-visibility-tracker",
   "main": "./src/worker/index.ts",
-  "compatibility_date": "2026-07-27",
+  "compatibility_date": "2026-08-14",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "assets": {
@@ -13,6 +13,14 @@
   "vars": {
     "APP_NAME": "Belki",
     "APP_ENV": "production",
+    "DEPLOYMENT_MODE": "self_hosted",
+    "PAYMENT_MODE": "disabled",
+    "STRIPE_ENVIRONMENT": "test",
+    "BILLING_PLAN_CHANGES_ENABLED": "false",
+    "STRIPE_STARTER_PRICE_ID": "",
+    "STRIPE_STUDIO_PRICE_ID": "",
+    "STRIPE_AGENCY_PRICE_ID": "",
+    "STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID": "",
     "SHARD_COUNT": "32",
     "DEFAULT_MONTHLY_RUN_CAP": "1000000",
     "RAW_RETENTION_DAYS": "730",
@@ -36,6 +44,14 @@
   "triggers": {
     "crons": ["*/5 * * * *", "* * * * *", "0 3 * * *", "0 4 * * SUN"]
   },
+  "durable_objects": {
+    "bindings": [
+      { "name": "WORKSPACE_USAGE", "class_name": "WorkspaceUsageGate" }
+    ]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["WorkspaceUsageGate"] }
+  ],
   "d1_databases": [
     { "binding": "CONTROL_DB", "database_name": "ai-tracker-control", "migrations_dir": "./migrations/control" },
     { "binding": "SNAPSHOT_DB_00", "database_name": "ai-tracker-snapshot-00", "migrations_dir": "./migrations/snapshot" },

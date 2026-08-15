@@ -20,6 +20,12 @@
       },
       "BOOTSTRAP_TOKEN": {
         "description": "Generate an independent high-entropy value. You will enter it once on the first-run setup screen."
+      },
+      "STRIPE_SECRET_KEY": {
+        "description": "Managed deployments only: your Stripe secret API key. Leave unset for self-hosted mode."
+      },
+      "STRIPE_WEBHOOK_SECRET": {
+        "description": "Managed deployments only: the signing secret for the Stripe webhook endpoint."
       }
     }
   },
@@ -27,18 +33,23 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.node.json && tsc -p tsconfig.test.json",
+    "typecheck": "tsc -p tsconfig.app.json && tsc -p tsconfig.worker.json && tsc -p tsconfig.node.json && tsc -p tsconfig.test.json && tsc -p tsconfig.workers-test.json",
     "types": "wrangler types",
     "types:check": "wrangler types --check",
     "test": "vitest run",
+    "test:workers": "vitest run --config vitest.workers.config.ts",
     "test:watch": "vitest",
     "lint": "eslint .",
-    "check": "pnpm typecheck && pnpm lint --max-warnings 0 && pnpm test && pnpm build",
+    "check": "pnpm typecheck && pnpm lint --max-warnings 0 && pnpm test && pnpm test:workers && pnpm build",
     "db:migrate:local": "node scripts/migrate.mjs --local",
     "db:migrate:remote": "node scripts/migrate.mjs --remote",
     "r2:lifecycle": "wrangler r2 bucket lifecycle set ai-tracker-evidence --file infrastructure/r2-lifecycle.json --force",
+    "stripe:configure": "node scripts/stripe-configure.mjs",
+    "stripe:check": "node scripts/stripe-configure.mjs --check",
     "deploy": "pnpm db:migrate:remote && wrangler deploy",
     "deploy:dry": "pnpm build && wrangler deploy --dry-run",
+    "deploy:getbelki": "pnpm db:migrate:remote && node scripts/deploy-profile.mjs --profile deployment/getbelki.json",
+    "deploy:getbelki:dry": "pnpm build && node scripts/deploy-profile.mjs --profile deployment/getbelki.json --dry-run",
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
@@ -67,6 +78,7 @@
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "latest",
+    "@cloudflare/vitest-pool-workers": "^0.21.2",
     "@cloudflare/workers-types": "latest",
     "@eslint/js": "latest",
     "@tailwindcss/vite": "latest",

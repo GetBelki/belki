@@ -1,9 +1,11 @@
 import type { JobQueueMessage, RollupQueueMessage } from "../../shared/contracts";
 import { createSignedJobTag } from "../lib/crypto";
 import { getLocaleCatalog } from "../lib/dataforseo";
-import { nowIso } from "../lib/http";
+import { ApiError, nowIso } from "../lib/http";
 import { calculateNextRun, scheduleFromRow } from "../lib/schedule";
 import { getShard, SHARD_COUNT } from "../lib/shards";
+import { platformDataForSeoCredentials } from "../lib/provider-credentials";
+import { releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 
 interface DueQueryRow {
   id: string;
@@ -28,18 +30,6 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
     JOIN projects p ON p.id = q.project_id
     WHERE q.is_active = 1 AND q.deleted_at IS NULL AND p.deleted_at IS NULL
       AND q.next_run_at <= ?
-      AND (
-        SELECT COUNT(*) FROM crawl_jobs j
-        WHERE j.workspace_id = p.workspace_id
-          AND j.created_at >= strftime('%Y-%m-01T00:00:00.000Z', 'now')
-      ) + (
-        SELECT COALESCE(SUM(usage.requested_runs), 0)
-        FROM deleted_prompt_usage_daily usage
-        WHERE usage.workspace_id = p.workspace_id
-          AND usage.usage_date >= strftime('%Y-%m-01', 'now')
-      ) < (
-        SELECT monthly_run_cap FROM workspaces w WHERE w.id = p.workspace_id
-      )
     ORDER BY q.next_run_at
     LIMIT 5000`,
   )
@@ -48,46 +38,74 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
   if (due.results.length === 0) return 0;
 
   const messages: JobQueueMessage[] = [];
-  for (let start = 0; start < due.results.length; start += 100) {
-    const group = due.results.slice(start, start + 100);
-    const statements: D1PreparedStatement[] = [];
-    for (const query of group) {
-      const jobId = crypto.randomUUID();
-      const tag = await createSignedJobTag(jobId, env.APP_CRYPTO_KEY);
-      const createdAt = nowIso();
-      statements.push(
+  for (const query of due.results) {
+    const jobId = crypto.randomUUID();
+    const tag = await createSignedJobTag(jobId, env.APP_CRYPTO_KEY);
+    const createdAt = nowIso();
+    const deliveryMethod = query.html_capture_enabled === 1 ? "standard_priority" : "standard";
+    const sku = query.html_capture_enabled === 1 ? "llm_priority_html" : "llm_standard";
+    const reservation = {
+      reservationId: jobId,
+      sku,
+      units: USAGE_UNITS[sku],
+      resourceType: "crawl_job",
+      resourceId: jobId,
+    } as const;
+    const nextRunAt = calculateNextRun(
+      scheduleFromRow(query),
+      new Date(Date.parse(query.next_run_at) + 1),
+    );
+    try {
+      await reserveUsage(env, query.workspace_id, reservation);
+    } catch (error) {
+      if (
+        error instanceof ApiError &&
+        ["usage_limit", "payment_required", "read_only"].includes(error.code)
+      ) {
+        await env.CONTROL_DB.prepare(
+          "UPDATE tracked_queries SET next_run_at = ?, updated_at = ? WHERE id = ?",
+        ).bind(nextRunAt, createdAt, query.id).run();
+        continue;
+      }
+      throw error;
+    }
+    try {
+      const results = await env.CONTROL_DB.batch([
         env.CONTROL_DB.prepare(
           `INSERT OR IGNORE INTO crawl_jobs (
             id, workspace_id, project_id, tracked_query_id, shard_id, run_type,
             delivery_method, status, scheduled_for, provider_tag, capture_html,
-            created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'scheduled', 'standard', 'queued', ?, ?, ?, ?, ?)`,
+            provider_account_id, usage_reservation_id, usage_units, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, 'scheduled', ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).bind(
           jobId,
           query.workspace_id,
           query.project_id,
           query.id,
           query.shard_id,
+          deliveryMethod,
           query.next_run_at,
           tag,
           query.html_capture_enabled,
+          "dataforseo:platform:v1",
+          jobId,
+          reservation.units,
           createdAt,
           createdAt,
         ),
         env.CONTROL_DB.prepare(
           "UPDATE tracked_queries SET next_run_at = ?, updated_at = ? WHERE id = ?",
-        ).bind(
-          calculateNextRun(
-            scheduleFromRow(query),
-            new Date(Date.parse(query.next_run_at) + 1),
-          ),
-          createdAt,
-          query.id,
-        ),
-      );
+        ).bind(nextRunAt, createdAt, query.id),
+      ]);
+      if ((results[0]?.meta.changes ?? 0) === 0) {
+        await releaseUsage(env, query.workspace_id, reservation);
+        continue;
+      }
       messages.push({ jobId });
+    } catch (error) {
+      await releaseUsage(env, query.workspace_id, reservation);
+      throw error;
     }
-    await env.CONTROL_DB.batch(statements);
   }
   for (let start = 0; start < messages.length; start += 100) {
     await env.STANDARD_QUEUE.sendBatch(
@@ -152,9 +170,10 @@ function flattenCatalogResults(payload: unknown): Array<Record<string, unknown>>
 }
 
 export async function refreshLocaleCatalog(env: Env): Promise<number> {
+  const credentials = platformDataForSeoCredentials(env);
   const [locations, languages] = await Promise.all([
-    getLocaleCatalog(env, "locations"),
-    getLocaleCatalog(env, "languages"),
+    getLocaleCatalog(credentials, "locations"),
+    getLocaleCatalog(credentials, "languages"),
   ]);
   const rows = [
     ...flattenCatalogResults(locations).map((row) => ({
@@ -213,6 +232,21 @@ export async function runRetention(env: Env): Promise<void> {
     env.CONTROL_DB.prepare(
       "DELETE FROM auth_tokens WHERE expires_at < ? OR julianday(consumed_at) < julianday('now', '-7 days')",
     ).bind(now),
+    env.CONTROL_DB.prepare(
+      `DELETE FROM signup_codes
+       WHERE expires_at < ?
+          OR julianday(consumed_at) < julianday('now', '-7 days')
+          OR julianday(revoked_at) < julianday('now', '-7 days')`,
+    ).bind(now),
+    env.CONTROL_DB.prepare(
+      `DELETE FROM workspaces
+       WHERE status = 'pending_payment'
+         AND julianday(created_at) < julianday('now', '-7 days')`,
+    ),
+    env.CONTROL_DB.prepare(
+      `UPDATE workspaces SET status = 'deleted', updated_at = ?
+       WHERE status = 'read_only' AND read_only_until IS NOT NULL AND read_only_until < ?`,
+    ).bind(now, now),
     env.CONTROL_DB.prepare(
       "DELETE FROM ingest_events WHERE julianday(received_at) < julianday('now', '-90 days')",
     ),

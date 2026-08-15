@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   createInvitationEmail,
+  createPasswordResetEmail,
   sendTransactionalEmail,
 } from "../src/worker/lib/email";
 
@@ -47,5 +48,17 @@ describe("transactional email", () => {
       text: "Accept the invitation",
       html: "<p>Accept the invitation</p>",
     });
+  });
+
+  it("creates a bounded password reset message without exposing secrets", () => {
+    const message = createPasswordResetEmail({
+      appName: "Belki",
+      email: "owner@example.com",
+      link: "https://app.example.com/reset-password?token=abc&next=%3Cdashboard%3E",
+      expiresAt: "2026-08-14T13:00:00.000Z",
+    });
+    expect(message.subject).toBe("Reset your Belki password");
+    expect(message.text).toContain("reset-password?token=abc");
+    expect(message.html).toContain("token=abc&amp;next=%3Cdashboard%3E");
   });
 });

@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { extractTaskHtml } from "./dataforseo-html";
+import type { DataForSeoCredentials } from "./provider-credentials";
 
 const API_BASE = "https://api.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper";
 const MAX_PROVIDER_BODY_BYTES = 20 * 1024 * 1024;
@@ -39,8 +40,8 @@ export interface StandardTaskInput {
   postback_data: "advanced";
 }
 
-function authorization(env: Env): string {
-  return `Basic ${btoa(`${env.DATAFORSEO_LOGIN}:${env.DATAFORSEO_PASSWORD}`)}`;
+function authorization(credentials: DataForSeoCredentials): string {
+  return `Basic ${btoa(`${credentials.login}:${credentials.password}`)}`;
 }
 
 async function readBounded(response: Response): Promise<ArrayBuffer> {
@@ -56,13 +57,13 @@ async function readBounded(response: Response): Promise<ArrayBuffer> {
 }
 
 export async function postStandardTasks(
-  env: Env,
+  credentials: DataForSeoCredentials,
   tasks: StandardTaskInput[],
 ): Promise<DataForSeoResponse> {
   const response = await fetch(`${API_BASE}/task_post`, {
     method: "POST",
     headers: {
-      authorization: authorization(env),
+      authorization: authorization(credentials),
       "content-type": "application/json",
       accept: "application/json",
     },
@@ -73,7 +74,7 @@ export async function postStandardTasks(
 }
 
 export async function postLiveAdvanced(
-  env: Env,
+  credentials: DataForSeoCredentials,
   task: Pick<
     StandardTaskInput,
     "keyword" | "location_code" | "language_code" | "force_web_search" | "tag"
@@ -82,7 +83,7 @@ export async function postLiveAdvanced(
   const response = await fetch(`${API_BASE}/live/advanced`, {
     method: "POST",
     headers: {
-      authorization: authorization(env),
+      authorization: authorization(credentials),
       "content-type": "application/json",
       accept: "application/json",
     },
@@ -94,7 +95,7 @@ export async function postLiveAdvanced(
   return { payload, bytes };
 }
 
-export async function getTasksReady(env: Env): Promise<
+export async function getTasksReady(credentials: DataForSeoCredentials): Promise<
   Array<{
     id: string;
     tag: string | null;
@@ -103,7 +104,7 @@ export async function getTasksReady(env: Env): Promise<
   }>
 > {
   const response = await fetch(`${API_BASE}/tasks_ready`, {
-    headers: { authorization: authorization(env), accept: "application/json" },
+    headers: { authorization: authorization(credentials), accept: "application/json" },
   });
   if (!response.ok) throw new Error(`DataForSEO tasks_ready returned HTTP ${response.status}`);
   const payload = TaskResponseSchema.parse(
@@ -133,33 +134,33 @@ export async function getTasksReady(env: Env): Promise<
 }
 
 export async function getTaskResult(
-  env: Env,
+  credentials: DataForSeoCredentials,
   endpoint: string,
 ): Promise<ArrayBuffer> {
   if (!endpoint.startsWith("/v3/ai_optimization/chat_gpt/llm_scraper/")) {
     throw new Error("Unexpected DataForSEO endpoint");
   }
   const response = await fetch(`https://api.dataforseo.com${endpoint}`, {
-    headers: { authorization: authorization(env), accept: "application/json" },
+    headers: { authorization: authorization(credentials), accept: "application/json" },
   });
   if (!response.ok) throw new Error(`DataForSEO task result returned HTTP ${response.status}`);
   return readBounded(response);
 }
 
-export async function getTaskHtml(env: Env, taskId: string): Promise<string> {
+export async function getTaskHtml(credentials: DataForSeoCredentials, taskId: string): Promise<string> {
   const bytes = await getTaskResult(
-    env,
+    credentials,
     `/v3/ai_optimization/chat_gpt/llm_scraper/task_get/html/${taskId}`,
   );
   return extractTaskHtml(JSON.parse(new TextDecoder().decode(bytes)));
 }
 
 export async function getLocaleCatalog(
-  env: Env,
+  credentials: DataForSeoCredentials,
   kind: "locations" | "languages",
 ): Promise<DataForSeoResponse> {
   const response = await fetch(`${API_BASE}/${kind}`, {
-    headers: { authorization: authorization(env), accept: "application/json" },
+    headers: { authorization: authorization(credentials), accept: "application/json" },
   });
   if (!response.ok) throw new Error(`DataForSEO ${kind} returned HTTP ${response.status}`);
   return TaskResponseSchema.parse(JSON.parse(new TextDecoder().decode(await readBounded(response))));

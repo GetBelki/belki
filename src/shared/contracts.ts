@@ -9,6 +9,50 @@ import {
 export const RoleSchema = z.enum(["owner", "admin", "editor", "viewer"]);
 export type Role = z.infer<typeof RoleSchema>;
 
+export const WorkspaceStatusSchema = z.enum([
+  "pending_payment",
+  "active",
+  "read_only",
+  "suspended",
+  "deleted",
+]);
+export type WorkspaceStatus = z.infer<typeof WorkspaceStatusSchema>;
+
+export const MembershipStatusSchema = z.enum(["active", "suspended", "removed"]);
+export type MembershipStatus = z.infer<typeof MembershipStatusSchema>;
+
+export const PlanKeySchema = z.enum(["self_hosted", "starter", "studio", "agency", "custom"]);
+export type PlanKey = z.infer<typeof PlanKeySchema>;
+
+export const PaymentModeSchema = z.enum(["disabled", "stripe_managed", "stripe_direct"]);
+export type PaymentMode = z.infer<typeof PaymentModeSchema>;
+
+export const StripeEnvironmentSchema = z.enum(["test", "live"]);
+export type StripeEnvironment = z.infer<typeof StripeEnvironmentSchema>;
+
+export const SubscriptionStatusSchema = z.enum([
+  "pending",
+  "trialing",
+  "active",
+  "past_due",
+  "unpaid",
+  "cancelled",
+  "paused",
+]);
+export type SubscriptionStatus = z.infer<typeof SubscriptionStatusSchema>;
+
+export const UsageSkuSchema = z.enum([
+  "llm_standard",
+  "llm_priority_html",
+  "llm_live",
+  "entity_extraction",
+  "product_enrichment",
+]);
+export type UsageSku = z.infer<typeof UsageSkuSchema>;
+
+export const UsageReservationStatusSchema = z.enum(["reserved", "committed", "released"]);
+export type UsageReservationStatus = z.infer<typeof UsageReservationStatusSchema>;
+
 export const DailyScheduleSchema = z.object({
   cadence: z.literal("daily"),
   time: z.string().regex(/^(?:[01]\d|2[0-3]):[0-5]\d$/),
@@ -41,6 +85,41 @@ export const SetupSchema = z.object({
 export const LoginSchema = z.object({
   email: z.string().trim().email().max(320),
   password: z.string().min(1).max(256),
+});
+
+export const WorkspaceSelectionSchema = z.object({
+  workspaceId: z.string().uuid(),
+});
+
+export const SignupCodeRedeemSchema = z.object({
+  code: z.string().min(32),
+  email: z.string().trim().email().max(320),
+  workspaceName: z.string().trim().min(2).max(120),
+  displayName: z.string().trim().min(2).max(120),
+  password: z.string().min(12).max(256),
+  timezone: z.string().min(1).max(100).default("UTC"),
+});
+
+export const SignupCodeCreateSchema = z.object({
+  email: z.string().trim().email().max(320),
+  expiresInDays: z.number().int().min(1).max(30).default(7),
+});
+
+export const PasswordResetRequestSchema = z.object({
+  email: z.string().trim().email().max(320),
+});
+
+export const BillingCheckoutSchema = z.object({
+  planKey: PlanKeySchema.exclude(["self_hosted", "custom"]),
+});
+
+export const BillingPlanChangeSchema = z.object({
+  planKey: PlanKeySchema.exclude(["self_hosted", "custom"]),
+  replacePending: z.boolean().default(false),
+});
+
+export const BillingCancellationSchema = z.object({
+  replacePending: z.boolean().default(false),
 });
 
 export const InviteSchema = z.object({
@@ -268,6 +347,7 @@ export interface Principal {
   displayName: string;
   role: Role;
   sessionId: string;
+  workspaceStatus: WorkspaceStatus;
 }
 
 export interface JobQueueMessage {

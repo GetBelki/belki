@@ -4511,6 +4511,48 @@ a.evidence-source:hover strong {
   font-size: 11px;
 }
 
+.billing-warning .button {
+  flex: 0 0 auto;
+  margin-left: auto;
+}
+
+.billing-notice {
+  background: #eff6ff;
+  border: 1px solid #bfdbfe;
+  border-radius: 7px;
+  color: #1e40af;
+  font-size: 11px;
+  margin: 0 16px 16px;
+  padding: 10px 12px;
+}
+
+.billing-subscription-actions {
+  align-items: center;
+  border-top: 1px solid #e4e4e7;
+  display: flex;
+  gap: 10px;
+  justify-content: flex-end;
+  margin: 0 16px;
+  padding: 12px 0 16px;
+}
+
+.billing-subscription-actions span,
+.billing-help,
+.billing-change-summary span {
+  color: #71717a;
+  font-size: 11px;
+}
+
+.billing-help {
+  margin: 0 16px 16px;
+}
+
+.billing-change-summary {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
 .billing-breakdown-grid {
   display: grid;
   gap: 12px;

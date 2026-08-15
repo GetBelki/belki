@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { DataForSeoCredentials } from "./provider-credentials";
 
 const API_BASE = "https://api.dataforseo.com/v3/merchant/google/product_info";
 const MAX_PROVIDER_BODY_BYTES = 20 * 1024 * 1024;
@@ -32,8 +33,8 @@ export interface ProductInfoTaskInput {
   postback_data: "advanced";
 }
 
-function authorization(env: Env): string {
-  return `Basic ${btoa(`${env.DATAFORSEO_LOGIN}:${env.DATAFORSEO_PASSWORD}`)}`;
+function authorization(credentials: DataForSeoCredentials): string {
+  return `Basic ${btoa(`${credentials.login}:${credentials.password}`)}`;
 }
 
 async function readBounded(response: Response): Promise<ArrayBuffer> {
@@ -49,13 +50,13 @@ async function readBounded(response: Response): Promise<ArrayBuffer> {
 }
 
 export async function postProductInfoTask(
-  env: Env,
+  credentials: DataForSeoCredentials,
   task: ProductInfoTaskInput,
 ): Promise<MerchantResponse> {
   const response = await fetch(`${API_BASE}/task_post`, {
     method: "POST",
     headers: {
-      authorization: authorization(env),
+      authorization: authorization(credentials),
       "content-type": "application/json",
       accept: "application/json",
     },
@@ -67,13 +68,13 @@ export async function postProductInfoTask(
   );
 }
 
-export async function getProductInfoTasksReady(env: Env): Promise<Array<{
+export async function getProductInfoTasksReady(credentials: DataForSeoCredentials): Promise<Array<{
   id: string;
   tag: string | null;
   endpointAdvanced: string | null;
 }>> {
   const response = await fetch(`${API_BASE}/tasks_ready`, {
-    headers: { authorization: authorization(env), accept: "application/json" },
+    headers: { authorization: authorization(credentials), accept: "application/json" },
   });
   if (!response.ok) throw new Error(`DataForSEO product_info tasks_ready returned HTTP ${response.status}`);
   const payload = MerchantResponseSchema.parse(
@@ -97,14 +98,14 @@ export async function getProductInfoTasksReady(env: Env): Promise<Array<{
 }
 
 export async function getProductInfoTaskResult(
-  env: Env,
+  credentials: DataForSeoCredentials,
   endpoint: string,
 ): Promise<ArrayBuffer> {
   if (!endpoint.startsWith("/v3/merchant/google/product_info/")) {
     throw new Error("Unexpected DataForSEO product_info endpoint");
   }
   const response = await fetch(`https://api.dataforseo.com${endpoint}`, {
-    headers: { authorization: authorization(env), accept: "application/json" },
+    headers: { authorization: authorization(credentials), accept: "application/json" },
   });
   if (!response.ok) throw new Error(`DataForSEO product_info result returned HTTP ${response.status}`);
   return readBounded(response);

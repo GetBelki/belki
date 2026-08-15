@@ -8,6 +8,7 @@ import {
   ScanSearch,
   ShoppingBag,
   Settings,
+  ShieldCheck,
   Users,
   X,
 } from "lucide-react";
@@ -51,6 +52,14 @@ export function AppLayout() {
       window.location.assign("/");
     },
   });
+  const selectWorkspace = useMutation({
+    mutationFn: (workspaceId: string) => post("/auth/workspaces/select", { workspaceId }),
+    onSuccess: () => {
+      localStorage.removeItem("ai-tracker-project");
+      queryClient.clear();
+      window.location.assign("/");
+    },
+  });
   return (
     <div className="app-shell">
       <aside className={cn("sidebar", mobileOpen && "sidebar-open")}>
@@ -70,7 +79,17 @@ export function AppLayout() {
         </div>
         <div className="workspace-summary">
           <span className="workspace-label">Workspace</span>
-          <strong title={session.workspace.name}>{session.workspace.name}</strong>
+          {session.workspaces.length > 1 ? (
+            <Select
+              ariaLabel="Active workspace"
+              value={session.workspaceId}
+              onValueChange={(workspaceId) => selectWorkspace.mutate(workspaceId)}
+              options={session.workspaces.map((workspace) => ({
+                value: workspace.id,
+                label: workspace.name,
+              }))}
+            />
+          ) : <strong title={session.workspace.name}>{session.workspace.name}</strong>}
         </div>
         <div className="project-label">Project</div>
         <Select
@@ -122,6 +141,14 @@ export function AppLayout() {
                 <BillingIcon size={17} /> <span>Billing</span>
               </NavLink>
             </>
+          ) : null}
+          {session.isPlatformOperator ? (
+            <NavLink
+              to="/operator"
+              className={({ isActive }) => cn("nav-item", isActive && "active")}
+            >
+              <ShieldCheck size={17} /> <span>Operator</span>
+            </NavLink>
           ) : null}
           <NavLink
             to="/settings"

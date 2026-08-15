@@ -18,6 +18,7 @@ export default tseslint.config(
           "./tsconfig.worker.json",
           "./tsconfig.node.json",
           "./tsconfig.test.json",
+          "./tsconfig.workers-test.json",
         ],
         tsconfigRootDir: import.meta.dirname,
       },
