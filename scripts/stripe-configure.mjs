@@ -5,6 +5,25 @@ const checkOnly = process.argv.includes("--check");
 const bootstrapCatalogue = process.argv.includes("--bootstrap-catalogue");
 const live = process.argv.includes("--live") || argument("--mode") === "live";
 const mode = live ? "live" : "test";
+const stripeApiVersion = "2025-03-31.basil";
+const requiredWebhookEvents = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "checkout.session.expired",
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "invoice.paid",
+  "invoice.payment_failed",
+  "invoice.payment_action_required",
+  "subscription_schedule.created",
+  "subscription_schedule.updated",
+  "subscription_schedule.released",
+  "subscription_schedule.completed",
+  "subscription_schedule.canceled",
+  "subscription_schedule.aborted",
+];
 
 function argument(name) {
   const index = process.argv.indexOf(name);
@@ -54,12 +73,13 @@ if (live && !checkOnly && argument("--confirm-live") !== hostname) {
   throw new Error(`Live Stripe changes require --confirm-live ${hostname}.`);
 }
 
-function stripe(method, path, params = []) {
-  const args = [method, path, "--color", "off", "--log-level", "error"];
-  if (live) args.push("--live");
-  if (method === "post") args.push("--confirm");
-  for (const [name, value] of params) args.push("-d", `${name}=${value}`);
-  const result = spawnSync(process.platform === "win32" ? "stripe.exe" : "stripe", args, {
+function stripeCommand(args, params = [], { write = false, idempotencyKey } = {}) {
+  const commandArgs = [...args, "--color", "off", "--log-level", "error", "--stripe-version", stripeApiVersion];
+  if (live) commandArgs.push("--live");
+  if (write) commandArgs.push("--confirm");
+  if (idempotencyKey) commandArgs.push("--idempotency", idempotencyKey);
+  for (const [name, value] of params) commandArgs.push("-d", `${name}=${value}`);
+  const result = spawnSync(process.platform === "win32" ? "stripe.exe" : "stripe", commandArgs, {
     encoding: "utf8",
     maxBuffer: 4 * 1024 * 1024,
   });
@@ -68,13 +88,18 @@ function stripe(method, path, params = []) {
   }
   if (result.status !== 0) {
     const detail = String(result.stderr || result.stdout || "unknown Stripe CLI error").trim().slice(0, 2_000);
-    throw new Error(`Stripe CLI ${method} ${path} failed: ${detail}`);
+    throw new Error(`Stripe CLI ${args.join(" ")} failed: ${detail}`);
   }
   try {
     return JSON.parse(result.stdout);
   } catch {
-    throw new Error(`Stripe CLI ${method} ${path} did not return JSON.`);
+    throw new Error(`Stripe CLI ${args.join(" ")} did not return JSON.`);
   }
+}
+
+function stripe(method, path, params = [], options = {}) {
+  const args = [method, path];
+  return stripeCommand(args, params, { ...options, write: method === "post" });
 }
 
 const plans = [
@@ -169,11 +194,47 @@ if (new Set(prices.map((price) => price.productId)).size !== prices.length) {
   throw new Error("Starter, Studio, and Agency must use three distinct Stripe Products.");
 }
 
+let webhookEndpoint = null;
+if (checkOnly) {
+  const webhookUrl = `${origin}/api/webhooks/stripe`;
+  const endpoints = stripe("get", "/v1/webhook_endpoints", [["limit", "100"]]).data ?? [];
+  const matches = endpoints.filter((endpoint) => endpoint.url === webhookUrl && endpoint.status === "enabled");
+  if (matches.length !== 1) {
+    throw new Error(`Expected exactly one enabled Stripe webhook at ${webhookUrl}; found ${matches.length}.`);
+  }
+  webhookEndpoint = matches[0];
+  const webhookFailures = [];
+  if (webhookEndpoint.livemode !== live) webhookFailures.push(`livemode=${webhookEndpoint.livemode}`);
+  if (webhookEndpoint.api_version !== stripeApiVersion) {
+    webhookFailures.push(`API version=${webhookEndpoint.api_version ?? "account default"}; expected ${stripeApiVersion}`);
+  }
+  const enabledEvents = new Set(webhookEndpoint.enabled_events ?? []);
+  const missingEvents = requiredWebhookEvents.filter((event) => !enabledEvents.has(event));
+  const unexpectedEvents = [...enabledEvents].filter((event) => !requiredWebhookEvents.includes(event));
+  if (missingEvents.length) webhookFailures.push(`missing events=${missingEvents.join(",")}`);
+  if (unexpectedEvents.length) webhookFailures.push(`unexpected events=${unexpectedEvents.join(",")}`);
+  if (webhookFailures.length) {
+    throw new Error(`Stripe webhook ${webhookEndpoint.id ?? "unknown"} is invalid: ${webhookFailures.join("; ")}.`);
+  }
+}
+
 const configurations = stripe("get", "/v1/billing_portal/configurations", [["limit", "100"]]);
 const defaultPortal = configurations.data?.find((item) => item.is_default);
 if (!defaultPortal?.active) throw new Error("Activate Stripe's default customer portal in this Stripe environment first.");
-if (defaultPortal.features?.subscription_update?.enabled || defaultPortal.features?.subscription_cancel?.enabled) {
-  throw new Error("Disable plan switching and cancellation in Stripe's default portal. Belki owns those workflows.");
+const defaultPortalFailures = [];
+if (defaultPortal.features?.subscription_update?.enabled) defaultPortalFailures.push("plan switching is enabled");
+if (defaultPortal.features?.subscription_cancel?.enabled) defaultPortalFailures.push("cancellation is enabled");
+if (!defaultPortal.features?.payment_method_update?.enabled) defaultPortalFailures.push("payment-method updates are disabled");
+if (!defaultPortal.features?.invoice_history?.enabled) defaultPortalFailures.push("invoice history is disabled");
+if (defaultPortalFailures.length) {
+  throw new Error(`Stripe's default portal is unsafe: ${defaultPortalFailures.join(", ")}.`);
+}
+if (live) {
+  const privacyUrl = defaultPortal.business_profile?.privacy_policy_url;
+  const termsUrl = defaultPortal.business_profile?.terms_of_service_url;
+  if (!String(privacyUrl ?? "").startsWith("https://") || !String(termsUrl ?? "").startsWith("https://")) {
+    throw new Error("Live Stripe activation requires HTTPS privacy-policy and terms-of-service URLs in the default portal.");
+  }
 }
 
 const explicitPortalId = argument("--portal-id") ?? config.vars.STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID;
@@ -212,24 +273,61 @@ function actionParams() {
 
 if (!checkOnly) {
   action = action
-    ? stripe("post", `/v1/billing_portal/configurations/${encodeURIComponent(action.id)}`, actionParams())
-    : stripe("post", "/v1/billing_portal/configurations", actionParams());
+    ? stripeCommand(
+      ["billing_portal", "configurations", "update", action.id],
+      actionParams(),
+      { write: true },
+    )
+    : stripeCommand(
+      ["billing_portal", "configurations", "create"],
+      actionParams(),
+      { write: true, idempotencyKey: `belki-subscription-actions-${mode}-v1` },
+    );
 }
 if (!action) throw new Error("Belki action portal configuration is missing. Run stripe:configure first.");
-if (action.livemode !== live) throw new Error("The action portal belongs to the wrong Stripe environment.");
+// Portal configurations are already scoped by the authenticated Stripe
+// environment and currently omit `livemode` from API responses. If Stripe
+// begins returning it, retain the explicit cross-environment guard.
+if (typeof action.livemode === "boolean" && action.livemode !== live) {
+  throw new Error("The action portal belongs to the wrong Stripe environment.");
+}
 
-const actionProducts = action.features?.subscription_update?.products ?? [];
-const actionPriceIds = new Set(actionProducts.flatMap((product) => product.prices ?? []));
-const actionValid = action.active &&
-  action.features?.subscription_update?.enabled === true &&
-  action.features?.subscription_update?.proration_behavior === "always_invoice" &&
-  action.features?.subscription_update?.billing_cycle_anchor === "unchanged" &&
-  action.features?.subscription_cancel?.enabled === true &&
-  action.features?.subscription_cancel?.mode === "at_period_end" &&
-  prices.every((price) => actionPriceIds.has(price.priceId));
-if (!actionValid) throw new Error("The Belki action portal does not match the required plan-change policy.");
+const actionProducts = action.features?.subscription_update?.products;
+const actionPriceIds = new Set(
+  Array.isArray(actionProducts) ? actionProducts.flatMap((product) => product.prices ?? []) : [],
+);
+const actionFailures = [];
+if (!action.active) actionFailures.push("inactive");
+if (action.is_default) actionFailures.push("must not be the default portal");
+if (action.metadata?.belki_purpose !== "subscription_actions") actionFailures.push("missing purpose metadata");
+if (action.default_return_url !== `${origin}/billing`) actionFailures.push("incorrect return URL");
+if (action.features?.subscription_update?.enabled !== true) actionFailures.push("subscription updates disabled");
+if (action.features?.subscription_update?.proration_behavior !== "always_invoice") {
+  actionFailures.push(`upgrade proration=${action.features?.subscription_update?.proration_behavior ?? "missing"}`);
+}
+if (action.features?.subscription_update?.billing_cycle_anchor !== "unchanged") {
+  actionFailures.push(`billing cycle anchor=${action.features?.subscription_update?.billing_cycle_anchor ?? "missing"}`);
+}
+if (action.features?.subscription_cancel?.enabled !== true) actionFailures.push("cancellation disabled");
+if (action.features?.subscription_cancel?.mode !== "at_period_end") {
+  actionFailures.push(`cancellation mode=${action.features?.subscription_cancel?.mode ?? "missing"}`);
+}
+// Stripe's current portal-configuration response omits the Products array even
+// when the create/update request accepted it. Validate it when exposed; the
+// target Prices themselves are always validated above and passed explicitly by
+// Belki's subscription_update_confirm flow.
+if (Array.isArray(actionProducts)) {
+  const missingActionPrices = prices.filter((price) => !actionPriceIds.has(price.priceId));
+  if (missingActionPrices.length) {
+    actionFailures.push(`missing Prices=${missingActionPrices.map((price) => price.priceId).join(",")}`);
+  }
+}
+if (actionFailures.length) {
+  throw new Error(`Belki action portal ${action.id ?? "unknown"} is invalid: ${actionFailures.join("; ")}.`);
+}
 
 console.log(`STRIPE_ENVIRONMENT=${mode}`);
 for (const price of prices) console.log(`STRIPE_${price.key.toUpperCase()}_PRICE_ID=${price.priceId}`);
 console.log(`STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID=${action.id}`);
+if (webhookEndpoint) console.log(`STRIPE_WEBHOOK_ENDPOINT_ID=${webhookEndpoint.id}`);
 console.log(checkOnly ? "Stripe billing configuration check passed." : "Stripe catalogue and action portal configured.");

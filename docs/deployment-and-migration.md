@@ -278,16 +278,7 @@ STRIPE_AGENCY_PRICE_ID=price_...
 STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID=bpc_...
 ```
 
-Copy those non-secret IDs into `deployment/getbelki.json`, then run:
-
-```bash
-pnpm stripe:check -- \
-  --origin https://app.getbelki.com \
-  --starter-price price_... \
-  --studio-price price_... \
-  --agency-price price_... \
-  --portal-id bpc_...
-```
+Copy those non-secret IDs into `deployment/getbelki.json`.
 
 ### 6.2 Create the sandbox webhook
 
@@ -296,6 +287,11 @@ Create a Stripe sandbox webhook destination:
 ```text
 https://app.getbelki.com/api/webhooks/stripe
 ```
+
+Select event API version **`2025-03-31.basil`**, not **Latest**. Stripe fixes
+the payload version when it creates the destination; it cannot be changed on an
+existing endpoint. A different release family can contain breaking object-shape
+changes even when the Worker uses a pinned version for its own API requests.
 
 Subscribe to exactly:
 
@@ -316,6 +312,19 @@ subscription_schedule.released
 subscription_schedule.completed
 subscription_schedule.canceled
 subscription_schedule.aborted
+```
+
+Now run the complete read-only check. It fails unless there is exactly one
+enabled webhook at the expected URL with the pinned API version and exact event
+allowlist:
+
+```bash
+pnpm stripe:check -- \
+  --origin https://app.getbelki.com \
+  --starter-price price_... \
+  --studio-price price_... \
+  --agency-price price_... \
+  --portal-id bpc_...
 ```
 
 Do not put Cloudflare Access in front of this endpoint. Belki authenticates the
@@ -390,6 +399,11 @@ cannot accidentally reconcile it.
 Activate and secure the default portal in Stripe live mode. Explicit live
 confirmation is mandatory for helper mutations:
 
+Live configuration is blocked until the default portal contains published
+HTTPS privacy-policy and terms-of-service URLs. Sandbox testing may proceed
+while those pages are being prepared, but customer invitations and live
+activation may not.
+
 ```bash
 pnpm stripe:configure -- \
   --live \
@@ -398,8 +412,9 @@ pnpm stripe:configure -- \
   --bootstrap-catalogue
 ```
 
-Create the live webhook destination with the same URL and event list. Test and
-live webhook destinations have different signing secrets.
+Create the live webhook destination with the same URL, exact event list, and
+event API version **`2025-03-31.basil`**. Test and live webhook destinations
+have different signing secrets.
 
 ### OWNER SECRET CHECKPOINT B — live rotation
 
