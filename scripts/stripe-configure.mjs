@@ -6,6 +6,24 @@ const bootstrapCatalogue = process.argv.includes("--bootstrap-catalogue");
 const live = process.argv.includes("--live") || argument("--mode") === "live";
 const mode = live ? "live" : "test";
 const stripeApiVersion = "2025-03-31.basil";
+const requiredWebhookEvents = [
+  "checkout.session.completed",
+  "checkout.session.async_payment_succeeded",
+  "checkout.session.async_payment_failed",
+  "checkout.session.expired",
+  "customer.subscription.created",
+  "customer.subscription.updated",
+  "customer.subscription.deleted",
+  "invoice.paid",
+  "invoice.payment_failed",
+  "invoice.payment_action_required",
+  "subscription_schedule.created",
+  "subscription_schedule.updated",
+  "subscription_schedule.released",
+  "subscription_schedule.completed",
+  "subscription_schedule.canceled",
+  "subscription_schedule.aborted",
+];
 
 function argument(name) {
   const index = process.argv.indexOf(name);
@@ -176,6 +194,30 @@ if (new Set(prices.map((price) => price.productId)).size !== prices.length) {
   throw new Error("Starter, Studio, and Agency must use three distinct Stripe Products.");
 }
 
+let webhookEndpoint = null;
+if (checkOnly) {
+  const webhookUrl = `${origin}/api/webhooks/stripe`;
+  const endpoints = stripe("get", "/v1/webhook_endpoints", [["limit", "100"]]).data ?? [];
+  const matches = endpoints.filter((endpoint) => endpoint.url === webhookUrl && endpoint.status === "enabled");
+  if (matches.length !== 1) {
+    throw new Error(`Expected exactly one enabled Stripe webhook at ${webhookUrl}; found ${matches.length}.`);
+  }
+  webhookEndpoint = matches[0];
+  const webhookFailures = [];
+  if (webhookEndpoint.livemode !== live) webhookFailures.push(`livemode=${webhookEndpoint.livemode}`);
+  if (webhookEndpoint.api_version !== stripeApiVersion) {
+    webhookFailures.push(`API version=${webhookEndpoint.api_version ?? "account default"}; expected ${stripeApiVersion}`);
+  }
+  const enabledEvents = new Set(webhookEndpoint.enabled_events ?? []);
+  const missingEvents = requiredWebhookEvents.filter((event) => !enabledEvents.has(event));
+  const unexpectedEvents = [...enabledEvents].filter((event) => !requiredWebhookEvents.includes(event));
+  if (missingEvents.length) webhookFailures.push(`missing events=${missingEvents.join(",")}`);
+  if (unexpectedEvents.length) webhookFailures.push(`unexpected events=${unexpectedEvents.join(",")}`);
+  if (webhookFailures.length) {
+    throw new Error(`Stripe webhook ${webhookEndpoint.id ?? "unknown"} is invalid: ${webhookFailures.join("; ")}.`);
+  }
+}
+
 const configurations = stripe("get", "/v1/billing_portal/configurations", [["limit", "100"]]);
 const defaultPortal = configurations.data?.find((item) => item.is_default);
 if (!defaultPortal?.active) throw new Error("Activate Stripe's default customer portal in this Stripe environment first.");
@@ -287,4 +329,5 @@ if (actionFailures.length) {
 console.log(`STRIPE_ENVIRONMENT=${mode}`);
 for (const price of prices) console.log(`STRIPE_${price.key.toUpperCase()}_PRICE_ID=${price.priceId}`);
 console.log(`STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID=${action.id}`);
+if (webhookEndpoint) console.log(`STRIPE_WEBHOOK_ENDPOINT_ID=${webhookEndpoint.id}`);
 console.log(checkOnly ? "Stripe billing configuration check passed." : "Stripe catalogue and action portal configured.");
