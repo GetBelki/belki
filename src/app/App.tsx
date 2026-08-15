@@ -4,7 +4,7 @@ import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppProvider } from "./context";
 import { ApiClientError, api, type Session } from "./lib/api";
 import { AppLayout } from "./components/layout";
-import { AcceptInvitePage, LoginPage, ResetPasswordPage, SetupPage } from "./pages/auth";
+import { AcceptInvitePage, LoginPage, ResetPasswordPage, SetupPage, SignupPage } from "./pages/auth";
 import { Skeleton } from "./components/ui";
 import { AppIcon } from "./components/app-icon";
 import { APP_NAME } from "./lib/branding";
@@ -77,6 +77,7 @@ const UsersPage = lazy(() =>
 );
 const BillingPage = lazy(() => import("./pages/billing"));
 const SettingsPage = lazy(() => import("./pages/settings"));
+const OperatorPage = lazy(() => import("./pages/operator"));
 
 export function App() {
   const location = useLocation();
@@ -87,12 +88,13 @@ export function App() {
   const session = useQuery({
     queryKey: ["session"],
     queryFn: () => api<Session>("/auth/session"),
-    enabled: !["/accept-invite", "/reset-password"].includes(location.pathname),
+    enabled: !["/accept-invite", "/reset-password", "/signup"].includes(location.pathname),
     retry: false,
   });
 
   if (location.pathname === "/accept-invite") return <AcceptInvitePage />;
   if (location.pathname === "/reset-password") return <ResetPasswordPage />;
+  if (location.pathname === "/signup") return <SignupPage />;
   if (status.isPending) return <AppLoader />;
   if (status.data?.setupRequired) return <SetupPage />;
   if (session.isPending) return <AppLoader />;
@@ -103,6 +105,9 @@ export function App() {
     return <LoginPage />;
   }
   if (!session.data) return <LoginPage />;
+  if (session.data.workspace.status === "pending_payment" && location.pathname !== "/billing") {
+    return <Navigate to="/billing" replace />;
+  }
 
   return (
     <AppProvider session={session.data}>
@@ -147,6 +152,7 @@ export function App() {
             <Route path="/users" element={<UsersPage />} />
             <Route path="/billing" element={<BillingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
+            <Route path="/operator" element={session.data.isPlatformOperator ? <OperatorPage /> : <Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

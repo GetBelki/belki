@@ -9,6 +9,9 @@ import {
 } from "../lib/dataforseo";
 import { nowIso } from "../lib/http";
 import { emitRunFailureAlerts } from "../automation/alerts";
+import { platformDataForSeoCredentials } from "../lib/provider-credentials";
+import { commitUsage, releaseUsage } from "../lib/usage";
+import type { UsageSku } from "../../shared/contracts";
 
 interface DispatchJobRow {
   id: string;
@@ -20,6 +23,32 @@ interface DispatchJobRow {
   capture_html: number;
   delivery_method: "standard" | "standard_priority" | "live";
   public_base_url: string;
+  workspace_id: string;
+  project_id: string;
+  usage_reservation_id: string | null;
+  usage_units: number;
+}
+
+function usageInput(job: DispatchJobRow): {
+  reservationId: string;
+  sku: UsageSku;
+  units: number;
+  resourceType: string;
+  resourceId: string;
+} | null {
+  if (!job.usage_reservation_id || job.usage_units <= 0) return null;
+  const sku: UsageSku = job.delivery_method === "live"
+    ? "llm_live"
+    : job.delivery_method === "standard_priority"
+      ? "llm_priority_html"
+      : "llm_standard";
+  return {
+    reservationId: job.usage_reservation_id,
+    sku,
+    units: job.usage_units,
+    resourceType: "crawl_job",
+    resourceId: job.id,
+  };
 }
 
 async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
@@ -28,7 +57,8 @@ async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
   const result = await env.CONTROL_DB.prepare(
     `SELECT
       j.id, q.query_text, q.location_code, q.language_code, q.force_web_search,
-      j.provider_tag, j.capture_html, j.delivery_method, w.public_base_url
+      j.provider_tag, j.capture_html, j.delivery_method, w.public_base_url,
+      j.workspace_id, j.project_id, j.usage_reservation_id, j.usage_units
     FROM crawl_jobs j
     JOIN tracked_queries q ON q.id = j.tracked_query_id
     JOIN workspaces w ON w.id = j.workspace_id
@@ -83,7 +113,7 @@ export async function dispatchStandardBatch(
   }));
 
   try {
-    const response = await postStandardTasks(env, tasks);
+    const response = await postStandardTasks(platformDataForSeoCredentials(env), tasks);
     const updates: D1PreparedStatement[] = [];
     const failures: Array<{ jobId: string; message: string }> = [];
     const completedJobIds = new Set<string>();
@@ -99,6 +129,11 @@ export async function dispatchStandardBatch(
           jobId: job.id,
           message: task.status_message ?? "DataForSEO rejected the task.",
         });
+      }
+      const reservation = usageInput(job);
+      if (reservation) {
+        if (accepted) await commitUsage(env, job.workspace_id, reservation);
+        else await releaseUsage(env, job.workspace_id, reservation);
       }
       updates.push(
         env.CONTROL_DB.prepare(
@@ -177,6 +212,7 @@ export async function dispatchLiveBatch(
         message.ack();
         return;
       }
+      let providerAccepted = false;
       try {
         await env.CONTROL_DB.prepare(
           `UPDATE crawl_jobs
@@ -185,7 +221,7 @@ export async function dispatchLiveBatch(
         )
           .bind(nowIso(), job.id)
           .run();
-        const response = await postLiveAdvanced(env, {
+        const response = await postLiveAdvanced(platformDataForSeoCredentials(env), {
           keyword: job.query_text,
           location_code: job.location_code,
           language_code: job.language_code,
@@ -196,7 +232,10 @@ export async function dispatchLiveBatch(
         if (!providerTask?.id || (providerTask.status_code ?? 0) >= 40000) {
           throw new Error(providerTask?.status_message ?? "DataForSEO Live returned no task.");
         }
-        const rawKey = `raw/${new Date().toISOString().slice(0, 7)}/${providerTask.id}.json`;
+        providerAccepted = true;
+        const reservation = usageInput(job);
+        if (reservation) await commitUsage(env, job.workspace_id, reservation);
+        const rawKey = `raw/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${providerTask.id}.json`;
         await env.EVIDENCE_BUCKET.put(rawKey, response.bytes, {
           httpMetadata: { contentType: "application/json" },
           customMetadata: { jobId: job.id, taskId: providerTask.id },
@@ -242,6 +281,21 @@ export async function dispatchLiveBatch(
           .bind(messageText, nowIso(), job.id)
           .run();
         await emitRunFailureAlerts(env, job.id, messageText);
+        const reservation = usageInput(job);
+        if (reservation && !providerAccepted) {
+          try {
+            await releaseUsage(env, job.workspace_id, reservation);
+          } catch (releaseError) {
+            if (!String(releaseError).includes("reservation_already_finalized")) {
+              console.error(JSON.stringify({
+                level: "error",
+                message: "usage_release_failed",
+                jobId: job.id,
+                error: String(releaseError),
+              }));
+            }
+          }
+        }
         message.ack();
       }
     }),
@@ -249,14 +303,15 @@ export async function dispatchLiveBatch(
 }
 
 export async function collectReadyTasks(env: Env): Promise<number> {
-  const ready = await getTasksReady(env);
+  const credentials = platformDataForSeoCredentials(env);
+  const ready = await getTasksReady(credentials);
   let recovered = 0;
   for (const task of ready) {
     if (!task.tag || !task.endpointAdvanced) continue;
     const jobId = await verifySignedJobTag(task.tag, env.APP_CRYPTO_KEY);
     if (!jobId) continue;
     const job = await env.CONTROL_DB.prepare(
-      `SELECT job.id
+      `SELECT job.id, job.workspace_id, job.project_id
        FROM crawl_jobs job
        JOIN tracked_queries query ON query.id = job.tracked_query_id
        WHERE job.id = ? AND job.provider_tag = ?
@@ -267,10 +322,10 @@ export async function collectReadyTasks(env: Env): Promise<number> {
          )`,
     )
       .bind(jobId, task.tag)
-      .first<{ id: string }>();
+      .first<{ id: string; workspace_id: string; project_id: string }>();
     if (!job) continue;
-    const bytes = await getTaskResult(env, task.endpointAdvanced);
-    const rawKey = `raw/${new Date().toISOString().slice(0, 7)}/${task.id}.json`;
+    const bytes = await getTaskResult(credentials, task.endpointAdvanced);
+    const rawKey = `raw/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${task.id}.json`;
     await env.EVIDENCE_BUCKET.put(rawKey, bytes, {
       httpMetadata: { contentType: "application/json" },
       customMetadata: { jobId, taskId: task.id, recovery: "tasks_ready" },

@@ -1,0 +1,17 @@
+{
+  "profileVersion": 1,
+  "workers_dev": false,
+  "routes": [
+    { "pattern": "app.getbelki.com", "custom_domain": true }
+  ],
+  "vars": {
+    "DEPLOYMENT_MODE": "self_hosted",
+    "PAYMENT_MODE": "disabled",
+    "BILLING_PLAN_CHANGES_ENABLED": "false",
+    "STRIPE_ENVIRONMENT": "test",
+    "STRIPE_STARTER_PRICE_ID": "",
+    "STRIPE_STUDIO_PRICE_ID": "",
+    "STRIPE_AGENCY_PRICE_ID": "",
+    "STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID": ""
+  }
+}

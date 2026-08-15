@@ -36,6 +36,13 @@ import {
   uniquePromptTagNames,
 } from "../../shared/prompt-tags";
 import { requestPromptPurges } from "../automation/prompt-purges";
+import {
+  claimProjectSlot,
+  releaseProjectSlot,
+  reserveUsage,
+  releaseUsage,
+  USAGE_UNITS,
+} from "../lib/usage";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 const ProjectIdParamSchema = z.object({ projectId: z.string().uuid() });
@@ -174,7 +181,13 @@ coreRoutes.post("/projects", zValidator("json", ProjectInputSchema), async (c) =
       ),
     );
   }
-  await c.env.CONTROL_DB.batch(statements);
+  await claimProjectSlot(c.env, principal.workspaceId);
+  try {
+    await c.env.CONTROL_DB.batch(statements);
+  } catch (error) {
+    await releaseProjectSlot(c.env, principal.workspaceId);
+    throw error;
+  }
   await writeAudit(c.env.CONTROL_DB, {
     workspaceId: principal.workspaceId,
     userId: principal.userId,
@@ -517,6 +530,7 @@ coreRoutes.delete(
         "UPDATE tracked_queries SET deleted_at = ?, is_active = 0, updated_at = ? WHERE project_id = ?",
       ).bind(now, now, id),
     ]);
+    await releaseProjectSlot(c.env, principal.workspaceId);
     await writeAudit(c.env.CONTROL_DB, {
       workspaceId: principal.workspaceId,
       userId: principal.userId,
@@ -1171,28 +1185,49 @@ coreRoutes.post(
     const now = nowIso();
     const captureHtml = input.captureHtml || query.html_capture_enabled === 1;
     const deliveryMethod = captureHtml ? "standard_priority" : "live";
-    await c.env.CONTROL_DB.prepare(
-      `INSERT INTO crawl_jobs (
-        id, workspace_id, project_id, tracked_query_id, shard_id, run_type,
-        delivery_method, status, scheduled_for, provider_tag, capture_html,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, 'manual', ?, 'queued', ?, ?, ?, ?, ?)`,
-    )
-      .bind(
-        jobId,
-        principal.workspaceId,
-        query.project_id,
-        query.id,
-        query.shard_id,
-        deliveryMethod,
-        now,
-        tag,
-        captureHtml ? 1 : 0,
-        now,
-        now,
+    const sku = captureHtml ? "llm_priority_html" : "llm_live";
+    const usageInput = {
+      reservationId: jobId,
+      sku,
+      units: USAGE_UNITS[sku],
+      resourceType: "crawl_job",
+      resourceId: jobId,
+    } as const;
+    await reserveUsage(c.env, principal.workspaceId, usageInput);
+    try {
+      await c.env.CONTROL_DB.prepare(
+        `INSERT INTO crawl_jobs (
+          id, workspace_id, project_id, tracked_query_id, shard_id, run_type,
+          delivery_method, status, scheduled_for, provider_tag, capture_html,
+          provider_account_id, usage_reservation_id, usage_units, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, 'manual', ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
-      .run();
-    await (captureHtml ? c.env.STANDARD_QUEUE : c.env.LIVE_QUEUE).send({ jobId });
+        .bind(
+          jobId,
+          principal.workspaceId,
+          query.project_id,
+          query.id,
+          query.shard_id,
+          deliveryMethod,
+          now,
+          tag,
+          captureHtml ? 1 : 0,
+          "dataforseo:platform:v1",
+          jobId,
+          usageInput.units,
+          now,
+          now,
+        )
+        .run();
+      await (captureHtml ? c.env.STANDARD_QUEUE : c.env.LIVE_QUEUE).send({ jobId });
+    } catch (error) {
+      await c.env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs SET status = 'failed', error_code = 'queue_failed',
+          error_message = ?, updated_at = ? WHERE id = ? AND status = 'queued'`,
+      ).bind(String(error).slice(0, 1000), nowIso(), jobId).run();
+      await releaseUsage(c.env, principal.workspaceId, usageInput);
+      throw error;
+    }
     return c.json({ data: { jobId, status: "queued", deliveryMethod } }, 202);
   },
 );

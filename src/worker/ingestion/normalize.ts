@@ -7,6 +7,7 @@ import {
   normalizeUrl,
 } from "../lib/domain";
 import { getTaskHtml } from "../lib/dataforseo";
+import { platformDataForSeoCredentials } from "../lib/provider-credentials";
 import { jsonParse, nowIso } from "../lib/http";
 import { sha256 } from "../lib/crypto";
 import { getShard } from "../lib/shards";
@@ -192,8 +193,8 @@ export async function normalizeSnapshot(
 
   let htmlR2Key: string | null = null;
   if (job.capture_html === 1 && job.delivery_method !== "live") {
-    const html = await getTaskHtml(env, message.taskId);
-    htmlR2Key = `html/${new Date().toISOString().slice(0, 7)}/${message.taskId}.html`;
+    const html = await getTaskHtml(platformDataForSeoCredentials(env), message.taskId);
+    htmlR2Key = `html/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${message.taskId}.html`;
     await env.EVIDENCE_BUCKET.put(htmlR2Key, html, {
       httpMetadata: { contentType: "text/html; charset=utf-8" },
       customMetadata: { jobId: job.id, taskId: message.taskId },

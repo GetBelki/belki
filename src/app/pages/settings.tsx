@@ -47,6 +47,13 @@ interface WebhookDestination {
   is_enabled: number;
 }
 
+interface HealthSummary {
+  provider?: {
+    dataForSeo?: { configured: boolean; source: string; account: string };
+    stripe?: { configured: boolean; mode: string; source: string };
+  };
+}
+
 export default function SettingsPage() {
   const { projects, projectId, session, currentProject } = useApp();
   const queryClient = useQueryClient();
@@ -70,7 +77,7 @@ export default function SettingsPage() {
   });
   const health = useQuery({
     queryKey: ["health"],
-    queryFn: () => api<Record<string, unknown>>("/settings/health"),
+    queryFn: () => api<HealthSummary>("/settings/health"),
     enabled: canAdmin && view === "diagnostics",
   });
   const webhooks = useQuery({
@@ -119,7 +126,7 @@ export default function SettingsPage() {
       patch<{ id: string; name: string }>("/settings/workspace", body),
     onSuccess: (workspace) => {
       queryClient.setQueryData<Session>(["session"], (current) => current
-        ? { ...current, workspaceId: workspace.id, workspace }
+        ? { ...current, workspaceId: workspace.id, workspace: { ...current.workspace, ...workspace } }
         : current);
       setWorkspaceOpen(false);
     },
@@ -355,7 +362,8 @@ export default function SettingsPage() {
               <div className="settings-health-list">
                 <div><CheckCircle2/><span><strong>Control database</strong>Connected</span></div>
                 <div><ServerCog/><span><strong>Snapshot shards</strong>32 shards configured</span></div>
-                <div><KeyRound/><span><strong>Runtime configuration</strong>Bindings available</span></div>
+                <div><KeyRound/><span><strong>DataForSEO credentials</strong>{health.data.provider?.dataForSeo?.configured ? "Configured in Worker secrets" : "Missing Worker secrets"}</span></div>
+                <div><KeyRound/><span><strong>Managed billing</strong>{health.data.provider?.stripe?.mode === "disabled" ? "Disabled for self-hosted mode" : health.data.provider?.stripe?.configured ? `${health.data.provider.stripe.mode} configured` : "Stripe secrets are missing"}</span></div>
               </div>
             ) : <p className="muted">Health checks could not be loaded.</p>}
           </section>

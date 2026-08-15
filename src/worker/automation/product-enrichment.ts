@@ -6,8 +6,10 @@ import {
   parseProductInfoPayload,
   postProductInfoTask,
 } from "../lib/dataforseo-merchant";
+import { platformDataForSeoCredentials } from "../lib/provider-credentials";
+import { commitUsage, releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 import { normalizeUrl } from "../lib/domain";
-import { jsonParse, nowIso } from "../lib/http";
+import { ApiError, jsonParse, nowIso } from "../lib/http";
 import {
   finiteInteger,
   finiteNumber,
@@ -117,7 +119,23 @@ async function autoRefreshEnabled(
   return row?.automatic_refresh_enabled !== 0;
 }
 
-async function cancelJob(env: Env, jobId: string, targetId: string, message: string): Promise<void> {
+function productUsage(jobId: string) {
+  return {
+    reservationId: jobId,
+    sku: "product_enrichment" as const,
+    units: USAGE_UNITS.product_enrichment,
+    resourceType: "product_enrichment_job",
+    resourceId: jobId,
+  };
+}
+
+async function cancelJob(
+  env: Env,
+  jobId: string,
+  targetId: string,
+  workspaceId: string,
+  message: string,
+): Promise<void> {
   const updatedAt = nowIso();
   await env.CONTROL_DB.batch([
     env.CONTROL_DB.prepare(
@@ -132,6 +150,16 @@ async function cancelJob(env: Env, jobId: string, targetId: string, message: str
        WHERE id = ? AND current_job_id = ?`,
     ).bind(updatedAt, targetId, jobId),
   ]);
+  try {
+    await releaseUsage(env, workspaceId, productUsage(jobId));
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: "error",
+      message: "product_usage_release_failed",
+      jobId,
+      error: String(error),
+    }));
+  }
 }
 
 async function failJob(
@@ -190,6 +218,14 @@ async function queueTarget(
   const providerTag = await createScopedSignedJobTag(TAG_SCOPE, jobId, env.APP_CRYPTO_KEY);
   const createdAt = nowIso();
   try {
+    await reserveUsage(env, target.workspace_id, productUsage(jobId));
+  } catch (error) {
+    if (reason !== "manual" && error instanceof ApiError && ["usage_limit", "payment_required", "read_only"].includes(error.code)) {
+      return { jobId: null, status: "allowance_exhausted" };
+    }
+    throw error;
+  }
+  try {
     await env.CONTROL_DB.batch([
       env.CONTROL_DB.prepare(
         `INSERT INTO product_enrichment_jobs (
@@ -222,6 +258,7 @@ async function queueTarget(
     )
       .bind(target.id, target.id)
       .first<{ id: string; status: string }>();
+    await releaseUsage(env, target.workspace_id, productUsage(jobId));
     if (existing) return { jobId: existing.id, status: existing.status };
     throw new Error("Unable to queue product enrichment");
   }
@@ -422,11 +459,11 @@ async function submitJob(env: Env, jobId: string): Promise<void> {
   // Recover it by signed tag through tasks_ready instead of risking a duplicate POST.
   if (!job || job.status !== "queued") return;
   if (job.product_enrichment_enabled !== 1) {
-    await cancelJob(env, job.id, job.target_id, "Project product enrichment is paused.");
+    await cancelJob(env, job.id, job.target_id, job.workspace_id, "Project product enrichment is paused.");
     return;
   }
   if (job.reason !== "manual" && job.automatic_refresh_enabled !== 1) {
-    await cancelJob(env, job.id, job.target_id, "Automatic enrichment is paused for this product.");
+    await cancelJob(env, job.id, job.target_id, job.workspace_id, "Automatic enrichment is paused for this product.");
     return;
   }
   const updatedAt = nowIso();
@@ -440,7 +477,7 @@ async function submitJob(env: Env, jobId: string): Promise<void> {
     ).bind(updatedAt, job.target_id),
   ]);
   try {
-    const response = await postProductInfoTask(env, {
+    const response = await postProductInfoTask(platformDataForSeoCredentials(env), {
       ...(job.google_product_id ? { product_id: job.google_product_id } : {}),
       ...(job.data_docid ? { data_docid: job.data_docid } : {}),
       ...(job.gid ? { gid: job.gid } : {}),
@@ -461,9 +498,11 @@ async function submitJob(env: Env, jobId: string): Promise<void> {
         "provider_rejected",
         task?.status_message ?? response.status_message ?? "DataForSEO rejected product enrichment.",
       );
+      await releaseUsage(env, job.workspace_id, productUsage(job.id));
       return;
     }
     const submittedAt = nowIso();
+    await commitUsage(env, job.workspace_id, productUsage(job.id));
     await env.CONTROL_DB.batch([
       env.CONTROL_DB.prepare(
         `UPDATE product_enrichment_jobs SET status = 'awaiting_result', provider_task_id = ?,
@@ -708,13 +747,13 @@ export async function acceptProductInfoPayload(
   },
 ): Promise<boolean> {
   const job = await env.CONTROL_DB.prepare(
-    `SELECT id FROM product_enrichment_jobs
+    `SELECT id, workspace_id, project_id FROM product_enrichment_jobs
      WHERE id = ? AND status IN ('submitting', 'submission_unknown', 'awaiting_result')`,
   )
     .bind(input.jobId)
-    .first<{ id: string }>();
+    .first<{ id: string; workspace_id: string; project_id: string }>();
   if (!job) return false;
-  const rawR2Key = `raw/product-info/${new Date().toISOString().slice(0, 7)}/${input.taskId}.json${
+  const rawR2Key = `raw/product-info/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${input.taskId}.json${
     input.contentEncoding === "gzip" ? ".gz" : ""
   }`;
   await env.EVIDENCE_BUCKET.put(rawR2Key, input.body, {
@@ -754,22 +793,23 @@ export async function verifyProductEnrichmentTag(
 }
 
 export async function collectReadyProductInfoTasks(env: Env): Promise<number> {
-  const ready = await getProductInfoTasksReady(env);
+  const credentials = platformDataForSeoCredentials(env);
+  const ready = await getProductInfoTasksReady(credentials);
   let recovered = 0;
   for (const task of ready) {
     if (!task.tag || !task.endpointAdvanced) continue;
     const jobId = await verifyProductEnrichmentTag(task.tag, env);
     if (!jobId) continue;
     const job = await env.CONTROL_DB.prepare(
-      `SELECT id FROM product_enrichment_jobs
+      `SELECT id, workspace_id, project_id FROM product_enrichment_jobs
        WHERE id = ? AND provider_tag = ?
          AND status IN ('submitting', 'submission_unknown', 'awaiting_result')`,
     )
       .bind(jobId, task.tag)
-      .first<{ id: string }>();
+      .first<{ id: string; workspace_id: string; project_id: string }>();
     if (!job) continue;
-    const bytes = await getProductInfoTaskResult(env, task.endpointAdvanced);
-    const rawR2Key = `raw/product-info/${new Date().toISOString().slice(0, 7)}/${task.id}.json`;
+    const bytes = await getProductInfoTaskResult(credentials, task.endpointAdvanced);
+    const rawR2Key = `raw/product-info/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${task.id}.json`;
     await env.EVIDENCE_BUCKET.put(rawR2Key, bytes, {
       httpMetadata: { contentType: "application/json" },
       customMetadata: { jobId, taskId: task.id, source: "product-info-recovery" },

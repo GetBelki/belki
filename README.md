@@ -14,8 +14,8 @@
 
 Belki schedules and captures DataForSEO ChatGPT LLM Scraper responses, retains
 the underlying evidence, and turns those responses into project-level visibility
-analytics. It is designed for multi-user installations and at least one million
-runs per month.
+analytics. It supports users who belong to multiple isolated workspaces and is
+designed for at least one million runs per month on larger self-hosted installs.
 
 ## What Belki tracks
 
@@ -80,7 +80,9 @@ Share of Voice across every tracked competitor.
 Belki runs as a React single-page application and Hono API in one Cloudflare
 Worker. A control D1 database stores tenancy and aggregate state; 32 snapshot D1
 shards distribute detailed captures. R2 retains raw evidence, optional HTML,
-exports, and mirrored ad assets.
+exports, and mirrored ad assets. One SQLite-backed Durable Object per workspace
+serializes usage reservations and project-limit claims so concurrent queues
+cannot overspend an allowance.
 
 ```mermaid
 flowchart LR
@@ -189,6 +191,11 @@ Configure these values in `.dev.vars`:
 | `DATAFORSEO_WEBHOOK_TOKEN` | Authenticates ChatGPT and product-info postbacks |
 | `APP_CRYPTO_KEY` | Signs provider job tags; changing it invalidates outstanding jobs |
 | `BOOTSTRAP_TOKEN` | One-time token entered during the first-run owner setup |
+| `STRIPE_SECRET_KEY` | Managed cloud only: creates Stripe Checkout and billing-portal sessions |
+| `STRIPE_WEBHOOK_SECRET` | Managed cloud only: verifies `/api/webhooks/stripe` before subscription changes |
+
+`STRIPE_ENVIRONMENT=test|live` is a non-secret Wrangler variable. It must match
+the Stripe keys and the `stripe_livemode` stored for each managed workspace.
 
 Use independent, high-entropy values for the three application secrets. For
 locally submitted Standard tasks, DataForSEO must be able to reach the Worker.
@@ -197,6 +204,11 @@ Use a deployed staging Worker or a secure public tunnel and set the workspace
 postback.
 
 ## Production deployment
+
+For a start-to-finish runbook—including fresh resource provisioning, exact
+Stripe secret placement, Stripe products/webhooks/customer portal, Cloudflare
+Access, existing-install migration, verification, and rollback—read
+[`docs/deployment-and-migration.md`](docs/deployment-and-migration.md).
 
 This repository deploys through GitHub and a protected `main` branch. Do not
 deploy production directly from a feature branch or local checkout.
@@ -262,12 +274,58 @@ to all 32 shards before invoking `wrangler deploy`. The lifecycle command
 replaces the lifecycle configuration of the `ai-tracker-evidence` bucket with
 the checked-in prefix-specific retention policy.
 
+Self-hosted mode is the repository default (`DEPLOYMENT_MODE=self_hosted` and
+`PAYMENT_MODE=disabled`). DataForSEO credentials stay in encrypted Worker
+secrets; Settings reports only whether they are present. They are never stored
+in D1 or sent to the browser.
+
+### Managed cloud mode
+
+Managed mode uses one platform DataForSEO account and sells Belki usage units,
+not DataForSEO credentials or API credits. The public monthly tiers are:
+
+| Plan | Price | Included units | Projects | Seats |
+|---|---:|---:|---:|---:|
+| Starter | €10 | 1,000 | 1 | Unlimited |
+| Studio | €29 | 5,000 | 5 | Unlimited |
+| Agency | €149 | 30,000 | 30 | Unlimited |
+
+Belki production is deployed with the non-secret `deployment/getbelki.json`
+profile, while `wrangler.jsonc` remains safe for self-hosters. Set
+`DEPLOYMENT_MODE=managed`, `PAYMENT_MODE=stripe_direct`, and the matching
+`STRIPE_ENVIRONMENT`; configure three
+separate Stripe Products with their monthly Price IDs, configure the action-only
+Customer Portal, and add the two Stripe secrets. `stripe_managed` remains an
+unsupported preview for plan changes. Signup is email-bound and one-use: a
+platform operator creates a URL through
+`POST /api/v1/operator/signup-codes`; unused codes can be revoked through the
+operator console. The workspace stays pending until a
+verified Stripe webhook activates it; cancelled and unpaid workspaces become
+read-only.
+
+Upgrades are confirmed in Stripe and prorated immediately. Downgrades are
+Belki-owned Subscription Schedules that take effect at renewal, so a lower
+allowance never hard-stops a customer halfway through the paid period. A
+downgrade is blocked until the active project count fits the target plan, and a
+pending downgrade can be replaced or cancelled.
+
+Protect `/api/v1/operator/*` with Cloudflare Access in managed deployments. The
+Worker additionally checks that the Access-authenticated email matches a row in
+`platform_operators`. Disable `workers.dev` and attach a custom production route
+before launching the managed service.
+
+Usage units are charged as follows: Standard prompt 1, priority/HTML prompt 2,
+Live prompt 4, entity-extraction chunk 1, and product enrichment 1. Reads,
+exports, alerts, and mirrored ad assets are unmetered. Reservations happen before
+paid work; accepted provider work is committed, while pre-submit failures and
+explicit provider rejections are released.
+
 ## Operations
 
 | Schedule | Responsibility |
 |---|---|
 | Every 5 minutes | Enqueue due prompts, recover stale prompt jobs, enqueue eligible product enrichments, and reconcile product-enrichment jobs |
-| Every minute | Recover missed ChatGPT and product postbacks, reconcile prompt purges, entity extraction and ad assets, and advance analytics backfills |
+| Every minute | Reconcile billing plan changes, recover missed ChatGPT and product postbacks, reconcile prompt purges, entity extraction and ad assets, and advance analytics backfills |
 | Daily at 03:00 UTC | Expire sessions, tokens, ingest events, jobs, indexes, and hot snapshots |
 | Sunday at 04:00 UTC | Refresh the DataForSEO locale catalog and reconcile metric outboxes |
 

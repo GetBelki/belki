@@ -705,6 +705,26 @@ automationRoutes.get("/settings/health", async (c) => {
       jobs: jobs.results,
       shards: shards.results,
       failedIngestEvents: dlq,
+      provider: {
+        dataForSeo: {
+          configured: Boolean(c.env.DATAFORSEO_LOGIN && c.env.DATAFORSEO_PASSWORD),
+          source: "worker_secret",
+          account: "Platform DataForSEO account",
+        },
+        stripe: {
+          configured: String(c.env.PAYMENT_MODE) === "disabled" || Boolean(
+            Reflect.get(c.env, "STRIPE_SECRET_KEY") &&
+            Reflect.get(c.env, "STRIPE_WEBHOOK_SECRET") &&
+            c.env.STRIPE_STARTER_PRICE_ID &&
+            c.env.STRIPE_STUDIO_PRICE_ID &&
+            c.env.STRIPE_AGENCY_PRICE_ID &&
+            (String(c.env.PAYMENT_MODE) !== "stripe_direct" || c.env.STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID),
+          ),
+          mode: String(c.env.PAYMENT_MODE),
+          planChangesEnabled: String(c.env.BILLING_PLAN_CHANGES_ENABLED) === "true",
+          source: "worker_secret",
+        },
+      },
     },
   });
 });

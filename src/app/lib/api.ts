@@ -119,6 +119,16 @@ export interface Session {
   workspace: {
     id: string;
     name: string;
+    status: "pending_payment" | "active" | "read_only" | "suspended";
+    plan_key: string;
   };
+  workspaces: Array<{
+    id: string;
+    name: string;
+    status: "pending_payment" | "active" | "read_only" | "suspended";
+    plan_key: string;
+    role: "owner" | "admin" | "editor" | "viewer";
+  }>;
   projects: Project[];
+  isPlatformOperator: boolean;
 }

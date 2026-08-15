@@ -3,6 +3,7 @@ node_modules/
 dist/
 coverage/
 .wrangler/
+.wrangler.*.generated.jsonc
 .dev.vars*
 .env*
 !.dev.vars.example

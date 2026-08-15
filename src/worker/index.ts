@@ -15,6 +15,8 @@ import { analyticsRoutes } from "./routes/analytics";
 import { adsRoutes } from "./routes/ads";
 import { authRoutes } from "./routes/auth";
 import { coreRoutes } from "./routes/core";
+import { onboardingRoutes } from "./routes/onboarding";
+import { billingRoutes, handleStripeWebhook, reconcileBillingPlanChanges } from "./routes/billing";
 import type { AppEnv } from "./lib/app";
 import { authMiddleware } from "./lib/auth";
 import { errorResponse, nowIso, requestId } from "./lib/http";
@@ -51,6 +53,8 @@ import {
   reconcileEntityExtractionJobs,
 } from "./automation/entity-extraction";
 import { adAssetBatch, reconcileAdAssets } from "./automation/ad-assets";
+
+export { WorkspaceUsageGate } from "./durable-objects/workspace-usage-gate";
 
 const app = new Hono<AppEnv>();
 
@@ -95,7 +99,7 @@ app.post("/api/webhooks/dataforseo/chatgpt", async (c) => {
   const jobId = await verifySignedJobTag(tag, c.env.APP_CRYPTO_KEY);
   if (!jobId) return c.text("unauthorized", 401);
   const job = await c.env.CONTROL_DB.prepare(
-    `SELECT job.id
+    `SELECT job.id, job.workspace_id, job.project_id
      FROM crawl_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
      WHERE job.id = ? AND job.provider_tag = ?
@@ -106,7 +110,7 @@ app.post("/api/webhooks/dataforseo/chatgpt", async (c) => {
        )`,
   )
     .bind(jobId, tag)
-    .first<{ id: string }>();
+    .first<{ id: string; workspace_id: string; project_id: string }>();
   if (!job) return c.text("not found", 404);
   const contentLength = Number(c.req.header("content-length") ?? "0");
   if (contentLength > 20 * 1024 * 1024) return c.text("payload too large", 413);
@@ -115,7 +119,7 @@ app.post("/api/webhooks/dataforseo/chatgpt", async (c) => {
   const contentEncoding = c.req.header("content-encoding")?.toLowerCase().includes("gzip")
     ? "gzip"
     : "identity";
-  const rawKey = `raw/${new Date().toISOString().slice(0, 7)}/${taskId}.json${
+  const rawKey = `raw/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${taskId}.json${
     contentEncoding === "gzip" ? ".gz" : ""
   }`;
   await c.env.EVIDENCE_BUCKET.put(rawKey, c.req.raw.body, {
@@ -185,8 +189,12 @@ app.post("/api/webhooks/dataforseo/product-info", async (c) => {
   return accepted ? c.text("accepted", 202) : c.text("not found", 404);
 });
 
+app.post("/api/webhooks/stripe", handleStripeWebhook);
+
 app.use("/api/v1/*", authMiddleware);
 app.route("/api/v1", authRoutes);
+app.route("/api/v1", onboardingRoutes);
+app.route("/api/v1", billingRoutes);
 app.route("/api/v1", coreRoutes);
 app.route("/api/v1", analyticsRoutes);
 app.route("/api/v1", adsRoutes);
@@ -265,6 +273,7 @@ async function scheduled(
     metrics.enqueuedProductEnrichments = await enqueueDueProductEnrichments(env);
     metrics.reconciledProductEnrichmentJobs = await reconcileProductEnrichmentJobs(env);
   } else if (event.cron === "* * * * *") {
+    metrics.reconciledBillingPlanChanges = await reconcileBillingPlanChanges(env);
     metrics.recoveredPostbacks = await collectReadyTasks(env);
     metrics.recoveredProductInfoPostbacks = await collectReadyProductInfoTasks(env);
     metrics.reconciledPromptPurges = await reconcilePromptPurges(env);

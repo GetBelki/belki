@@ -2,7 +2,7 @@ import { createMiddleware } from "hono/factory";
 import { deleteCookie, getCookie, setCookie } from "hono/cookie";
 import type { Context } from "hono";
 import type { AppEnv } from "./app";
-import type { Principal, Role } from "../../shared/contracts";
+import type { Principal, Role, WorkspaceStatus } from "../../shared/contracts";
 import { ApiError, nowIso } from "./http";
 import { randomToken, sha256, timingSafeTextEqual } from "./crypto";
 
@@ -21,14 +21,24 @@ interface SessionRow {
   expires_at: string;
   last_seen_at: string;
   status: string;
+  workspace_status: WorkspaceStatus;
 }
 
 const PUBLIC_PATHS = new Set([
   "/api/v1/status",
   "/api/v1/setup",
   "/api/v1/auth/login",
+  "/api/v1/auth/signup/redeem",
   "/api/v1/auth/invitations/accept",
+  "/api/v1/auth/password-reset/request",
   "/api/v1/auth/password-reset/complete",
+]);
+
+const READ_ONLY_MUTATION_PATHS = new Set([
+  "/api/v1/auth/logout",
+  "/api/v1/auth/workspaces/select",
+  "/api/v1/billing/checkout",
+  "/api/v1/billing/management-session",
 ]);
 
 export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
@@ -45,11 +55,16 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
     c.env.CONTROL_DB.prepare(
       `SELECT
         s.id AS session_id, s.user_id, m.workspace_id, u.email, u.display_name,
-        m.role, s.csrf_hash, s.expires_at, s.last_seen_at, u.status
+        m.role, s.csrf_hash, s.expires_at, s.last_seen_at, u.status,
+        w.status AS workspace_status
       FROM sessions s
       JOIN users u ON u.id = s.user_id
-      JOIN memberships m ON m.user_id = u.id
+      JOIN memberships m
+        ON m.user_id = u.id AND m.workspace_id = s.active_workspace_id
+      JOIN workspaces w ON w.id = m.workspace_id
       WHERE s.token_hash = ?
+        AND m.status = 'active'
+        AND w.status != 'deleted'
       LIMIT 1`,
     )
       .bind(tokenHash)
@@ -81,8 +96,20 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
     email: row.email,
     displayName: row.display_name,
     role: row.role,
+    workspaceStatus: row.workspace_status,
   };
   c.set("principal", principal);
+
+  if (
+    !["GET", "HEAD", "OPTIONS"].includes(c.req.method) &&
+    row.workspace_status !== "active" &&
+    !READ_ONLY_MUTATION_PATHS.has(c.req.path)
+  ) {
+    if (row.workspace_status === "pending_payment") {
+      throw new ApiError(402, "payment_required", "Complete checkout to activate this workspace.");
+    }
+    throw new ApiError(403, "read_only", "This workspace is read-only.");
+  }
   await next();
 
   const lastSeenAt = Date.parse(row.last_seen_at);
@@ -105,7 +132,25 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   }
 });
 
-export async function createSession(c: Context<AppEnv>, userId: string): Promise<void> {
+export async function createSession(
+  c: Context<AppEnv>,
+  userId: string,
+  requestedWorkspaceId?: string,
+): Promise<void> {
+  const membership = await c.env.CONTROL_DB.prepare(
+    `SELECT membership.workspace_id
+     FROM memberships membership
+     JOIN workspaces workspace ON workspace.id = membership.workspace_id
+     WHERE membership.user_id = ? AND membership.status = 'active'
+       AND workspace.status != 'deleted'
+       AND (? IS NULL OR membership.workspace_id = ?)
+     ORDER BY membership.created_at, membership.workspace_id
+     LIMIT 1`,
+  ).bind(userId, requestedWorkspaceId ?? null, requestedWorkspaceId ?? null)
+    .first<{ workspace_id: string }>();
+  if (!membership) {
+    throw new ApiError(403, "workspace_access_required", "No accessible workspace was found.");
+  }
   const token = randomToken();
   const csrf = randomToken();
   const now = new Date();
@@ -113,8 +158,9 @@ export async function createSession(c: Context<AppEnv>, userId: string): Promise
   const ip = c.req.header("cf-connecting-ip");
   await c.env.CONTROL_DB.prepare(
     `INSERT INTO sessions (
-      id, user_id, token_hash, csrf_hash, expires_at, created_at, last_seen_at, ip_hash, user_agent
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      id, user_id, token_hash, csrf_hash, expires_at, created_at, last_seen_at,
+      ip_hash, user_agent, active_workspace_id
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       crypto.randomUUID(),
@@ -126,6 +172,7 @@ export async function createSession(c: Context<AppEnv>, userId: string): Promise
       now.toISOString(),
       ip ? await sha256(ip) : null,
       c.req.header("user-agent")?.slice(0, 500) ?? null,
+      membership.workspace_id,
     )
     .run();
 
