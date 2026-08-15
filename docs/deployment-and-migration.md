@@ -71,6 +71,10 @@ Belki production uses `deployment/getbelki.json`, a non-secret overlay on the
 safe self-hosted `wrangler.jsonc`. This avoids turning the open-source default
 into a live managed-billing deployment.
 
+**Complete this section before pushing the first release branch.** A branch
+build that runs `wrangler deploy` without a separate preview Worker can replace
+the production Worker even when the GitHub pull request is still a draft.
+
 Configure **Worker → Settings → Build**:
 
 | Setting | Value |
@@ -80,6 +84,10 @@ Configure **Worker → Settings → Build**:
 | Build command | `pnpm build` |
 | Deploy command | `pnpm deploy:getbelki` |
 | Non-production builds | Disabled |
+
+Save the settings, then verify that the dashboard identifies `main` as the
+only production branch and shows branch/preview builds as disabled. Do not
+open or update the release PR until both conditions are visible.
 
 GitHub Actions validates pull requests but does not have deployment
 credentials. Cloudflare deploys only after a reviewed PR is merged into
@@ -154,6 +162,12 @@ Cloudflare runs `pnpm deploy:getbelki`, which applies:
 If migrations succeed but upload fails, the old Worker remains compatible with
 the additive schema. Fix the build and redeploy the same Git SHA; do not restore
 D1 merely because the upload failed.
+
+Cloudflare Durable Object migrations are forward-only. After `v1` has ever
+been uploaded, an older Worker version that does not declare
+`WorkspaceUsageGate` cannot be selected with `wrangler rollback`. A recovery
+build must retain the `WorkspaceUsageGate` export, binding, and `v1` migration
+metadata even if it otherwise uses the pre-foundation application code.
 
 ### 3.3 Verify the migration
 
@@ -478,7 +492,7 @@ Normal changes always use Git. If Cloudflare's build fails:
 
 1. Confirm there is no active/concurrent build.
 2. Confirm the clean checkout is the exact merged `main` SHA.
-3. Run all validation again.
+3. Run `pnpm check`, `pnpm types:check`, and `pnpm build` again.
 4. With explicit production approval, run `pnpm deploy:getbelki`.
 5. Record the resulting Worker version and keep Git/Cloudflare aligned.
 
