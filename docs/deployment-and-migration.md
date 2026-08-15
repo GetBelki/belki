@@ -390,6 +390,11 @@ cannot accidentally reconcile it.
 Activate and secure the default portal in Stripe live mode. Explicit live
 confirmation is mandatory for helper mutations:
 
+Live configuration is blocked until the default portal contains published
+HTTPS privacy-policy and terms-of-service URLs. Sandbox testing may proceed
+while those pages are being prepared, but customer invitations and live
+activation may not.
+
 ```bash
 pnpm stripe:configure -- \
   --live \

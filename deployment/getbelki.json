@@ -5,13 +5,13 @@
     { "pattern": "app.getbelki.com", "custom_domain": true }
   ],
   "vars": {
-    "DEPLOYMENT_MODE": "self_hosted",
-    "PAYMENT_MODE": "disabled",
-    "BILLING_PLAN_CHANGES_ENABLED": "false",
+    "DEPLOYMENT_MODE": "managed",
+    "PAYMENT_MODE": "stripe_direct",
+    "BILLING_PLAN_CHANGES_ENABLED": "true",
     "STRIPE_ENVIRONMENT": "test",
-    "STRIPE_STARTER_PRICE_ID": "",
-    "STRIPE_STUDIO_PRICE_ID": "",
-    "STRIPE_AGENCY_PRICE_ID": "",
-    "STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID": ""
+    "STRIPE_STARTER_PRICE_ID": "price_1U4NvfPRi2lfhBgR4lJrKROF",
+    "STRIPE_STUDIO_PRICE_ID": "price_1U4QxrPRi2lfhBgRZWdS6YpN",
+    "STRIPE_AGENCY_PRICE_ID": "price_1U4Qy0PRi2lfhBgR5GCixXh8",
+    "STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID": "bpc_1U4jskPRi2lfhBgRUXIefjua"
   }
 }
