@@ -1,5 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  ArrowRight,
   ChartNoAxesCombined,
   LayoutDashboard,
   LogOut,
@@ -213,18 +214,19 @@ export function PageHeader({
 }
 
 export function NoProject() {
+  const { session } = useApp();
+  const canCreate = session.user.role !== "viewer";
   return (
-    <div className="page">
-      <PageHeader
-        title="Start with a project"
-        description="Projects connect your brand, competitors, and tracked prompts."
-      />
-      <div className="welcome-panel">
-        <ChartNoAxesCombined size={30} />
-        <h2>No project selected</h2>
-        <p>Create a project from Settings to begin collecting ChatGPT web visibility data.</p>
-        <Button asChild><NavLink to="/settings">Open settings</NavLink></Button>
+    <section className="project-required-state">
+      <span className="project-required-icon"><ChartNoAxesCombined size={24} /></span>
+      <div>
+        <span className="eyebrow">First step</span>
+        <h2>Create your first project</h2>
+        <p>{canCreate
+          ? "Connect a brand and website before adding the prompts you want Belki to monitor."
+          : "Ask a workspace editor or administrator to create a project before monitoring can begin."}</p>
       </div>
-    </div>
+      {canCreate ? <Button asChild><NavLink to="/onboarding/project">Create project <ArrowRight size={16} /></NavLink></Button> : null}
+    </section>
   );
 }

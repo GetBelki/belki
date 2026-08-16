@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   CalendarDays,
+  Check,
   CircleDollarSign,
   Gauge,
   ReceiptText,
@@ -22,6 +23,7 @@ import { Button, Card, CardHeader, DataTable, Dialog, EmptyState, Input, Label, 
 import { useApp } from "../context";
 import { ApiClientError, api, patch, post, remove } from "../lib/api";
 import { formatProviderCost } from "../lib/snapshot-evidence";
+import { onboardingDestination } from "../lib/onboarding-navigation";
 import { compact } from "../lib/utils";
 
 type BillingPeriod = "30d" | "month";
@@ -145,18 +147,19 @@ function billingError(...errors: Array<unknown>): string | null {
   return error instanceof ApiClientError ? error.message : "Billing could not be updated. Try again or contact support.";
 }
 
-function ManagedBillingPanel() {
+function ManagedBillingPanel({
+  summary,
+  summaryPending,
+}: {
+  summary: ManagedBillingSummary | undefined;
+  summaryPending: boolean;
+}) {
   const { session } = useApp();
   const queryClient = useQueryClient();
   const [billingParams, setBillingParams] = useSearchParams();
   const [selectedPlan, setSelectedPlan] = useState<ManagedPlanKey | null>(null);
   const [cancelOpen, setCancelOpen] = useState(false);
   const processing = billingParams.get("checkout") === "success" || billingParams.get("plan_change") === "processing" || billingParams.get("cancellation") === "processing";
-  const summary = useQuery({
-    queryKey: ["managed-billing-summary"],
-    queryFn: () => api<ManagedBillingSummary>("/billing/summary"),
-    refetchInterval: processing ? 2_000 : false,
-  });
   const checkout = useMutation({
     mutationFn: (planKey: ManagedPlanKey) =>
       post<{ url: string }>("/billing/checkout", { planKey }),
@@ -192,7 +195,7 @@ function ManagedBillingPanel() {
   });
 
   useEffect(() => {
-    const value = summary.data;
+    const value = summary;
     if (!value || !processing) return;
     const expectedPlan = billingParams.get("expected_plan");
     const planFinished = billingParams.get("plan_change") === "processing" && expectedPlan === value.planKey;
@@ -205,11 +208,16 @@ function ManagedBillingPanel() {
     next.delete("cancellation");
     next.delete("checkout");
     setBillingParams(next, { replace: true });
-  }, [billingParams, processing, setBillingParams, summary.data]);
+    if (checkoutFinished) {
+      void queryClient.invalidateQueries({ queryKey: ["session"] }).then(() => {
+        window.location.assign(onboardingDestination(value.usage.projectCount));
+      });
+    }
+  }, [billingParams, processing, queryClient, setBillingParams, summary]);
 
-  if (summary.isPending) return <Skeleton className="billing-chart-skeleton" />;
-  if (!summary.data) return null;
-  const value = summary.data;
+  if (summaryPending) return <Skeleton className="billing-chart-skeleton" />;
+  if (!summary) return null;
+  const value = summary;
   const managed = value.paymentMode !== "disabled";
   const owner = session.user.role === "owner";
   const activeSubscription = value.subscriptionStatus !== "pending" && value.subscriptionStatus !== "cancelled";
@@ -223,19 +231,27 @@ function ManagedBillingPanel() {
     cancelSubscription.error,
     reactivate.error,
   );
+  const pendingPayment = value.subscriptionStatus === "pending";
   return (
-    <Card className="billing-chart-card">
-      <CardHeader
+    <section className={pendingPayment ? "pricing-shell" : "subscription-panel"}>
+      {pendingPayment ? (
+        <div className="pricing-intro">
+          <span className="eyebrow">Choose your plan</span>
+          <h1>Start measuring your AI visibility.</h1>
+          <p>Every plan includes all visibility reports, source evidence, and unlimited teammates. Choose by tracking volume.</p>
+        </div>
+      ) : null}
+      {!pendingPayment ? <CardHeader
         title={managed ? "Belki subscription" : "Self-hosted allowance"}
         description={`${compact(value.usage.committed)} committed + ${compact(value.usage.reserved)} reserved of ${compact(value.usage.allowance)} units this cycle`}
         action={managed && value.subscriptionStatus !== "pending" && owner
           ? <Button variant="secondary" disabled={portal.isPending} onClick={() => portal.mutate()}>Manage subscription</Button>
           : undefined}
-      />
-      <div className="billing-summary-grid">
+      /> : null}
+      {!pendingPayment ? <div className="billing-summary-grid subscription-summary-grid">
         <BillingMetric label="Remaining units" value={compact(value.usage.remaining)} detail={`Resets ${new Date(value.cycleEndsAt).toLocaleDateString()}`} icon={<Gauge size={18}/>} />
         <BillingMetric label="Projects" value={`${value.usage.projectCount} / ${value.usage.projectLimit}`} detail="Seats are unlimited" icon={<ReceiptText size={18}/>} />
-      </div>
+      </div> : null}
       {value.stripeEnvironment === "test" ? (
         <div className="billing-warning" role="status">
           <AlertTriangle size={17} />
@@ -261,14 +277,22 @@ function ManagedBillingPanel() {
         </div>
       ) : null}
       {managed && owner && (value.subscriptionStatus === "pending" || changeableSubscription) ? (
-        <div className="billing-breakdown-grid">
+        <div className={pendingPayment ? "pricing-grid" : "plan-comparison-grid"}>
           {value.plans.map((plan) => (
-            <Card className="billing-breakdown-card" key={plan.key}>
-              <div><strong>{planLabel(plan.key)}</strong><span>{compact(plan.monthlyUnits)} units · {plan.projectLimit} projects · unlimited seats</span></div>
-              <div>
-                <strong>€{plan.priceEur}/month</strong>
+            <article className={`pricing-card${plan.key === "studio" ? " pricing-card-featured" : ""}`} key={plan.key}>
+              {plan.key === "studio" ? <span className="pricing-popular">Most popular</span> : null}
+              <div className="pricing-card-heading">
+                <strong>{planLabel(plan.key)}</strong>
+                <span><b>€{plan.priceEur}</b> / month</span>
+              </div>
+              <ul>
+                <li><Check size={15} /> {compact(plan.monthlyUnits)} tracking units</li>
+                <li><Check size={15} /> {plan.projectLimit} {plan.projectLimit === 1 ? "project" : "projects"}</li>
+                <li><Check size={15} /> Unlimited teammates</li>
+              </ul>
+              <div className="pricing-card-action">
                 {value.subscriptionStatus === "pending" ? (
-                  <Button disabled={checkout.isPending} onClick={() => checkout.mutate(plan.key)}>Choose</Button>
+                  <Button disabled={checkout.isPending} onClick={() => checkout.mutate(plan.key)}>Choose {planLabel(plan.key)}</Button>
                 ) : plan.changeKind === "current" ? (
                   <Button disabled>Current</Button>
                 ) : (
@@ -281,7 +305,7 @@ function ManagedBillingPanel() {
                   </Button>
                 )}
               </div>
-            </Card>
+            </article>
           ))}
         </div>
       ) : null}
@@ -341,7 +365,8 @@ function ManagedBillingPanel() {
           </div>
         </div>
       </Dialog>
-    </Card>
+      {pendingPayment ? <p className="pricing-footnote">Secure checkout by Stripe. Cancel any time at the end of your billing period.</p> : null}
+    </section>
   );
 }
 
@@ -387,6 +412,20 @@ export default function BillingPage() {
   const { projectId, projects } = useApp();
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const processing = searchParams.get("checkout") === "success"
+    || searchParams.get("plan_change") === "processing"
+    || searchParams.get("cancellation") === "processing";
+  const subscription = useQuery({
+    queryKey: ["managed-billing-summary"],
+    queryFn: () => api<ManagedBillingSummary>("/billing/summary"),
+    refetchInterval: processing ? 2_000 : false,
+  });
+  const managed = subscription.data?.paymentMode !== "disabled";
+  const pendingPayment = subscription.data?.subscriptionStatus === "pending";
+  const requestedTab = searchParams.get("tab");
+  const billingTab: "plan" | "usage" = requestedTab === "plan" || requestedTab === "usage"
+    ? requestedTab
+    : managed ? "plan" : "usage";
   const requestedPeriod = searchParams.get("period");
   const period: BillingPeriod = requestedPeriod === "month" ? "month" : "30d";
   const requestedProject = searchParams.get("project");
@@ -399,12 +438,12 @@ export default function BillingPage() {
       api<BillingReport>(
         `/analytics/billing?period=${period}${billingProjectId ? `&projectId=${billingProjectId}` : ""}`,
       ),
-    enabled: Boolean(projectId),
+    enabled: Boolean(projectId) && subscription.isSuccess && billingTab === "usage",
   });
   const billingAlerts = useQuery({
     queryKey: ["billing-alerts", billingProjectId],
     queryFn: () => api<BillingAlerts>(`/projects/${billingProjectId}/billing-alerts`),
-    enabled: Boolean(billingProjectId),
+    enabled: Boolean(billingProjectId) && billingTab === "usage",
   });
   const updateAlerts = useMutation({
     mutationFn: (body: {
@@ -419,14 +458,6 @@ export default function BillingPage() {
     },
   });
 
-  if (!projectId) return (
-    <div className="page">
-      <PageHeader title="Billing" description="Subscription, allowance, and provider usage." />
-      <ManagedBillingPanel />
-      <NoProject />
-    </div>
-  );
-
   const setPeriod = (value: BillingPeriod) => {
     const next = new URLSearchParams(searchParams);
     if (value === "30d") next.delete("period");
@@ -437,6 +468,12 @@ export default function BillingPage() {
     const next = new URLSearchParams(searchParams);
     if (value === "all") next.delete("project");
     else next.set("project", value);
+    setSearchParams(next, { replace: true });
+  };
+  const setBillingTab = (value: "plan" | "usage") => {
+    const next = new URLSearchParams(searchParams);
+    if ((managed && value === "plan") || (!managed && value === "usage")) next.delete("tab");
+    else next.set("tab", value);
     setSearchParams(next, { replace: true });
   };
   const warningSubmit = (event: React.FormEvent<HTMLFormElement>) => {
@@ -452,34 +489,62 @@ export default function BillingPage() {
   const selectedProjectName = projects.find((project) => project.id === billingProjectId)?.name;
   const exceededAlerts = report.data?.projectAlerts.filter((alert) => alert.exceeded) ?? [];
 
+  if (subscription.isPending) return (
+    <div className="page billing-page"><Skeleton className="billing-page-skeleton" /></div>
+  );
+
+  if (subscription.isError || !subscription.data) return (
+    <div className="page billing-page page-flow">
+      <PageHeader title="Billing" description="Subscription, allowance, and provider usage." />
+      <EmptyState
+        title="Billing could not be loaded"
+        description="Refresh the page to try again. Your subscription and usage data have not been changed."
+        action={<Button onClick={() => void subscription.refetch()} variant="secondary">Try again</Button>}
+      />
+    </div>
+  );
+
+  if (pendingPayment) return (
+    <div className="page billing-page pricing-page">
+      <ManagedBillingPanel summary={subscription.data} summaryPending={subscription.isPending} />
+    </div>
+  );
+
   return (
-    <div className="page">
+    <div className="page billing-page page-flow">
       <PageHeader
-        eyebrow="Provider usage"
         title="Billing"
-        description={billingProjectId
+        description={billingTab === "plan"
+          ? managed ? "Manage your plan, allowance, and subscription changes." : "Review the allowance configured for this self-hosted workspace."
+          : billingProjectId
           ? `Provider charges and estimated inference costs for ${selectedProjectName}.`
           : "Workspace costs across every project, separated by workload."}
-        action={
-          <div className="billing-header-controls">
-            <Select
-              ariaLabel="Billing project scope"
-              value={billingProjectId ?? "all"}
-              onValueChange={setBillingProject}
-              options={[
-                { value: "all", label: "All projects" },
-                ...projects.map((project) => ({ value: project.id, label: project.name })),
-              ]}
-            />
-            <div className="billing-period-toggle" aria-label="Billing period">
-              <button aria-pressed={period === "30d"} className={period === "30d" ? "active" : undefined} onClick={() => setPeriod("30d")} type="button">Last 30 days</button>
-              <button aria-pressed={period === "month"} className={period === "month" ? "active" : undefined} onClick={() => setPeriod("month")} type="button">Current month</button>
-            </div>
-          </div>
-        }
       />
+      <div className="billing-tabs" role="tablist" aria-label="Billing view">
+        <button aria-selected={billingTab === "plan"} className={billingTab === "plan" ? "active" : undefined} onClick={() => setBillingTab("plan")} role="tab" type="button">{managed ? "Plan" : "Allowance"}</button>
+        <button aria-selected={billingTab === "usage"} className={billingTab === "usage" ? "active" : undefined} onClick={() => setBillingTab("usage")} role="tab" type="button">Usage</button>
+      </div>
 
-      <ManagedBillingPanel />
+      {billingTab === "plan" ? (
+        <ManagedBillingPanel summary={subscription.data} summaryPending={subscription.isPending} />
+      ) : !projectId ? (
+        <NoProject />
+      ) : <>
+      <div className="billing-usage-toolbar">
+        <Select
+          ariaLabel="Billing project scope"
+          value={billingProjectId ?? "all"}
+          onValueChange={setBillingProject}
+          options={[
+            { value: "all", label: "All projects" },
+            ...projects.map((project) => ({ value: project.id, label: project.name })),
+          ]}
+        />
+        <div className="billing-period-toggle" aria-label="Billing period">
+          <button aria-pressed={period === "30d"} className={period === "30d" ? "active" : undefined} onClick={() => setPeriod("30d")} type="button">Last 30 days</button>
+          <button aria-pressed={period === "month"} className={period === "month" ? "active" : undefined} onClick={() => setPeriod("month")} type="button">Current month</button>
+        </div>
+      </div>
 
       {exceededAlerts.length ? (
         <div className="billing-warning" role="status">
@@ -735,6 +800,7 @@ export default function BillingPage() {
           ) : <p className="muted">Warning settings could not be loaded.</p>}
         </Card>
       ) : null}
+      </>}
     </div>
   );
 }

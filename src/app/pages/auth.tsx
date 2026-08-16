@@ -84,6 +84,7 @@ export function SetupPage() {
 export function LoginPage() {
   const queryClient = useQueryClient();
   const [error, setError] = useState("");
+  const [resetMode, setResetMode] = useState(false);
   const [resetRequested, setResetRequested] = useState(false);
   const login = useMutation({
     mutationFn: (body: { email: string; password: string }) => post("/auth/login", body),
@@ -108,25 +109,29 @@ export function LoginPage() {
     requestReset.mutate(formText(new FormData(event.currentTarget), "email"));
   };
   return (
-    <AuthShell title="Sign in" description="Continue to your ChatGPT visibility workspace.">
+    <AuthShell
+      title={resetMode ? "Reset your password" : "Sign in"}
+      description={resetMode ? "Enter your account email and we’ll send a one-hour reset link." : "Continue to your AI visibility workspace."}
+    >
       {resetRequested ? (
-        <div className="success-panel"><CheckCircle2/><p>If that account exists, a reset link has been sent.</p><Button onClick={() => setResetRequested(false)}>Back to sign in</Button></div>
+        <div className="success-panel auth-success-panel"><CheckCircle2/><div><strong>Check your inbox</strong><p>If that account exists, a reset link has been sent.</p></div><Button onClick={() => { setResetRequested(false); setResetMode(false); }}>Back to sign in</Button></div>
+      ) : resetMode ? (
+        <form className="form-stack auth-primary-form" onSubmit={resetSubmit}>
+          <div><Label>Email</Label><Input name="email" type="email" placeholder="you@example.com" autoComplete="email" autoFocus required /></div>
+          {error ? <p className="form-error">{error}</p> : null}
+          <Button disabled={requestReset.isPending}>{requestReset.isPending ? "Sending…" : "Send reset link"}<ArrowRight size={16} /></Button>
+          <button className="auth-text-action" type="button" onClick={() => { setError(""); setResetMode(false); }}>Back to sign in</button>
+        </form>
       ) : (
-        <>
           <form className="form-stack" onSubmit={submit}>
-            <Label>Email</Label><Input name="email" type="email" autoComplete="email" required />
-            <Label>Password</Label><Input name="password" type="password" autoComplete="current-password" required />
+            <div><Label>Email</Label><Input name="email" type="email" autoComplete="email" autoFocus required /></div>
+            <div><Label>Password</Label><Input name="password" type="password" autoComplete="current-password" required /></div>
             {error ? <p className="form-error">{error}</p> : null}
             <Button disabled={login.isPending} type="submit">
               {login.isPending ? "Signing in…" : "Sign in"} <ArrowRight size={16} />
             </Button>
+            <button className="auth-text-action" type="button" onClick={() => { setError(""); setResetMode(true); }}>Forgot your password?</button>
           </form>
-          <form className="form-stack" onSubmit={resetSubmit}>
-            <Label hint="We will email a one-hour link">Forgot password?</Label>
-            <Input name="email" type="email" placeholder="you@example.com" required />
-            <Button variant="secondary" disabled={requestReset.isPending}>Send reset link</Button>
-          </form>
-        </>
       )}
     </AuthShell>
   );

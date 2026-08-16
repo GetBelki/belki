@@ -209,7 +209,7 @@ export default function SettingsPage() {
   ] : [];
 
   return (
-    <div className="page">
+    <div className="page settings-page page-flow">
       <PageHeader
         title="Settings"
         description={view === "project" && currentProject
