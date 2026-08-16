@@ -8,6 +8,7 @@ import { AcceptInvitePage, LoginPage, ResetPasswordPage, SetupPage, SignupPage }
 import { Skeleton } from "./components/ui";
 import { AppIcon } from "./components/app-icon";
 import { APP_NAME } from "./lib/branding";
+import { needsProjectOnboarding } from "./lib/onboarding-navigation";
 
 const OverviewPage = lazy(() =>
   import("./pages/main").then((module) => ({ default: module.OverviewPage })),
@@ -78,6 +79,12 @@ const UsersPage = lazy(() =>
 const BillingPage = lazy(() => import("./pages/billing"));
 const SettingsPage = lazy(() => import("./pages/settings"));
 const OperatorPage = lazy(() => import("./pages/operator"));
+const ProjectOnboardingPage = lazy(() =>
+  import("./pages/onboarding").then((module) => ({ default: module.ProjectOnboardingPage })),
+);
+const PromptOnboardingPage = lazy(() =>
+  import("./pages/onboarding").then((module) => ({ default: module.PromptOnboardingPage })),
+);
 
 export function App() {
   const location = useLocation();
@@ -108,11 +115,16 @@ export function App() {
   if (session.data.workspace.status === "pending_payment" && location.pathname !== "/billing") {
     return <Navigate to="/billing" replace />;
   }
+  if (needsProjectOnboarding(session.data, location.pathname)) {
+    return <Navigate to="/onboarding/project" replace />;
+  }
 
   return (
     <AppProvider session={session.data}>
       <Suspense fallback={<AppLoader />}>
         <Routes>
+          <Route path="/onboarding/project" element={<ProjectOnboardingPage />} />
+          <Route path="/onboarding/prompts" element={<PromptOnboardingPage />} />
           <Route element={<AppLayout />}>
             <Route index element={<OverviewPage />} />
             <Route path="/prompts" element={<PromptsPage />} />

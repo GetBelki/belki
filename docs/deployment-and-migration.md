@@ -452,9 +452,25 @@ Merge a dedicated profile-only PR with:
 
 Use only live Price/action-portal IDs. After Cloudflare reports the expected Git
 SHA/version, create one owner-controlled live invite and complete a Starter
-Checkout. Verify the signed webhook, active entitlement, invoice, automatic
-tax, and D1 state. Then cancel that smoke subscription, issue a full refund,
-wait for the deletion webhook, and archive the smoke workspace.
+Checkout. The browser must leave the pricing screen only after the signed
+webhook makes the subscription active, then open `/onboarding/project`.
+
+Complete the customer path before treating the release as healthy:
+
+1. Create the first project. Confirm the app advances to
+   `/onboarding/prompts`, not Settings or an empty dashboard.
+2. Add at least one prompt and confirm `/prompts` shows it. Also verify that
+   **Skip for now** reaches the project overview without an onboarding loop.
+3. Open Billing. Confirm managed workspaces default to **Plan**, **Usage** is a
+   separate view, and the Stripe management action opens the live portal.
+4. Confirm a self-hosted workspace defaults to **Usage** and labels the other
+   view **Allowance**; it must not show managed checkout actions.
+5. Open the operator console through Cloudflare Access. Create and revoke a
+   test invitation, and verify a workspace status change requires confirmation.
+
+Finally verify the signed webhook, active entitlement, invoice, automatic tax,
+and D1 state. Cancel that smoke subscription, issue a full refund, wait for the
+deletion webhook, and archive the smoke workspace.
 
 Do not issue customer invitations until this smoke test passes.
 

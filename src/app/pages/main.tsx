@@ -996,7 +996,7 @@ export function PromptsPage() {
     });
   };
   return (
-    <div className="page">
+    <div className="page prompts-page page-flow">
       <PageHeader title="Prompts" description="Prompts monitored against ChatGPT web Search mode." action={
         <div className="button-group">
           <Button asChild variant="secondary">
