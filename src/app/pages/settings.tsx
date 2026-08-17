@@ -12,6 +12,7 @@ import { useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { NoProject, PageHeader } from "../components/layout";
 import { DomainFavicon } from "../components/domain-favicon";
+import { TrackingSourceMark } from "../components/tracking-source-mark";
 import {
   Badge,
   Button,
@@ -301,11 +302,14 @@ export default function SettingsPage() {
             <section className="settings-section">
               <div className="settings-section-heading">
                 <div>
-                  <h2>Tracking sources</h2>
-                  <p>
-                    Choose where Belki tracks this project. Your plan supports up to {projectSettings.data?.trackingSourceLimit ?? 1} source{projectSettings.data?.trackingSourceLimit === 1 ? "" : "s"} per project.
-                  </p>
+                  <h2>AI platforms</h2>
+                  <p>Choose where Belki monitors your prompts, answers, and citations.</p>
                 </div>
+                {projectSettings.data ? (
+                  <span className="tracking-source-count">
+                    {projectSettings.data.trackingSources.length} of {projectSettings.data.trackingSourceLimit} active
+                  </span>
+                ) : null}
               </div>
               {projectSettings.isPending ? (
                 <Skeleton className="settings-feature-skeleton" />
@@ -316,29 +320,51 @@ export default function SettingsPage() {
                     const allowed = projectSettings.data.allowedTrackingSources.includes(source);
                     const deployed = projectSettings.data.availableTrackingSources.includes(source);
                     const atLimit = !selected && projectSettings.data.trackingSources.length >= projectSettings.data.trackingSourceLimit;
+                    const status = selected
+                      ? "Active"
+                      : !deployed
+                        ? "Coming soon"
+                        : !allowed
+                          ? "Upgrade"
+                          : atLimit
+                            ? "Limit reached"
+                            : "Available";
+                    const provider = source === "chatgpt" ? "OpenAI" : "Google";
                     return (
-                      <div className="tracking-source-row" key={source}>
-                        <div>
-                          <strong>{TRACKING_SOURCE_LABELS[source]}</strong>
-                          <span>{TRACKING_SOURCE_DESCRIPTIONS[source]}</span>
-                          {!allowed ? <small>{deployed ? "Upgrade your plan to enable this source." : "Not enabled on this deployment yet."}</small> : null}
+                      <div className={`tracking-source-row${selected ? " is-selected" : ""}`} key={source}>
+                        <div className={`tracking-source-mark tracking-source-mark-${source}`}>
+                          <TrackingSourceMark source={source} />
                         </div>
-                        <Switch
-                          ariaLabel={`${selected ? "Disable" : "Enable"} ${TRACKING_SOURCE_LABELS[source]}`}
-                          checked={selected}
-                          disabled={!canAdmin || (!selected && !allowed) || atLimit || updateTrackingSources.isPending || (selected && projectSettings.data.trackingSources.length === 1)}
-                          onCheckedChange={(checked) => {
-                            const next = checked
-                              ? [...projectSettings.data.trackingSources, source]
-                              : projectSettings.data.trackingSources.filter((item) => item !== source);
-                            updateTrackingSources.mutate(next);
-                          }}
-                        />
+                        <div className="tracking-source-copy">
+                          <div className="tracking-source-title">
+                            <strong>{TRACKING_SOURCE_LABELS[source]}</strong>
+                            <span className={`tracking-source-status tracking-source-status-${status.toLowerCase().replace(" ", "-")}`}>
+                              {status}
+                            </span>
+                          </div>
+                          <span><span className="tracking-source-provider">{provider}</span> · {TRACKING_SOURCE_DESCRIPTIONS[source]}</span>
+                        </div>
+                        <div className="tracking-source-control">
+                          <Switch
+                            ariaLabel={`${selected ? "Disable" : "Enable"} ${TRACKING_SOURCE_LABELS[source]}`}
+                            checked={selected}
+                            disabled={!canAdmin || !deployed || (!selected && !allowed) || atLimit || updateTrackingSources.isPending || (selected && projectSettings.data.trackingSources.length === 1)}
+                            onCheckedChange={(checked) => {
+                              const next = checked
+                                ? [...projectSettings.data.trackingSources, source]
+                                : projectSettings.data.trackingSources.filter((item) => item !== source);
+                              updateTrackingSources.mutate(next);
+                            }}
+                          />
+                        </div>
                       </div>
                     );
                   })}
                 </div>
               ) : null}
+              <p className="tracking-source-footnote">
+                Each active platform runs your enabled prompts independently.
+              </p>
               {updateTrackingSources.isError ? <p className="form-error">{updateTrackingSources.error.message}</p> : null}
             </section>
             <section className="settings-section">
