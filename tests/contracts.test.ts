@@ -13,6 +13,9 @@ import {
   BillingCheckoutSchema,
   BillingCancellationSchema,
   BillingPlanChangeSchema,
+  BillingPlanChangePreviewSchema,
+  ProjectTrackingSourcesSchema,
+  TrackingSourceSchema,
   WorkspaceUpdateSchema,
 } from "../src/shared/contracts";
 
@@ -51,7 +54,16 @@ describe("API contracts", () => {
       replacePending: true,
     });
     expect(BillingPlanChangeSchema.safeParse({ planKey: "self_hosted" }).success).toBe(false);
+    expect(BillingPlanChangePreviewSchema.parse({ planKey: "starter" })).toEqual({ planKey: "starter" });
     expect(BillingCancellationSchema.parse({})).toEqual({ replacePending: false });
+  });
+
+  it("validates project tracking source selections", () => {
+    expect(TrackingSourceSchema.parse("google_ai_overview")).toBe("google_ai_overview");
+    expect(ProjectTrackingSourcesSchema.parse({ sources: ["chatgpt", "gemini", "chatgpt"] }))
+      .toEqual({ sources: ["chatgpt", "gemini"] });
+    expect(ProjectTrackingSourcesSchema.safeParse({ sources: [] }).success).toBe(false);
+    expect(ProjectTrackingSourcesSchema.safeParse({ sources: ["claude"] }).success).toBe(false);
   });
 
   it("trims workspace names and rejects blank names", () => {

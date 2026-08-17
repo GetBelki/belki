@@ -1,4 +1,4 @@
-import type { RollupQueueMessage } from "../../shared/contracts";
+import type { RollupQueueMessage, TrackingSource } from "../../shared/contracts";
 import { nowIso } from "../lib/http";
 import { getShard } from "../lib/shards";
 import { evaluateSnapshotAlerts } from "../automation/alerts";
@@ -26,6 +26,8 @@ interface MetricPayload {
   totalCitations: number;
   domains: Record<string, DomainMetric>;
   brands: string[];
+  trackingSource: TrackingSource;
+  surfacePresentRuns: number;
 }
 
 export async function applyRollup(
@@ -45,17 +47,20 @@ export async function applyRollup(
 
   const insert = await env.CONTROL_DB.prepare(
     `INSERT OR IGNORE INTO metric_contributions (
-      snapshot_id, project_id, tracked_query_id, metric_date, completed_runs,
+      snapshot_id, project_id, tracked_query_id, tracking_source,
+      metric_date, completed_runs, surface_present_runs,
       cited_runs, brand_mentioned_runs, product_runs, total_citations,
       domains_json, brands_json, created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   )
     .bind(
       payload.snapshotId,
       payload.projectId,
       payload.trackedQueryId,
+      payload.trackingSource,
       payload.metricDate,
       payload.completedRuns,
+      payload.surfacePresentRuns,
       payload.citedRuns,
       payload.brandMentionedRuns,
       payload.productRuns,
@@ -69,12 +74,14 @@ export async function applyRollup(
   if (insert.meta.changes > 0) {
     const statements: D1PreparedStatement[] = [
       env.CONTROL_DB.prepare(
-        `INSERT INTO daily_project_metrics (
-          project_id, metric_date, completed_runs, cited_runs,
+        `INSERT INTO daily_source_project_metrics (
+          project_id, tracking_source, metric_date, completed_runs,
+          surface_present_runs, cited_runs,
           brand_mentioned_runs, product_runs, total_citations, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        ON CONFLICT(project_id, metric_date) DO UPDATE SET
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ON CONFLICT(project_id, tracking_source, metric_date) DO UPDATE SET
           completed_runs = completed_runs + excluded.completed_runs,
+          surface_present_runs = surface_present_runs + excluded.surface_present_runs,
           cited_runs = cited_runs + excluded.cited_runs,
           brand_mentioned_runs = brand_mentioned_runs + excluded.brand_mentioned_runs,
           product_runs = product_runs + excluded.product_runs,
@@ -82,8 +89,10 @@ export async function applyRollup(
           updated_at = excluded.updated_at`,
       ).bind(
         payload.projectId,
+        payload.trackingSource,
         payload.metricDate,
         payload.completedRuns,
+        payload.surfacePresentRuns,
         payload.citedRuns,
         payload.brandMentionedRuns,
         payload.productRuns,
@@ -94,11 +103,12 @@ export async function applyRollup(
     for (const [domain, metrics] of Object.entries(payload.domains)) {
       statements.push(
         env.CONTROL_DB.prepare(
-          `INSERT INTO daily_domain_metrics (
-            project_id, metric_date, domain, cited_snapshot_count, citation_count,
+          `INSERT INTO daily_source_domain_metrics (
+            project_id, tracking_source, metric_date, domain,
+            cited_snapshot_count, citation_count,
             retrieved_snapshot_count, retrieval_count, product_count, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(project_id, metric_date, domain) DO UPDATE SET
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(project_id, tracking_source, metric_date, domain) DO UPDATE SET
             cited_snapshot_count = cited_snapshot_count + excluded.cited_snapshot_count,
             citation_count = citation_count + excluded.citation_count,
             retrieved_snapshot_count = retrieved_snapshot_count + excluded.retrieved_snapshot_count,
@@ -107,6 +117,7 @@ export async function applyRollup(
             updated_at = excluded.updated_at`,
         ).bind(
           payload.projectId,
+          payload.trackingSource,
           payload.metricDate,
           domain,
           metrics.citedSnapshotCount,
@@ -121,14 +132,89 @@ export async function applyRollup(
     for (const brandId of payload.brands) {
       statements.push(
         env.CONTROL_DB.prepare(
-          `INSERT INTO daily_brand_metrics (
-            project_id, tracked_brand_id, metric_date, mentioned_snapshot_count, updated_at
-          ) VALUES (?, ?, ?, 1, ?)
-          ON CONFLICT(project_id, tracked_brand_id, metric_date) DO UPDATE SET
+          `INSERT INTO daily_source_brand_metrics (
+            project_id, tracking_source, tracked_brand_id, metric_date,
+            mentioned_snapshot_count, updated_at
+          ) VALUES (?, ?, ?, ?, 1, ?)
+          ON CONFLICT(project_id, tracking_source, tracked_brand_id, metric_date) DO UPDATE SET
             mentioned_snapshot_count = mentioned_snapshot_count + 1,
             updated_at = excluded.updated_at`,
-        ).bind(payload.projectId, brandId, payload.metricDate, nowIso()),
+        ).bind(
+          payload.projectId,
+          payload.trackingSource,
+          brandId,
+          payload.metricDate,
+          nowIso(),
+        ),
       );
+    }
+    // The original read model remains the ChatGPT compatibility view while the
+    // source-aware analytics endpoints are introduced incrementally.
+    if (payload.trackingSource === "chatgpt") {
+      statements.push(
+        env.CONTROL_DB.prepare(
+          `INSERT INTO daily_project_metrics (
+            project_id, metric_date, completed_runs, cited_runs,
+            brand_mentioned_runs, product_runs, total_citations, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(project_id, metric_date) DO UPDATE SET
+            completed_runs = completed_runs + excluded.completed_runs,
+            cited_runs = cited_runs + excluded.cited_runs,
+            brand_mentioned_runs = brand_mentioned_runs + excluded.brand_mentioned_runs,
+            product_runs = product_runs + excluded.product_runs,
+            total_citations = total_citations + excluded.total_citations,
+            updated_at = excluded.updated_at`,
+        ).bind(
+          payload.projectId,
+          payload.metricDate,
+          payload.completedRuns,
+          payload.citedRuns,
+          payload.brandMentionedRuns,
+          payload.productRuns,
+          payload.totalCitations,
+          nowIso(),
+        ),
+      );
+      for (const [domain, metrics] of Object.entries(payload.domains)) {
+        statements.push(
+          env.CONTROL_DB.prepare(
+            `INSERT INTO daily_domain_metrics (
+              project_id, metric_date, domain, cited_snapshot_count, citation_count,
+              retrieved_snapshot_count, retrieval_count, product_count, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(project_id, metric_date, domain) DO UPDATE SET
+              cited_snapshot_count = cited_snapshot_count + excluded.cited_snapshot_count,
+              citation_count = citation_count + excluded.citation_count,
+              retrieved_snapshot_count = retrieved_snapshot_count + excluded.retrieved_snapshot_count,
+              retrieval_count = retrieval_count + excluded.retrieval_count,
+              product_count = product_count + excluded.product_count,
+              updated_at = excluded.updated_at`,
+          ).bind(
+            payload.projectId,
+            payload.metricDate,
+            domain,
+            metrics.citedSnapshotCount,
+            metrics.citationCount,
+            metrics.retrievedSnapshotCount,
+            metrics.retrievalCount,
+            metrics.productCount,
+            nowIso(),
+          ),
+        );
+      }
+      for (const brandId of payload.brands) {
+        statements.push(
+          env.CONTROL_DB.prepare(
+            `INSERT INTO daily_brand_metrics (
+              project_id, tracked_brand_id, metric_date,
+              mentioned_snapshot_count, updated_at
+            ) VALUES (?, ?, ?, 1, ?)
+            ON CONFLICT(project_id, tracked_brand_id, metric_date) DO UPDATE SET
+              mentioned_snapshot_count = mentioned_snapshot_count + 1,
+              updated_at = excluded.updated_at`,
+          ).bind(payload.projectId, brandId, payload.metricDate, nowIso()),
+        );
+      }
     }
     await env.CONTROL_DB.batch(statements);
   }

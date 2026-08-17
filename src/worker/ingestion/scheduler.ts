@@ -1,4 +1,4 @@
-import type { JobQueueMessage, RollupQueueMessage } from "../../shared/contracts";
+import type { JobQueueMessage, RollupQueueMessage, TrackingSource } from "../../shared/contracts";
 import { createSignedJobTag } from "../lib/crypto";
 import { getLocaleCatalog } from "../lib/dataforseo";
 import { ApiError, nowIso } from "../lib/http";
@@ -6,6 +6,7 @@ import { calculateNextRun, scheduleFromRow } from "../lib/schedule";
 import { getShard, SHARD_COUNT } from "../lib/shards";
 import { platformDataForSeoCredentials } from "../lib/provider-credentials";
 import { releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
+import { sourceAvailable } from "../lib/tracking-sources";
 
 interface DueQueryRow {
   id: string;
@@ -18,6 +19,7 @@ interface DueQueryRow {
   schedule_timezone: string;
   schedule_weekday: number | null;
   html_capture_enabled: number;
+  tracking_source: TrackingSource;
 }
 
 export async function enqueueDueQueries(env: Env): Promise<number> {
@@ -25,10 +27,12 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
     `SELECT
       q.id, p.workspace_id, q.project_id, q.shard_id, q.next_run_at,
       q.schedule_cadence, q.schedule_time, q.schedule_timezone,
-      q.schedule_weekday, p.html_capture_enabled
+      q.schedule_weekday, p.html_capture_enabled, source.source AS tracking_source
     FROM tracked_queries q
     JOIN projects p ON p.id = q.project_id
+    JOIN project_tracking_sources source ON source.project_id = p.id AND source.enabled = 1
     WHERE q.is_active = 1 AND q.deleted_at IS NULL AND p.deleted_at IS NULL
+      AND p.archived_at IS NULL
       AND q.next_run_at <= ?
     ORDER BY q.next_run_at
     LIMIT 5000`,
@@ -39,11 +43,22 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
 
   const messages: JobQueueMessage[] = [];
   for (const query of due.results) {
+    if (!sourceAvailable(env, query.tracking_source)) {
+      const nextRunAt = calculateNextRun(
+        scheduleFromRow(query),
+        new Date(Date.parse(query.next_run_at) + 1),
+      );
+      await env.CONTROL_DB.prepare(
+        "UPDATE tracked_queries SET next_run_at = ?, updated_at = ? WHERE id = ?",
+      ).bind(nextRunAt, nowIso(), query.id).run();
+      continue;
+    }
     const jobId = crypto.randomUUID();
     const tag = await createSignedJobTag(jobId, env.APP_CRYPTO_KEY);
     const createdAt = nowIso();
-    const deliveryMethod = query.html_capture_enabled === 1 ? "standard_priority" : "standard";
-    const sku = query.html_capture_enabled === 1 ? "llm_priority_html" : "llm_standard";
+    const captureHtml = query.tracking_source === "chatgpt" && query.html_capture_enabled === 1;
+    const deliveryMethod = captureHtml ? "standard_priority" : "standard";
+    const sku = captureHtml ? "llm_priority_html" : "llm_standard";
     const reservation = {
       reservationId: jobId,
       sku,
@@ -73,20 +88,21 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
       const results = await env.CONTROL_DB.batch([
         env.CONTROL_DB.prepare(
           `INSERT OR IGNORE INTO crawl_jobs (
-            id, workspace_id, project_id, tracked_query_id, shard_id, run_type,
+            id, workspace_id, project_id, tracked_query_id, shard_id, tracking_source, run_type,
             delivery_method, status, scheduled_for, provider_tag, capture_html,
             provider_account_id, usage_reservation_id, usage_units, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, 'scheduled', ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          ) VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
         ).bind(
           jobId,
           query.workspace_id,
           query.project_id,
           query.id,
           query.shard_id,
+          query.tracking_source,
           deliveryMethod,
           query.next_run_at,
           tag,
-          query.html_capture_enabled,
+          captureHtml ? 1 : 0,
           "dataforseo:platform:v1",
           jobId,
           reservation.units,

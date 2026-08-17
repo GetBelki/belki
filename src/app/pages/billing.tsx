@@ -18,6 +18,7 @@ import {
   YAxis,
 } from "recharts";
 import { useEffect, useState } from "react";
+import { TRACKING_SOURCE_LABELS, type TrackingSource } from "../../shared/tracking-sources";
 import { NoProject, PageHeader } from "../components/layout";
 import { Button, Card, CardHeader, DataTable, Dialog, EmptyState, Input, Label, Select, Skeleton } from "../components/ui";
 import { useApp } from "../context";
@@ -110,6 +111,9 @@ interface ManagedBillingSummary {
   cancelAtPeriodEnd: boolean;
   readOnlyUntil: string | null;
   currentProjectLimit: number;
+  currentPromptLimit: number;
+  currentSourceLimit: number;
+  availableTrackingSources: TrackingSource[];
   usage: {
     allowance: number;
     committed: number;
@@ -117,6 +121,9 @@ interface ManagedBillingSummary {
     remaining: number;
     projectCount: number;
     projectLimit: number;
+    promptCount: number;
+    promptLimit: number;
+    sourceLimit: number;
   };
   pendingPlanChange: {
     id: string;
@@ -125,13 +132,29 @@ interface ManagedBillingSummary {
     fromPlanKey: ManagedPlanKey;
     toPlanKey: ManagedPlanKey;
     effectiveAt: string | null;
+    transition: PlanTransitionPreview | null;
   } | null;
   plans: Array<{
     key: ManagedPlanKey;
     priceEur: number;
     monthlyUnits: number;
     projectLimit: number;
+    promptLimit: number;
+    sourceLimit: number;
     changeKind: "checkout" | "current" | "upgrade" | "downgrade";
+  }>;
+}
+
+interface PlanTransitionPreview {
+  targetPlanKey: ManagedPlanKey;
+  effectiveAt: string;
+  archivedProjects: Array<{ id: string; name: string }>;
+  pausedPromptCount: number;
+  sourceChanges: Array<{
+    projectId: string;
+    projectName: string;
+    current: TrackingSource[];
+    next: TrackingSource[];
   }>;
 }
 
@@ -193,6 +216,12 @@ function ManagedBillingPanel({
     mutationFn: () => post<{ reactivated: boolean }>("/billing/reactivate"),
     onSuccess: async () => queryClient.invalidateQueries({ queryKey: ["managed-billing-summary"] }),
   });
+  const selectedChangeKind = summary?.plans.find((plan) => plan.key === selectedPlan)?.changeKind;
+  const downgradePreview = useQuery({
+    queryKey: ["billing-plan-change-preview", selectedPlan],
+    queryFn: () => api<PlanTransitionPreview>(`/billing/plan-change-preview?planKey=${encodeURIComponent(selectedPlan as string)}`),
+    enabled: Boolean(selectedPlan && selectedChangeKind === "downgrade"),
+  });
 
   useEffect(() => {
     const value = summary;
@@ -238,18 +267,18 @@ function ManagedBillingPanel({
         <div className="pricing-intro">
           <span className="eyebrow">Choose your plan</span>
           <h1>Start measuring your AI visibility.</h1>
-          <p>Every plan includes all visibility reports, source evidence, and unlimited teammates. Choose by tracking volume.</p>
+          <p>Every plan includes visibility reports, source evidence, and unlimited teammates. Choose how many prompts and sources you need.</p>
         </div>
       ) : null}
       {!pendingPayment ? <CardHeader
-        title={managed ? "Belki subscription" : "Self-hosted allowance"}
-        description={`${compact(value.usage.committed)} committed + ${compact(value.usage.reserved)} reserved of ${compact(value.usage.allowance)} units this cycle`}
+        title={managed ? "Belki subscription" : "Self-hosted limits"}
+        description={`${value.usage.promptCount} of ${value.usage.promptLimit} active prompts`}
         action={managed && value.subscriptionStatus !== "pending" && owner
           ? <Button variant="secondary" disabled={portal.isPending} onClick={() => portal.mutate()}>Manage subscription</Button>
           : undefined}
       /> : null}
       {!pendingPayment ? <div className="billing-summary-grid subscription-summary-grid">
-        <BillingMetric label="Remaining units" value={compact(value.usage.remaining)} detail={`Resets ${new Date(value.cycleEndsAt).toLocaleDateString()}`} icon={<Gauge size={18}/>} />
+        <BillingMetric label="Active prompts" value={`${value.usage.promptCount} / ${value.usage.promptLimit}`} detail="Across this workspace" icon={<Gauge size={18}/>} />
         <BillingMetric label="Projects" value={`${value.usage.projectCount} / ${value.usage.projectLimit}`} detail="Seats are unlimited" icon={<ReceiptText size={18}/>} />
       </div> : null}
       {value.stripeEnvironment === "test" ? (
@@ -271,7 +300,23 @@ function ManagedBillingPanel({
           <CalendarDays size={17} />
           <div>
             <strong>{planLabel(value.pendingPlanChange.toPlanKey)} is scheduled for {value.pendingPlanChange.effectiveAt ? new Date(value.pendingPlanChange.effectiveAt).toLocaleDateString() : "the next renewal"}</strong>
-            <span>Your current allowance stays active until then. New projects are limited to the target plan while the downgrade is pending.</span>
+            <span>
+              Your current plan stays active until then.
+              {value.pendingPlanChange.transition?.archivedProjects.length
+                ? ` ${value.pendingPlanChange.transition.archivedProjects.length} excess project${value.pendingPlanChange.transition.archivedProjects.length === 1 ? " will" : "s will"} be archived.`
+                : " No projects will be archived."}
+              {value.pendingPlanChange.transition?.pausedPromptCount
+                ? ` ${value.pendingPlanChange.transition.pausedPromptCount} prompt${value.pendingPlanChange.transition.pausedPromptCount === 1 ? " will" : "s will"} be paused.`
+                : ""}
+            </span>
+            {value.pendingPlanChange.transition?.archivedProjects.length ? (
+              <span>Projects to archive: {value.pendingPlanChange.transition.archivedProjects.map((project) => project.name).join(", ")}.</span>
+            ) : null}
+            {value.pendingPlanChange.transition?.sourceChanges.map((change) => (
+              <span key={change.projectId}>
+                {change.projectName}: keep {change.next.map((source) => TRACKING_SOURCE_LABELS[source]).join(" and ")}.
+              </span>
+            ))}
           </div>
           {owner ? <Button variant="secondary" disabled={cancelPlanChange.isPending} onClick={() => cancelPlanChange.mutate()}>Keep current plan</Button> : null}
         </div>
@@ -286,8 +331,13 @@ function ManagedBillingPanel({
                 <span><b>€{plan.priceEur}</b> / month</span>
               </div>
               <ul>
-                <li><Check size={15} /> {compact(plan.monthlyUnits)} tracking units</li>
+                <li><Check size={15} /> Track up to {plan.promptLimit} prompts</li>
                 <li><Check size={15} /> {plan.projectLimit} {plan.projectLimit === 1 ? "project" : "projects"}</li>
+                <li><Check size={15} /> {plan.sourceLimit === 1
+                  ? "ChatGPT tracking"
+                  : value.availableTrackingSources.length >= plan.sourceLimit
+                    ? plan.sourceLimit === 4 ? "All 4 tracking sources" : `Choose ${plan.sourceLimit} tracking sources per project`
+                    : `${value.availableTrackingSources.map((source) => TRACKING_SOURCE_LABELS[source]).join(" and ")} available now`}</li>
                 <li><Check size={15} /> Unlimited teammates</li>
               </ul>
               <div className="pricing-card-action">
@@ -327,22 +377,40 @@ function ManagedBillingPanel({
         title={selected?.changeKind === "upgrade" ? `Upgrade to ${selected ? planLabel(selected.key) : "plan"}` : `Schedule ${selected ? planLabel(selected.key) : "plan"}`}
         description={selected?.changeKind === "upgrade"
           ? "Stripe will show the exact prorated amount and ask you to confirm before charging it."
-          : `The downgrade takes effect after the current billing period. You must have no more than ${selected?.projectLimit ?? 0} active projects.`}
+          : "The downgrade takes effect at renewal. Belki preserves all history, archives excess projects, pauses excess prompts, and keeps the sources supported by the new plan."}
       >
         {selected ? (
           <div className="form-stack">
             <div className="billing-change-summary">
               <strong>€{selected.priceEur}/month</strong>
-              <span>{compact(selected.monthlyUnits)} units · {selected.projectLimit} projects</span>
+              <span>{selected.promptLimit} prompts · {selected.projectLimit} projects · {selected.sourceLimit} source{selected.sourceLimit === 1 ? "" : "s"} per project</span>
               {value.pendingPlanChange ? <span>This replaces the pending change to {planLabel(value.pendingPlanChange.toPlanKey)}.</span> : null}
-              {selected.changeKind === "downgrade" && value.usage.projectCount > selected.projectLimit ? (
-                <p className="form-error">Delete {value.usage.projectCount - selected.projectLimit} active project{value.usage.projectCount - selected.projectLimit === 1 ? "" : "s"} before scheduling this downgrade.</p>
+              {selected.changeKind === "downgrade" ? (
+                downgradePreview.isPending ? <span>Calculating the exact renewal changes…</span>
+                  : downgradePreview.data ? <>
+                    <span>
+                      {downgradePreview.data.archivedProjects.length
+                        ? `Projects to archive: ${downgradePreview.data.archivedProjects.map((project) => project.name).join(", ")}.`
+                        : "No projects will be archived."}
+                    </span>
+                    <span>
+                      {downgradePreview.data.pausedPromptCount
+                        ? `${downgradePreview.data.pausedPromptCount} prompt${downgradePreview.data.pausedPromptCount === 1 ? "" : "s"} will be paused.`
+                        : "No prompts will be paused."}
+                    </span>
+                    {downgradePreview.data.sourceChanges.map((change) => (
+                      <span key={change.projectId}>
+                        {change.projectName} will keep {change.next.map((source) => TRACKING_SOURCE_LABELS[source]).join(" and ")}.
+                      </span>
+                    ))}
+                    <span>Nothing is deleted. You can restore archived projects and reactivate prompts after upgrading.</span>
+                  </> : <span>The renewal changes could not be calculated. Close this dialog and try again.</span>
               ) : null}
             </div>
             <div className="dialog-actions">
               <Button onClick={() => setSelectedPlan(null)} type="button" variant="secondary">Back</Button>
               <Button
-                disabled={changePlan.isPending || (selected.changeKind === "downgrade" && value.usage.projectCount > selected.projectLimit)}
+                disabled={changePlan.isPending || (selected.changeKind === "downgrade" && !downgradePreview.data)}
                 onClick={() => changePlan.mutate({ planKey: selected.key, replacePending: Boolean(value.pendingPlanChange) })}
                 type="button"
               >{changePlan.isPending ? "Opening Stripe…" : selected.changeKind === "upgrade" ? "Review in Stripe" : "Schedule downgrade"}</Button>
@@ -424,7 +492,7 @@ export default function BillingPage() {
   const pendingPayment = subscription.data?.subscriptionStatus === "pending";
   const requestedTab = searchParams.get("tab");
   const billingTab: "plan" | "usage" = requestedTab === "plan" || requestedTab === "usage"
-    ? requestedTab
+    ? managed ? "plan" : requestedTab
     : managed ? "plan" : "usage";
   const requestedPeriod = searchParams.get("period");
   const period: BillingPeriod = requestedPeriod === "month" ? "month" : "30d";
@@ -495,7 +563,7 @@ export default function BillingPage() {
 
   if (subscription.isError || !subscription.data) return (
     <div className="page billing-page page-flow">
-      <PageHeader title="Billing" description="Subscription, allowance, and provider usage." />
+      <PageHeader title="Billing" description="Subscription, monthly limits, and provider usage." />
       <EmptyState
         title="Billing could not be loaded"
         description="Refresh the page to try again. Your subscription and usage data have not been changed."
@@ -515,15 +583,15 @@ export default function BillingPage() {
       <PageHeader
         title="Billing"
         description={billingTab === "plan"
-          ? managed ? "Manage your plan, allowance, and subscription changes." : "Review the allowance configured for this self-hosted workspace."
+          ? managed ? "Manage your plan, active prompts, tracking sources, and subscription changes." : "Review the limits configured for this self-hosted workspace."
           : billingProjectId
           ? `Provider charges and estimated inference costs for ${selectedProjectName}.`
           : "Workspace costs across every project, separated by workload."}
       />
-      <div className="billing-tabs" role="tablist" aria-label="Billing view">
-        <button aria-selected={billingTab === "plan"} className={billingTab === "plan" ? "active" : undefined} onClick={() => setBillingTab("plan")} role="tab" type="button">{managed ? "Plan" : "Allowance"}</button>
-        <button aria-selected={billingTab === "usage"} className={billingTab === "usage" ? "active" : undefined} onClick={() => setBillingTab("usage")} role="tab" type="button">Usage</button>
-      </div>
+      {!managed ? <div className="billing-tabs" role="tablist" aria-label="Billing view">
+        <button aria-selected={billingTab === "plan"} className={billingTab === "plan" ? "active" : undefined} onClick={() => setBillingTab("plan")} role="tab" type="button">Limits</button>
+        <button aria-selected={billingTab === "usage"} className={billingTab === "usage" ? "active" : undefined} onClick={() => setBillingTab("usage")} role="tab" type="button">Provider costs</button>
+      </div> : null}
 
       {billingTab === "plan" ? (
         <ManagedBillingPanel summary={subscription.data} summaryPending={subscription.isPending} />

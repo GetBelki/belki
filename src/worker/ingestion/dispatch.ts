@@ -1,8 +1,10 @@
-import type { JobQueueMessage, NormalizeQueueMessage } from "../../shared/contracts";
+import type { JobQueueMessage, NormalizeQueueMessage, TrackingSource } from "../../shared/contracts";
+import { TRACKING_SOURCES } from "../../shared/tracking-sources";
 import { verifySignedJobTag } from "../lib/crypto";
 import {
   getTaskResult,
   getTasksReady,
+  dataForSeoTask,
   postLiveAdvanced,
   postStandardTasks,
   type StandardTaskInput,
@@ -12,6 +14,7 @@ import { emitRunFailureAlerts } from "../automation/alerts";
 import { platformDataForSeoCredentials } from "../lib/provider-credentials";
 import { commitUsage, releaseUsage } from "../lib/usage";
 import type { UsageSku } from "../../shared/contracts";
+import { sourceAvailable } from "../lib/tracking-sources";
 
 interface DispatchJobRow {
   id: string;
@@ -27,6 +30,7 @@ interface DispatchJobRow {
   project_id: string;
   usage_reservation_id: string | null;
   usage_units: number;
+  tracking_source: TrackingSource;
 }
 
 function usageInput(job: DispatchJobRow): {
@@ -58,7 +62,8 @@ async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
     `SELECT
       j.id, q.query_text, q.location_code, q.language_code, q.force_web_search,
       j.provider_tag, j.capture_html, j.delivery_method, w.public_base_url,
-      j.workspace_id, j.project_id, j.usage_reservation_id, j.usage_units
+      j.workspace_id, j.project_id, j.usage_reservation_id, j.usage_units,
+      j.tracking_source
     FROM crawl_jobs j
     JOIN tracked_queries q ON q.id = j.tracked_query_id
     JOIN workspaces w ON w.id = j.workspace_id
@@ -75,13 +80,33 @@ async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
   return result.results;
 }
 
+async function cancelUnavailableSourceJob(env: Env, job: DispatchJobRow): Promise<void> {
+  const cancelled = await env.CONTROL_DB.prepare(
+    `UPDATE crawl_jobs SET status = 'cancelled', error_code = 'source_disabled',
+      error_message = 'This tracking source is disabled for the deployment.', updated_at = ?
+     WHERE id = ? AND status IN ('queued', 'submission_unknown')`,
+  ).bind(nowIso(), job.id).run();
+  if (cancelled.meta.changes === 0) return;
+  const reservation = usageInput(job);
+  if (reservation) await releaseUsage(env, job.workspace_id, reservation);
+}
+
+async function dispatchableJobs(env: Env, jobs: DispatchJobRow[]): Promise<DispatchJobRow[]> {
+  const available: DispatchJobRow[] = [];
+  for (const job of jobs) {
+    if (sourceAvailable(env, job.tracking_source)) available.push(job);
+    else await cancelUnavailableSourceJob(env, job);
+  }
+  return available;
+}
+
 export async function dispatchStandardBatch(
   env: Env,
   batch: MessageBatch<JobQueueMessage>,
 ): Promise<void> {
-  const jobs = await loadJobs(
+  const jobs = await dispatchableJobs(
     env,
-    batch.messages.map((message) => message.body.jobId),
+    await loadJobs(env, batch.messages.map((message) => message.body.jobId)),
   );
   const byId = new Map(jobs.map((job) => [job.id, job]));
   for (const message of batch.messages) {
@@ -100,27 +125,33 @@ export async function dispatchStandardBatch(
     ),
   );
 
-  const tasks: StandardTaskInput[] = jobs.map((job) => ({
-    keyword: job.query_text,
-    location_code: job.location_code,
-    language_code: job.language_code,
-    force_web_search: job.force_web_search === 1,
-    priority: job.delivery_method === "standard_priority" ? 2 : 1,
-    expand_citations: job.capture_html === 1,
-    tag: job.provider_tag,
-    postback_url: `${job.public_base_url}/api/webhooks/dataforseo/chatgpt?token=${encodeURIComponent(env.DATAFORSEO_WEBHOOK_TOKEN)}&id=$id&tag=$tag`,
-    postback_data: "advanced",
-  }));
-
-  try {
-    const response = await postStandardTasks(platformDataForSeoCredentials(env), tasks);
+  const grouped = new Map<TrackingSource, DispatchJobRow[]>();
+  for (const job of jobs) {
+    const sourceJobs = grouped.get(job.tracking_source) ?? [];
+    sourceJobs.push(job);
+    grouped.set(job.tracking_source, sourceJobs);
+  }
+  for (const [source, sourceJobs] of grouped) {
+    const tasks: StandardTaskInput[] = sourceJobs.map((job) => dataForSeoTask(source, {
+      keyword: job.query_text,
+      location_code: job.location_code,
+      language_code: job.language_code,
+      force_web_search: job.force_web_search === 1,
+      priority: job.delivery_method === "standard_priority" ? 2 : 1,
+      expand_citations: job.capture_html === 1,
+      tag: job.provider_tag,
+      postback_url: `${job.public_base_url}/api/webhooks/dataforseo/${source}?token=${encodeURIComponent(env.DATAFORSEO_WEBHOOK_TOKEN)}&id=$id&tag=$tag`,
+      postback_data: "advanced",
+    }));
+    try {
+      const response = await postStandardTasks(platformDataForSeoCredentials(env), source, tasks);
     const updates: D1PreparedStatement[] = [];
     const failures: Array<{ jobId: string; message: string }> = [];
     const completedJobIds = new Set<string>();
     for (const task of response.tasks) {
       const tag = typeof task.data?.tag === "string" ? task.data.tag : null;
       if (!tag) continue;
-      const job = jobs.find((candidate) => candidate.provider_tag === tag);
+      const job = sourceJobs.find((candidate) => candidate.provider_tag === tag);
       if (!job) continue;
       completedJobIds.add(job.id);
       const accepted = task.status_code === 20100 || task.status_code === 20000;
@@ -161,7 +192,7 @@ export async function dispatchStandardBatch(
         ),
       );
     }
-    for (const job of jobs) {
+    for (const job of sourceJobs) {
       if (completedJobIds.has(job.id)) continue;
       updates.push(
         env.CONTROL_DB.prepare(
@@ -178,9 +209,9 @@ export async function dispatchStandardBatch(
         emitRunFailureAlerts(env, failure.jobId, failure.message),
       ),
     );
-  } catch (error) {
-    await env.CONTROL_DB.batch(
-      jobs.map((job) =>
+    } catch (error) {
+      await env.CONTROL_DB.batch(
+      sourceJobs.map((job) =>
         env.CONTROL_DB.prepare(
           `UPDATE crawl_jobs SET
             status = 'submission_unknown', error_code = 'submission_ambiguous',
@@ -188,7 +219,8 @@ export async function dispatchStandardBatch(
            WHERE id = ? AND status != 'cancelled'`,
         ).bind(String(error).slice(0, 1000), nowIso(), job.id),
       ),
-    );
+      );
+    }
   }
 
   for (const message of batch.messages) {
@@ -200,9 +232,9 @@ export async function dispatchLiveBatch(
   env: Env,
   batch: MessageBatch<JobQueueMessage>,
 ): Promise<void> {
-  const jobs = await loadJobs(
+  const jobs = await dispatchableJobs(
     env,
-    batch.messages.map((message) => message.body.jobId),
+    await loadJobs(env, batch.messages.map((message) => message.body.jobId)),
   );
   const byId = new Map(jobs.map((job) => [job.id, job]));
   await Promise.all(
@@ -221,7 +253,7 @@ export async function dispatchLiveBatch(
         )
           .bind(nowIso(), job.id)
           .run();
-        const response = await postLiveAdvanced(platformDataForSeoCredentials(env), {
+        const response = await postLiveAdvanced(platformDataForSeoCredentials(env), job.tracking_source, {
           keyword: job.query_text,
           location_code: job.location_code,
           language_code: job.language_code,
@@ -235,10 +267,10 @@ export async function dispatchLiveBatch(
         providerAccepted = true;
         const reservation = usageInput(job);
         if (reservation) await commitUsage(env, job.workspace_id, reservation);
-        const rawKey = `raw/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${providerTask.id}.json`;
+        const rawKey = `raw/${job.workspace_id}/${job.project_id}/${job.tracking_source}/${new Date().toISOString().slice(0, 7)}/${providerTask.id}.json`;
         await env.EVIDENCE_BUCKET.put(rawKey, response.bytes, {
           httpMetadata: { contentType: "application/json" },
-          customMetadata: { jobId: job.id, taskId: providerTask.id },
+          customMetadata: { jobId: job.id, taskId: providerTask.id, trackingSource: job.tracking_source },
         });
         const update = await env.CONTROL_DB.prepare(
           `UPDATE crawl_jobs SET
@@ -304,9 +336,18 @@ export async function dispatchLiveBatch(
 
 export async function collectReadyTasks(env: Env): Promise<number> {
   const credentials = platformDataForSeoCredentials(env);
-  const ready = await getTasksReady(credentials);
   let recovered = 0;
-  for (const task of ready) {
+  for (const source of TRACKING_SOURCES) {
+    if (!sourceAvailable(env, source)) {
+      const inFlight = await env.CONTROL_DB.prepare(
+        `SELECT 1 FROM crawl_jobs
+         WHERE tracking_source = ? AND status IN ('submitted', 'awaiting_result', 'submission_unknown')
+         LIMIT 1`,
+      ).bind(source).first();
+      if (!inFlight) continue;
+    }
+    const ready = await getTasksReady(credentials, source);
+    for (const task of ready) {
     if (!task.tag || !task.endpointAdvanced) continue;
     const jobId = await verifySignedJobTag(task.tag, env.APP_CRYPTO_KEY);
     if (!jobId) continue;
@@ -314,21 +355,21 @@ export async function collectReadyTasks(env: Env): Promise<number> {
       `SELECT job.id, job.workspace_id, job.project_id
        FROM crawl_jobs job
        JOIN tracked_queries query ON query.id = job.tracked_query_id
-       WHERE job.id = ? AND job.provider_tag = ?
+       WHERE job.id = ? AND job.provider_tag = ? AND job.tracking_source = ?
          AND job.status != 'cancelled' AND query.deleted_at IS NULL
          AND NOT EXISTS (
            SELECT 1 FROM prompt_purge_jobs purge
            WHERE purge.tracked_query_id = query.id
          )`,
     )
-      .bind(jobId, task.tag)
+      .bind(jobId, task.tag, source)
       .first<{ id: string; workspace_id: string; project_id: string }>();
     if (!job) continue;
-    const bytes = await getTaskResult(credentials, task.endpointAdvanced);
-    const rawKey = `raw/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${task.id}.json`;
+    const bytes = await getTaskResult(credentials, source, task.endpointAdvanced);
+    const rawKey = `raw/${job.workspace_id}/${job.project_id}/${source}/${new Date().toISOString().slice(0, 7)}/${task.id}.json`;
     await env.EVIDENCE_BUCKET.put(rawKey, bytes, {
       httpMetadata: { contentType: "application/json" },
-      customMetadata: { jobId, taskId: task.id, recovery: "tasks_ready" },
+      customMetadata: { jobId, taskId: task.id, recovery: "tasks_ready", trackingSource: source },
     });
     const update = await env.CONTROL_DB.prepare(
       `UPDATE crawl_jobs SET
@@ -352,6 +393,7 @@ export async function collectReadyTasks(env: Env): Promise<number> {
       contentEncoding: "identity",
     } satisfies NormalizeQueueMessage);
     recovered += 1;
+    }
   }
   return recovered;
 }

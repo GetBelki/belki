@@ -11,6 +11,8 @@ function entitlement(allowance = 5) {
     workspaceStatus: "active" as const,
     allowance,
     projectLimit: 1,
+    promptLimit: 25,
+    sourceLimit: 1,
     cycleStartedAt: start,
     cycleEndsAt: end,
     readOnlyUntil: null,

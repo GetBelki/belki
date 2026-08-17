@@ -4,8 +4,11 @@ import {
   BillingCancellationSchema,
   BillingCheckoutSchema,
   BillingPlanChangeSchema,
+  BillingPlanChangePreviewSchema,
   type PlanKey,
   type SubscriptionStatus,
+  type TrackingSource,
+  type UsageSku,
 } from "../../shared/contracts";
 import type { AppEnv } from "../lib/app";
 import { writeAudit } from "../lib/audit";
@@ -18,7 +21,14 @@ import {
   stripeLivemode,
   stripeRequest,
 } from "../lib/stripe";
-import { BILLING_PLANS, getUsageSummary, PLAN_ENTITLEMENTS, syncUsageEntitlement } from "../lib/usage";
+import {
+  BILLING_PLANS,
+  getUsageSummary,
+  PLAN_ENTITLEMENTS,
+  releaseUsage,
+  syncUsageEntitlement,
+} from "../lib/usage";
+import { availableSources, planSourceEntitlement } from "../lib/tracking-sources";
 import { verifyStripeSignature } from "../lib/stripe-signature";
 
 const MAX_STRIPE_WEBHOOK_BYTES = 1024 * 1024;
@@ -40,6 +50,8 @@ interface BillingAccountRow {
   status: SubscriptionStatus;
   monthly_units: number;
   project_limit: number;
+  prompt_limit: number;
+  source_limit: number;
   cycle_started_at: string;
   cycle_ends_at: string;
   cancel_at_period_end: number;
@@ -66,6 +78,22 @@ interface PlanChangeRow {
   created_at: string;
   updated_at: string;
   completed_at: string | null;
+  transition_json: string | null;
+}
+
+interface PlanTransitionPreview {
+  targetPlanKey: ManagedPlanKey;
+  effectiveAt: string;
+  retainedProjectIds: string[];
+  archivedProjects: Array<{ id: string; name: string }>;
+  activePromptCount: number;
+  pausedPromptCount: number;
+  sourceChanges: Array<{
+    projectId: string;
+    projectName: string;
+    current: string[];
+    next: string[];
+  }>;
 }
 
 interface SubscriptionSnapshot {
@@ -142,6 +170,203 @@ function planChangesEnabled(env: Env): boolean {
   return optionalBinding(env, "BILLING_PLAN_CHANGES_ENABLED") === "true";
 }
 
+async function planTransitionPreview(
+  env: Env,
+  workspaceId: string,
+  target: ManagedPlanKey,
+  effectiveAt: string,
+  preferredProjectIds: string[] = [],
+): Promise<PlanTransitionPreview> {
+  const entitlement = PLAN_ENTITLEMENTS[target];
+  const projects = await env.CONTROL_DB.prepare(
+    `SELECT id, name FROM projects
+     WHERE workspace_id = ? AND deleted_at IS NULL AND archived_at IS NULL
+     ORDER BY updated_at DESC, created_at DESC, id`,
+  ).bind(workspaceId).all<{ id: string; name: string }>();
+  const preferred = new Map(preferredProjectIds.map((id, index) => [id, index]));
+  const ordered = [...projects.results].sort((left, right) => {
+    const leftRank = preferred.get(left.id);
+    const rightRank = preferred.get(right.id);
+    if (leftRank !== undefined || rightRank !== undefined) {
+      if (leftRank === undefined) return 1;
+      if (rightRank === undefined) return -1;
+      return leftRank - rightRank;
+    }
+    return projects.results.indexOf(left) - projects.results.indexOf(right);
+  });
+  const retained = ordered.slice(0, entitlement.projectLimit);
+  const archivedProjects = ordered.slice(entitlement.projectLimit);
+  const retainedIds = retained.map((project) => project.id);
+  let activePromptCount = 0;
+  if (retainedIds.length) {
+    const placeholders = retainedIds.map(() => "?").join(",");
+    const promptCount = await env.CONTROL_DB.prepare(
+      `SELECT COUNT(*) AS count FROM tracked_queries
+       WHERE project_id IN (${placeholders}) AND deleted_at IS NULL AND is_active = 1`,
+    ).bind(...retainedIds).first<{ count: number }>();
+    activePromptCount = Number(promptCount?.count ?? 0);
+  }
+  let promptsInArchivedProjects = 0;
+  if (archivedProjects.length) {
+    const placeholders = archivedProjects.map(() => "?").join(",");
+    const promptCount = await env.CONTROL_DB.prepare(
+      `SELECT COUNT(*) AS count FROM tracked_queries
+       WHERE project_id IN (${placeholders}) AND deleted_at IS NULL AND is_active = 1`,
+    ).bind(...archivedProjects.map((project) => project.id)).first<{ count: number }>();
+    promptsInArchivedProjects = Number(promptCount?.count ?? 0);
+  }
+  const sourceEntitlement = planSourceEntitlement(target);
+  const sourceChanges: PlanTransitionPreview["sourceChanges"] = [];
+  for (const project of retained) {
+    const rows = await env.CONTROL_DB.prepare(
+      `SELECT source FROM project_tracking_sources
+       WHERE project_id = ? AND enabled = 1
+       ORDER BY CASE source WHEN 'chatgpt' THEN 0 WHEN 'gemini' THEN 1
+         WHEN 'google_ai_mode' THEN 2 ELSE 3 END`,
+    ).bind(project.id).all<{ source: TrackingSource }>();
+    const current = rows.results.map((row) => row.source);
+    let next = current
+      .filter((source) => sourceEntitlement.allowedSources.includes(source))
+      .slice(0, entitlement.sourceLimit);
+    if (!next.length) next = ["chatgpt"];
+    if (current.join("|") !== next.join("|")) {
+      sourceChanges.push({
+        projectId: project.id,
+        projectName: project.name,
+        current,
+        next,
+      });
+    }
+  }
+  return {
+    targetPlanKey: target,
+    effectiveAt,
+    retainedProjectIds: retainedIds,
+    archivedProjects,
+    activePromptCount: Math.min(activePromptCount, entitlement.promptLimit),
+    pausedPromptCount:
+      promptsInArchivedProjects + Math.max(0, activePromptCount - entitlement.promptLimit),
+    sourceChanges,
+  };
+}
+
+async function applyPlanTransition(
+  env: Env,
+  workspaceId: string,
+  target: ManagedPlanKey,
+  effectiveAt: string,
+  storedTransition: string | null,
+): Promise<PlanTransitionPreview> {
+  const stored = jsonParse<Partial<PlanTransitionPreview>>(storedTransition ?? "{}", {});
+  const transition = await planTransitionPreview(
+    env,
+    workspaceId,
+    target,
+    effectiveAt,
+    Array.isArray(stored.retainedProjectIds) ? stored.retainedProjectIds : [],
+  );
+  const entitlement = PLAN_ENTITLEMENTS[target];
+  const now = nowIso();
+  const statements: D1PreparedStatement[] = [];
+  if (transition.archivedProjects.length) {
+    const ids = transition.archivedProjects.map((project) => project.id);
+    const placeholders = ids.map(() => "?").join(",");
+    statements.push(
+      env.CONTROL_DB.prepare(
+        `UPDATE projects SET archived_at = ?, updated_at = ?
+         WHERE id IN (${placeholders}) AND workspace_id = ? AND deleted_at IS NULL`,
+      ).bind(now, now, ...ids, workspaceId),
+      env.CONTROL_DB.prepare(
+        `UPDATE tracked_queries SET is_active = 0, updated_at = ?
+         WHERE project_id IN (${placeholders}) AND deleted_at IS NULL`,
+      ).bind(now, ...ids),
+    );
+  }
+  if (transition.retainedProjectIds.length) {
+    const placeholders = transition.retainedProjectIds.map(() => "?").join(",");
+    const keep = await env.CONTROL_DB.prepare(
+      `SELECT id FROM tracked_queries
+       WHERE project_id IN (${placeholders}) AND deleted_at IS NULL AND is_active = 1
+       ORDER BY updated_at DESC, created_at DESC, id
+       LIMIT ?`,
+    ).bind(...transition.retainedProjectIds, entitlement.promptLimit)
+      .all<{ id: string }>();
+    const keepIds = keep.results.map((row) => row.id);
+    if (keepIds.length) {
+      const keepPlaceholders = keepIds.map(() => "?").join(",");
+      statements.push(env.CONTROL_DB.prepare(
+        `UPDATE tracked_queries SET is_active = 0, updated_at = ?
+         WHERE project_id IN (${placeholders}) AND deleted_at IS NULL AND is_active = 1
+           AND id NOT IN (${keepPlaceholders})`,
+      ).bind(now, ...transition.retainedProjectIds, ...keepIds));
+    } else {
+      statements.push(env.CONTROL_DB.prepare(
+        `UPDATE tracked_queries SET is_active = 0, updated_at = ?
+         WHERE project_id IN (${placeholders}) AND deleted_at IS NULL AND is_active = 1`,
+      ).bind(now, ...transition.retainedProjectIds));
+    }
+  }
+  for (const change of transition.sourceChanges) {
+    statements.push(...(["chatgpt", "gemini", "google_ai_mode", "google_ai_overview"] as TrackingSource[])
+      .map((source) => env.CONTROL_DB.prepare(
+        `INSERT INTO project_tracking_sources (project_id, source, enabled, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?)
+         ON CONFLICT(project_id, source) DO UPDATE SET
+           enabled = excluded.enabled, updated_at = excluded.updated_at`,
+      ).bind(
+        change.projectId,
+        source,
+        change.next.includes(source) ? 1 : 0,
+        now,
+        now,
+      )));
+  }
+  if (statements.length) await env.CONTROL_DB.batch(statements);
+
+  const queued = await env.CONTROL_DB.prepare(
+    `SELECT job.id, job.workspace_id, job.usage_reservation_id, job.usage_units,
+      job.delivery_method
+     FROM crawl_jobs job
+     JOIN tracked_queries query ON query.id = job.tracked_query_id
+     JOIN projects project ON project.id = job.project_id
+     LEFT JOIN project_tracking_sources source
+       ON source.project_id = job.project_id AND source.source = job.tracking_source
+     WHERE job.workspace_id = ? AND job.status = 'queued'
+       AND (project.archived_at IS NOT NULL OR query.is_active = 0 OR COALESCE(source.enabled, 0) = 0)`,
+  ).bind(workspaceId).all<{
+    id: string;
+    workspace_id: string;
+    usage_reservation_id: string | null;
+    usage_units: number;
+    delivery_method: "standard" | "standard_priority" | "live";
+  }>();
+  if (queued.results.length) {
+    const ids = queued.results.map((job) => job.id);
+    const placeholders = ids.map(() => "?").join(",");
+    await env.CONTROL_DB.prepare(
+      `UPDATE crawl_jobs SET status = 'cancelled', error_code = 'plan_transition',
+        error_message = 'Cancelled when the workspace plan changed.', updated_at = ?
+       WHERE id IN (${placeholders}) AND status = 'queued'`,
+    ).bind(now, ...ids).run();
+    await Promise.all(queued.results.map(async (job) => {
+      if (!job.usage_reservation_id || job.usage_units <= 0) return;
+      const sku: UsageSku = job.delivery_method === "live"
+        ? "llm_live"
+        : job.delivery_method === "standard_priority"
+          ? "llm_priority_html"
+          : "llm_standard";
+      await releaseUsage(env, workspaceId, {
+        reservationId: job.usage_reservation_id,
+        sku,
+        units: job.usage_units,
+        resourceType: "crawl_job",
+        resourceId: job.id,
+      });
+    }));
+  }
+  return transition;
+}
+
 function assertAccountStripeEnvironment(env: Env, billing: BillingAccountRow): void {
   if (billing.payment_mode === "stripe_direct" || billing.payment_mode === "stripe_managed") {
     assertStripeLivemode(env, billing.stripe_livemode);
@@ -180,7 +405,8 @@ async function account(env: Env, workspaceId: string): Promise<BillingAccountRow
     `SELECT workspace_id, payment_mode, stripe_customer_id, stripe_subscription_id,
       stripe_subscription_item_id, stripe_subscription_schedule_id, plan_key, status,
       stripe_livemode,
-      monthly_units, project_limit, cycle_started_at, cycle_ends_at,
+      monthly_units, project_limit, prompt_limit, source_limit,
+      cycle_started_at, cycle_ends_at,
       cancel_at_period_end, read_only_until, billing_synced_at, billing_sync_error
      FROM billing_accounts WHERE workspace_id = ?`,
   ).bind(workspaceId).first<BillingAccountRow>();
@@ -193,7 +419,8 @@ async function accountBySubscription(env: Env, subscriptionId: string): Promise<
     `SELECT workspace_id, payment_mode, stripe_customer_id, stripe_subscription_id,
       stripe_subscription_item_id, stripe_subscription_schedule_id, plan_key, status,
       stripe_livemode,
-      monthly_units, project_limit, cycle_started_at, cycle_ends_at,
+      monthly_units, project_limit, prompt_limit, source_limit,
+      cycle_started_at, cycle_ends_at,
       cancel_at_period_end, read_only_until, billing_synced_at, billing_sync_error
      FROM billing_accounts WHERE stripe_subscription_id = ?`,
   ).bind(subscriptionId).first<BillingAccountRow>();
@@ -342,11 +569,24 @@ async function reconcileSubscriptionObject(
   ).bind(current.workspace_id, snapshot.planKey).first<PlanChangeRow>();
   const matchingUpgrade = await pendingUpgrade(env, current.workspace_id, snapshot.planKey);
   const completedAt = now.toISOString();
+  const currentManagedPlan = managedPlan(current.plan_key);
+  const isDowngrade = currentManagedPlan !== null &&
+    BILLING_PLANS[snapshot.planKey].rank < BILLING_PLANS[currentManagedPlan].rank;
+  const appliedTransition = isDowngrade || matchingDowngrade
+    ? await applyPlanTransition(
+        env,
+        current.workspace_id,
+        snapshot.planKey,
+        snapshot.currentPeriodStart,
+        matchingDowngrade?.transition_json ?? null,
+      )
+    : null;
   const statements = [
     env.CONTROL_DB.prepare(
       `UPDATE billing_accounts SET stripe_customer_id = ?, stripe_subscription_id = ?,
         stripe_subscription_item_id = ?, stripe_subscription_schedule_id = ?,
         plan_key = ?, status = ?, monthly_units = ?, project_limit = ?,
+        prompt_limit = ?, source_limit = ?,
         cycle_started_at = ?, cycle_ends_at = ?, cancel_at_period_end = ?,
         read_only_until = ?, billing_synced_at = ?, billing_sync_error = NULL, updated_at = ?
        WHERE workspace_id = ?`,
@@ -359,6 +599,8 @@ async function reconcileSubscriptionObject(
       snapshot.status,
       entitlement.monthlyUnits,
       entitlement.projectLimit,
+      entitlement.promptLimit,
+      entitlement.sourceLimit,
       snapshot.currentPeriodStart,
       snapshot.currentPeriodEnd,
       snapshot.cancelAtPeriodEnd ? 1 : 0,
@@ -374,8 +616,14 @@ async function reconcileSubscriptionObject(
   if (matchingDowngrade) {
     statements.push(env.CONTROL_DB.prepare(
       `UPDATE billing_plan_changes SET status = 'applied', completed_at = ?, updated_at = ?,
-        stripe_subscription_item_id = ? WHERE id = ?`,
-    ).bind(completedAt, completedAt, snapshot.itemId, matchingDowngrade.id));
+        stripe_subscription_item_id = ?, transition_json = ? WHERE id = ?`,
+    ).bind(
+      completedAt,
+      completedAt,
+      snapshot.itemId,
+      JSON.stringify(appliedTransition),
+      matchingDowngrade.id,
+    ));
   }
   if (matchingUpgrade) {
     statements.push(env.CONTROL_DB.prepare(
@@ -688,20 +936,6 @@ async function ensureDowngradeSchedule(
   return scheduleId;
 }
 
-async function assertDowngradeProjectLimit(env: Env, workspaceId: string, target: ManagedPlanKey): Promise<void> {
-  const projectCount = await env.CONTROL_DB.prepare(
-    "SELECT COUNT(*) AS count FROM projects WHERE workspace_id = ? AND deleted_at IS NULL",
-  ).bind(workspaceId).first<{ count: number }>();
-  const count = Number(projectCount?.count ?? 0);
-  const targetLimit = BILLING_PLANS[target].projectLimit;
-  if (count > targetLimit) {
-    throw new ApiError(409, "downgrade_project_limit", `Delete projects until ${targetLimit} remain before scheduling this downgrade.`, {
-      projectCount: count,
-      targetProjectLimit: targetLimit,
-    });
-  }
-}
-
 async function createDowngrade(
   env: Env,
   workspaceId: string,
@@ -709,7 +943,6 @@ async function createDowngrade(
   snapshot: SubscriptionSnapshot,
   target: ManagedPlanKey,
 ): Promise<PlanChangeRow> {
-  await assertDowngradeProjectLimit(env, workspaceId, target);
   if (snapshot.currentPeriodEndUnix * 1000 - Date.now() <= RENEWAL_CHANGE_CUTOFF_MS) {
     throw new ApiError(409, "renewal_in_progress", "The billing period is renewing. Retry the downgrade shortly.");
   }
@@ -718,15 +951,22 @@ async function createDowngrade(
   }
   const id = crypto.randomUUID();
   const now = nowIso();
+  const transition = await planTransitionPreview(
+    env,
+    workspaceId,
+    target,
+    snapshot.currentPeriodEnd,
+  );
   try {
     await env.CONTROL_DB.prepare(
       `INSERT INTO billing_plan_changes (
         id, workspace_id, requested_by_user_id, kind, status, from_plan_key, to_plan_key,
-        stripe_subscription_id, stripe_subscription_item_id, effective_at, created_at, updated_at
-      ) VALUES (?, ?, ?, 'downgrade', 'creating', ?, ?, ?, ?, ?, ?, ?)`,
+        stripe_subscription_id, stripe_subscription_item_id, effective_at,
+        transition_json, created_at, updated_at
+      ) VALUES (?, ?, ?, 'downgrade', 'creating', ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       id, workspaceId, userId, snapshot.planKey, target, snapshot.id, snapshot.itemId,
-      snapshot.currentPeriodEnd, now, now,
+      snapshot.currentPeriodEnd, JSON.stringify(transition), now, now,
     ).run();
   } catch {
     throw new ApiError(409, "plan_change_conflict", "Another plan change is already in progress.");
@@ -746,7 +986,14 @@ async function createDowngrade(
       action: "billing.downgrade_scheduled",
       resourceType: "billing_plan_change",
       resourceId: id,
-      metadata: { fromPlanKey: snapshot.planKey, toPlanKey: target, effectiveAt: snapshot.currentPeriodEnd },
+      metadata: {
+        fromPlanKey: snapshot.planKey,
+        toPlanKey: target,
+        effectiveAt: snapshot.currentPeriodEnd,
+        archivedProjectCount: transition.archivedProjects.length,
+        pausedPromptCount: transition.pausedPromptCount,
+        sourceChangeCount: transition.sourceChanges.length,
+      },
     });
     return (await activePlanChange(env, workspaceId)) as PlanChangeRow;
   } catch (error) {
@@ -949,6 +1196,18 @@ billingRoutes.get("/billing/summary", async (c) => {
   ]);
   const managedCurrent = managedPlan(billing.plan_key);
   const stripeEnvironmentMatches = accountMatchesStripeEnvironment(c.env, billing);
+  const storedTransition = pending
+    ? jsonParse<PlanTransitionPreview | null>(pending.transition_json ?? "null", null)
+    : null;
+  const transition = pending?.kind === "downgrade" && pending.effective_at
+    ? await planTransitionPreview(
+        c.env,
+        principal.workspaceId,
+        pending.to_plan_key,
+        pending.effective_at,
+        storedTransition?.retainedProjectIds ?? [],
+      )
+    : storedTransition;
   return c.json({
     data: {
       planKey: billing.plan_key,
@@ -973,6 +1232,9 @@ billingRoutes.get("/billing/summary", async (c) => {
       cancelAtPeriodEnd: billing.cancel_at_period_end === 1,
       readOnlyUntil: billing.read_only_until,
       currentProjectLimit: billing.project_limit,
+      currentPromptLimit: billing.prompt_limit,
+      currentSourceLimit: billing.source_limit,
+      availableTrackingSources: availableSources(c.env),
       usage,
       pendingPlanChange: pending ? {
         id: pending.id,
@@ -981,12 +1243,15 @@ billingRoutes.get("/billing/summary", async (c) => {
         fromPlanKey: pending.from_plan_key,
         toPlanKey: pending.to_plan_key,
         effectiveAt: pending.effective_at,
+        transition,
       } : null,
       plans: PLAN_KEYS.map((key) => ({
         key,
         priceEur: BILLING_PLANS[key].priceEur,
         monthlyUnits: BILLING_PLANS[key].monthlyUnits,
         projectLimit: BILLING_PLANS[key].projectLimit,
+        promptLimit: BILLING_PLANS[key].promptLimit,
+        sourceLimit: BILLING_PLANS[key].sourceLimit,
         changeKind: !managedCurrent ? "checkout" : key === managedCurrent
           ? "current"
           : BILLING_PLANS[key].rank > BILLING_PLANS[managedCurrent].rank ? "upgrade" : "downgrade",
@@ -994,6 +1259,35 @@ billingRoutes.get("/billing/summary", async (c) => {
     },
   });
 });
+
+billingRoutes.get(
+  "/billing/plan-change-preview",
+  zValidator("query", BillingPlanChangePreviewSchema),
+  async (c) => {
+    const principal = requireRole(c, "owner");
+    const { planKey: target } = c.req.valid("query");
+    const billing = await account(c.env, principal.workspaceId);
+    if (billing.payment_mode !== "stripe_direct" || !billing.stripe_subscription_id) {
+      throw new ApiError(409, "subscription_missing", "An active Stripe Direct subscription is required.");
+    }
+    assertAccountStripeEnvironment(c.env, billing);
+    const snapshot = subscriptionSnapshot(
+      c.env,
+      await stripeSubscription(c.env, billing.stripe_subscription_id),
+    );
+    assertSupportedPlanChange(snapshot);
+    if (BILLING_PLANS[target].rank >= BILLING_PLANS[snapshot.planKey].rank) {
+      throw new ApiError(409, "downgrade_required", "A transition preview is available only for a lower plan.");
+    }
+    const transition = await planTransitionPreview(
+      c.env,
+      principal.workspaceId,
+      target,
+      snapshot.currentPeriodEnd,
+    );
+    return c.json({ data: transition });
+  },
+);
 
 billingRoutes.post("/billing/checkout", zValidator("json", BillingCheckoutSchema), async (c) => {
   const principal = requireRole(c, "owner");
@@ -1113,7 +1407,6 @@ billingRoutes.post("/billing/plan-change", zValidator("json", BillingPlanChangeS
   const upgrading = BILLING_PLANS[target].rank > BILLING_PLANS[initialSnapshot.planKey].rank;
   priceId(c.env, target);
   if (upgrading) actionPortalConfiguration(c.env);
-  else await assertDowngradeProjectLimit(c.env, principal.workspaceId, target);
   const existing = await activePlanChange(c.env, principal.workspaceId);
   if (existing) {
     if (!replacePending) {

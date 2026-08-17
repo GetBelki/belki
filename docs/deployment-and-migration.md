@@ -1,20 +1,22 @@
 # Deployment and migration guide
 
 This is the production runbook for Belki's multi-user release, invite-only
-signup, usage credits, Stripe Direct subscriptions, safe plan changes, and
-Cloudflare operator protection.
+signup, prompt-based plans, multiple tracking sources, Stripe Direct
+subscriptions, safe plan changes, and Cloudflare operator protection.
 
 The repository supports two operating models:
 
 | Installation | DataForSEO credentials | Stripe | Customer billing |
 |---|---|---|---|
 | Self-hosted | The deployer adds their own Worker secrets | Disabled | None |
-| Belki managed cloud | Belki's platform Worker secrets | Stripe Direct | Starter, Studio, Agency credits |
+| Belki managed cloud | Belki's platform Worker secrets | Stripe Direct | Starter, Studio, and Agency prompt allowances |
 
 Provider credentials never belong in an application settings screen. Keep
 DataForSEO and Stripe credentials as encrypted **Worker runtime secrets**. A
-managed customer purchases Belki units and never sees or supplies Belki's
-DataForSEO credentials.
+managed customer purchases a prompt allowance and never sees or supplies
+Belki's DataForSEO credentials. Internal workload budgets still protect the
+platform from runaway provider spend, but they are not a customer-facing
+currency.
 
 ## Rules that prevent production mistakes
 
@@ -27,7 +29,11 @@ DataForSEO credentials.
    `stripe_livemode` stored in D1. Never change Stripe keys while payments are
    enabled.
 4. Database migrations run before the Worker upload. Migrations `0015` and
-   `0016` are additive; legacy workspaces remain self-hosted and active.
+   `0016` add managed billing. Migration `0017` rebuilds the crawl-job table to
+   add source identity; its defaults keep the previous Worker compatible during
+   the short migration/upload window. Avoid initiating manual collection during
+   the cutover. Legacy data is backfilled as ChatGPT and legacy workspaces
+   remain self-hosted and active.
 5. Plan downgrades are scheduled through Stripe Subscription Schedules. Never
    configure Stripe's generic portal to perform Belki plan switches.
 
@@ -94,16 +100,23 @@ credentials. Cloudflare deploys only after a reviewed PR is merged into
 `main`. `pnpm deploy:getbelki` applies D1 migrations before uploading the
 generated managed configuration.
 
-The initial managed profile must remain in this safe state:
+The current managed sandbox profile is:
 
 ```json
 {
-  "DEPLOYMENT_MODE": "self_hosted",
-  "PAYMENT_MODE": "disabled",
-  "BILLING_PLAN_CHANGES_ENABLED": "false",
+  "DEPLOYMENT_MODE": "managed",
+  "PAYMENT_MODE": "stripe_direct",
+  "BILLING_PLAN_CHANGES_ENABLED": "true",
+  "TRACKING_SOURCE_GEMINI_ENABLED": "false",
+  "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED": "false",
+  "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED": "false",
   "STRIPE_ENVIRONMENT": "test"
 }
 ```
+
+The three source flags intentionally remain false for the initial deployment.
+ChatGPT is always available. Enable the other sources one at a time only after
+the source-specific sandbox tests in section 6 pass.
 
 `workers_dev` is disabled and `app.getbelki.com` is the only managed route, so
 the `workers.dev` hostname cannot bypass Cloudflare Access.
@@ -141,8 +154,8 @@ pnpm exec wrangler d1 execute CONTROL_DB --remote --command \
 
 ### 3.2 Merge the foundation release
 
-The foundation PR contains the application code, Durable Object migration, and
-control migrations while managed payments remain disabled. Merge only after:
+The release PR contains the application code, Durable Object migration,
+control migration, and snapshot-shard migration. Merge only after:
 
 ```bash
 pnpm check
@@ -156,12 +169,18 @@ Cloudflare runs `pnpm deploy:getbelki`, which applies:
   usage, Stripe environment markers, and legacy backfill.
 - `0016_billing_plan_changes.sql`: canonical Stripe item/schedule state,
   checkout locking, webhook claiming, and durable plan-change records.
-- Durable Object migration `v1`: `WorkspaceUsageGate` for atomic credit and
-  project-limit enforcement.
+- `0017_tracking_sources.sql`: prompt/source entitlements, project source
+  settings, source-aware jobs and reporting, archived projects, and stored
+  downgrade previews.
+- Snapshot migration `0005_tracking_sources.sql` on every snapshot shard:
+  source identity and AI-surface presence.
+- Durable Object migration `v1`: `WorkspaceUsageGate` for atomic internal
+  workload, prompt, source, and project-limit enforcement.
 
-If migrations succeed but upload fails, the old Worker remains compatible with
-the additive schema. Fix the build and redeploy the same Git SHA; do not restore
-D1 merely because the upload failed.
+If migrations succeed but upload fails, fix the build and redeploy the same Git
+SHA. The new columns have safe ChatGPT defaults, so the previous Worker remains
+compatible while you recover; it simply cannot use the new sources. Do not
+restore D1 merely because the upload failed.
 
 Cloudflare Durable Object migrations are forward-only. After `v1` has ever
 been uploaded, an older Worker version that does not declare
@@ -179,6 +198,10 @@ pnpm exec wrangler d1 execute CONTROL_DB --remote --command \
   "SELECT payment_mode, status, stripe_livemode, COUNT(*) FROM billing_accounts GROUP BY payment_mode, status, stripe_livemode"
 pnpm exec wrangler d1 execute CONTROL_DB --remote --command \
   "SELECT email FROM platform_operators"
+pnpm exec wrangler d1 execute CONTROL_DB --remote --command \
+  "SELECT tracking_source, COUNT(*) FROM crawl_jobs GROUP BY tracking_source"
+pnpm exec wrangler d1 execute CONTROL_DB --remote --command \
+  "SELECT source, COUNT(*) FROM project_tracking_sources WHERE enabled = 1 GROUP BY source"
 ```
 
 Expected results:
@@ -186,6 +209,8 @@ Expected results:
 - Existing workspaces are `active` and `self_hosted`.
 - Existing billing accounts are `disabled` with `stripe_livemode` null.
 - Existing projects, memberships, snapshots, jobs, queues, and R2 keys remain.
+- Existing projects have ChatGPT enabled and existing jobs/snapshots are marked
+  as ChatGPT; no historical Gemini or Google data is invented.
 - The earliest existing owner is the initial platform operator.
 
 Re-run the pre-cutover invariant query and exercise login, project reads,
@@ -228,11 +253,15 @@ Verify in a private browser:
 
 Belki supports one monthly EUR subscription item at quantity 1:
 
-| Plan | Tax-exclusive price | Units per period | Active projects |
-|---|---:|---:|---:|
-| Starter | €10/month | 1,000 | 1 |
-| Studio | €29/month | 5,000 | 5 |
-| Agency | €149/month | 30,000 | 30 |
+| Plan | Tax-exclusive price | Active prompts | Active projects | Tracking sources per project |
+|---|---:|---:|---:|---|
+| Starter | €10/month | 25 | 1 | ChatGPT only |
+| Studio | €29/month | 75 | 5 | Choose any 2 enabled sources |
+| Agency | €149/month | 250 | 30 | All 4 enabled sources |
+
+One active prompt is one query Belki tracks on schedule. If a project has two
+tracking sources enabled, that prompt is collected from both sources. Do not
+market internal workload weights as prompts, checks, credits, or requests.
 
 Use three Products with one Price each—not three same-interval Prices on one
 Product. This avoids Stripe's “This pricing plan can't be added” portal error.
@@ -355,6 +384,9 @@ In a dedicated PR, change only the managed profile:
   "DEPLOYMENT_MODE": "managed",
   "PAYMENT_MODE": "stripe_direct",
   "BILLING_PLAN_CHANGES_ENABLED": "true",
+  "TRACKING_SOURCE_GEMINI_ENABLED": "false",
+  "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED": "false",
+  "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED": "false",
   "STRIPE_ENVIRONMENT": "test"
 }
 ```
@@ -368,16 +400,59 @@ From `/operator`, create one test-only signup code and exercise:
 - A valid webhook activates the workspace; an invalid or replayed event cannot
   grant entitlement twice.
 - Starter → Studio uses Stripe's immediate confirmation and proration.
-- Agency → Starter is rejected above one active project.
+- Agency → Starter succeeds even when the workspace is above the Starter
+  limits. The confirmation must identify how many projects will be archived,
+  prompts paused, and sources removed.
 - A valid downgrade creates a next-renewal schedule and retains the current
-  allowance for the paid period.
+  plan, prompts, projects, and sources for the paid period.
+- At renewal, excess projects are archived, excess prompts are paused, and
+  unsupported sources are disabled deterministically. No history is deleted.
+- After upgrading, an archived project can be restored when project capacity
+  is available; paused prompts remain available for deliberate reactivation.
 - “Keep current plan” releases the schedule.
 - Replacing a downgrade or canceling a subscription explicitly releases the
   previous pending schedule.
 - Cancellation is end-of-period and reactivation clears it.
-- Credit and project limits stop new paid work without deleting customer data.
+- Prompt, project, and source limits stop new paid work without deleting
+  customer data.
 
-### 6.4 Close sandbox safely
+### 6.4 Validate and release tracking sources
+
+No new provider secret is required. Gemini, Google AI Mode, Google AI
+Overviews, and ChatGPT all use the existing `DATAFORSEO_LOGIN` and
+`DATAFORSEO_PASSWORD` Worker runtime secrets.
+
+Release optional sources independently, in this order:
+
+1. Set `TRACKING_SOURCE_GEMINI_ENABLED=true` in
+   `deployment/getbelki.json`, merge the profile PR, and enable Gemini on one
+   internal Studio or Agency project.
+2. Allow one scheduled prompt update. Verify a source-specific result,
+   citations, provider cost, prompt history, alert, and CSV export. Confirm
+   ChatGPT reporting did not change.
+3. Repeat for `TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED`.
+4. Repeat for `TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED`. Test one query with
+   an AI Overview and one without. Absence is a successful observation shown as
+   “not present,” not a failed job.
+
+Google AI Overviews uses Google Organic Advanced with asynchronous AI Overview
+loading; DataForSEO charges that option at a higher multiplier. Watch actual
+provider cost before expanding access. To stop a source safely, change only its
+flag to false and redeploy. Existing history remains readable; new selection
+and dispatch stop. Work already accepted by DataForSEO may still finish and is
+normalized into the preserved source history.
+
+Source behavior is intentionally explicit:
+
+- New and migrated projects start with ChatGPT only.
+- Enabling a source starts with the next scheduled update; Belki does not
+  fabricate or backfill historical responses.
+- Reports, alerts, exports, snapshots, and related-query views stay separated
+  by source; Belki never blends unlike responses into one visibility score.
+- Managed customers cannot trigger ad-hoc paid collection. Self-hosters may run
+  one explicitly selected source manually.
+
+### 6.5 Close sandbox safely
 
 Before changing credentials:
 
@@ -446,6 +521,9 @@ Merge a dedicated profile-only PR with:
   "DEPLOYMENT_MODE": "managed",
   "PAYMENT_MODE": "stripe_direct",
   "BILLING_PLAN_CHANGES_ENABLED": "true",
+  "TRACKING_SOURCE_GEMINI_ENABLED": "false",
+  "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED": "false",
+  "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED": "false",
   "STRIPE_ENVIRONMENT": "live"
 }
 ```
@@ -461,10 +539,11 @@ Complete the customer path before treating the release as healthy:
    `/onboarding/prompts`, not Settings or an empty dashboard.
 2. Add at least one prompt and confirm `/prompts` shows it. Also verify that
    **Skip for now** reaches the project overview without an onboarding loop.
-3. Open Billing. Confirm managed workspaces default to **Plan**, **Usage** is a
-   separate view, and the Stripe management action opens the live portal.
-4. Confirm a self-hosted workspace defaults to **Usage** and labels the other
-   view **Allowance**; it must not show managed checkout actions.
+3. Open Billing. Confirm managed workspaces show the plan, active prompt and
+   project allowances, source entitlements, and Stripe management action. Raw
+   provider costs must not be exposed to managed customers.
+4. Confirm a self-hosted workspace defaults to **Provider costs** and labels
+   the other view **Limits**; it must not show managed checkout actions.
 5. Open the operator console through Cloudflare Access. Create and revoke a
    test invitation, and verify a workspace status change requires confirmation.
 
@@ -473,6 +552,11 @@ and D1 state. Cancel that smoke subscription, issue a full refund, wait for the
 deletion webhook, and archive the smoke workspace.
 
 Do not issue customer invitations until this smoke test passes.
+
+Keep optional tracking-source flags false during the Stripe credential
+rotation. Release them afterward using the one-source-at-a-time procedure in
+section 6.4. This separates billing incidents from provider-integration
+incidents and makes rollback a one-variable Git change.
 
 ## 8. Billing invariants and support operations
 
@@ -487,16 +571,20 @@ Belki deliberately treats plan changes asymmetrically:
 | Cancel subscription | Action portal cancellation | End of current period |
 | Reactivate | Clear `cancel_at_period_end` | Immediate |
 
-This permanently fixes the Agency-to-Starter hard stop: the 30,000-unit
-allowance remains until renewal, and the new 1,000-unit period starts with fresh
-usage. While a downgrade is pending, new project creation is capped at the
-target plan.
+This permanently fixes the Agency-to-Starter hard stop. The current paid plan
+remains fully active until renewal. At renewal, Belki atomically applies the
+new prompt, project, and source limits: it archives excess projects, pauses
+excess prompts, and disables excess sources. Historical snapshots and settings
+are retained. While a downgrade is pending, the customer keeps the current
+plan's limits; the stored transition preview makes the renewal changes explicit
+and reproducible. The Billing page recalculates affected counts as the customer
+changes projects, prompts, or sources during the remaining paid period.
 
 Inspect state:
 
 ```bash
 pnpm exec wrangler d1 execute CONTROL_DB --remote --command \
-  "SELECT workspace_id, kind, status, from_plan_key, to_plan_key, effective_at, failure_code FROM billing_plan_changes ORDER BY created_at DESC LIMIT 25"
+  "SELECT workspace_id, kind, status, from_plan_key, to_plan_key, effective_at, transition_json, failure_code FROM billing_plan_changes ORDER BY created_at DESC LIMIT 25"
 pnpm exec wrangler d1 execute CONTROL_DB --remote --command \
   "SELECT workspace_id, stripe_livemode, plan_key, status, stripe_subscription_schedule_id, billing_synced_at, billing_sync_error FROM billing_accounts ORDER BY updated_at DESC LIMIT 25"
 ```
@@ -541,7 +629,7 @@ Restore D1 only for confirmed data corruption with traffic and queues stopped:
 pnpm exec wrangler d1 time-travel restore ai-tracker-control --bookmark <bookmark>
 ```
 
-After rollback, verify login, workspace isolation, usage gates, queues,
+After rollback, verify login, workspace isolation, prompt/source limits, queues,
 DataForSEO postbacks, Stripe webhook signatures, operator Access, and canonical
 billing reconciliation before reopening invitations.
 
@@ -549,7 +637,10 @@ billing reconciliation before reopening invitations.
 
 Self-hosters keep `DEPLOYMENT_MODE=self_hosted`, `PAYMENT_MODE=disabled`, and
 their own DataForSEO credentials as Worker runtime secrets. Stripe secrets and
-managed deployment profiles are unnecessary.
+managed deployment profiles are unnecessary. The checked-in self-hosted
+configuration enables every tracking source and provides high local prompt and
+project limits; ChatGPT remains the default on existing and new projects until
+the owner enables more sources in Project Settings.
 
 Set the five required secrets interactively:
 
@@ -584,3 +675,6 @@ pnpm r2:lifecycle
 - [Stripe Customer Portal deep links](https://docs.stripe.com/customer-management/portal-deep-links)
 - [Stripe Subscription Schedules](https://docs.stripe.com/billing/subscriptions/subscription-schedules)
 - [Stripe webhook setup](https://docs.stripe.com/webhooks)
+- [DataForSEO LLM Responses](https://docs.dataforseo.com/v3/ai_optimization-llm_responses-overview/)
+- [DataForSEO Google AI Mode](https://docs.dataforseo.com/v3/serp/google/ai_mode/overview/)
+- [DataForSEO Google Organic AI Overview](https://docs.dataforseo.com/v3/serp/google/organic/task_post/)

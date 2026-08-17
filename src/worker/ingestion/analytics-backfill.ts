@@ -1,4 +1,5 @@
 import { nowIso } from "../lib/http";
+import { ANALYTICS_READ_MODEL_SCHEMA_VERSION } from "../lib/analytics-read-model";
 import { syncAnalyticsReadModel } from "./analytics-read-model";
 
 interface BackfillProjectRow {
@@ -22,10 +23,6 @@ export interface AnalyticsBackfillResult {
 }
 
 const BACKFILL_BATCH_SIZE = 50;
-// Version 5 records whether each served ad was actually rendered. Re-running
-// source snapshots is idempotent and preserves legacy behavior for missing flags.
-const ANALYTICS_SCHEMA_VERSION = 5;
-
 export async function backfillAnalyticsReadModel(
   env: Env,
 ): Promise<AnalyticsBackfillResult> {
@@ -44,7 +41,7 @@ export async function backfillAnalyticsReadModel(
          AND (state.project_id IS NULL OR state.schema_version < ?)
      )`,
   )
-    .bind(ANALYTICS_SCHEMA_VERSION)
+    .bind(ANALYTICS_READ_MODEL_SCHEMA_VERSION)
     .run();
   await env.CONTROL_DB.prepare(
     `INSERT INTO analytics_read_model_projects (
@@ -69,7 +66,7 @@ export async function backfillAnalyticsReadModel(
         ELSE analytics_read_model_projects.updated_at
       END`,
   )
-    .bind(ANALYTICS_SCHEMA_VERSION, updatedAt)
+    .bind(ANALYTICS_READ_MODEL_SCHEMA_VERSION, updatedAt)
     .run();
 
   const project = await env.CONTROL_DB.prepare(

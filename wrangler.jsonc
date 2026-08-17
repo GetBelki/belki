@@ -2,7 +2,7 @@
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "ai-visibility-tracker",
   "main": "./src/worker/index.ts",
-  "compatibility_date": "2026-08-14",
+  "compatibility_date": "2026-08-17",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "assets": {
@@ -17,6 +17,9 @@
     "PAYMENT_MODE": "disabled",
     "STRIPE_ENVIRONMENT": "test",
     "BILLING_PLAN_CHANGES_ENABLED": "false",
+    "TRACKING_SOURCE_GEMINI_ENABLED": "true",
+    "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED": "true",
+    "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED": "true",
     "STRIPE_STARTER_PRICE_ID": "",
     "STRIPE_STUDIO_PRICE_ID": "",
     "STRIPE_AGENCY_PRICE_ID": "",

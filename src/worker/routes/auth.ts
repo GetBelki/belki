@@ -116,8 +116,9 @@ authRoutes.post("/setup", zValidator("json", SetupSchema), async (c) => {
     c.env.CONTROL_DB.prepare(
       `INSERT INTO billing_accounts (
         workspace_id, provider, payment_mode, plan_key, status, monthly_units,
-        project_limit, cycle_started_at, cycle_ends_at, created_at, updated_at
-      ) VALUES (?, 'self_hosted', 'disabled', 'self_hosted', 'active', ?, 1000000, ?, ?, ?, ?)`,
+        project_limit, prompt_limit, source_limit,
+        cycle_started_at, cycle_ends_at, created_at, updated_at
+      ) VALUES (?, 'self_hosted', 'disabled', 'self_hosted', 'active', ?, 1000000, 1000000, 4, ?, ?, ?, ?)`,
     ).bind(workspaceId, input.monthlyRunCap, cycleStartedAt, cycleEndsAt, now, now),
     c.env.CONTROL_DB.prepare(
       `INSERT OR IGNORE INTO platform_operators (

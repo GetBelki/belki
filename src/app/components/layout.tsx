@@ -29,6 +29,7 @@ import {
 } from "./navigation-icons";
 import { Button, Select } from "./ui";
 import { cn } from "../lib/utils";
+import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
 
 const NAVIGATION = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
@@ -41,7 +42,16 @@ const NAVIGATION = [
 ] as const;
 
 export function AppLayout() {
-  const { session, projects, projectId, setProjectId, currentProject } = useApp();
+  const {
+    session,
+    projects,
+    projectId,
+    setProjectId,
+    currentProject,
+    trackingSources,
+    trackingSource,
+    setTrackingSource,
+  } = useApp();
   const queryClient = useQueryClient();
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
@@ -184,6 +194,29 @@ export function AppLayout() {
             <strong>{APP_NAME}</strong>
           </NavLink>
         </header>
+        {projectId && trackingSources.length > 1 && ![
+          "/billing",
+          "/settings",
+          "/users",
+          "/operator",
+          "/entities",
+          "/ads",
+        ].some((path) => location.pathname.startsWith(path)) ? (
+          <div className="tracking-source-tabs" aria-label="Tracking source" role="tablist">
+            {trackingSources.map((source) => (
+              <button
+                aria-selected={trackingSource === source}
+                className={trackingSource === source ? "active" : undefined}
+                key={source}
+                onClick={() => setTrackingSource(source)}
+                role="tab"
+                type="button"
+              >
+                {TRACKING_SOURCE_LABELS[source]}
+              </button>
+            ))}
+          </div>
+        ) : null}
         <Outlet />
       </main>
     </div>

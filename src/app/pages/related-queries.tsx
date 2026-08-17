@@ -26,6 +26,7 @@ import { useApp } from "../context";
 import { api, apiPage } from "../lib/api";
 import { localeLabel } from "../lib/locale-catalog";
 import { compact, dateTime, pluralize } from "../lib/utils";
+import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
 
 type RelatedQueryPeriod = "7d" | "30d" | "90d" | "365d";
 
@@ -186,25 +187,26 @@ function IndexingState() {
 }
 
 export function RelatedQueriesPage() {
-  const { projectId } = useApp();
+  const { projectId, trackingSource } = useApp();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const period = periodValue(searchParams.get("period"));
   const search = searchParams.get("search") ?? "";
   const pageSize = 25;
-  const scope = `${projectId ?? ""}\u0000${period}\u0000${search}`;
+  const scope = `${projectId ?? ""}\u0000${trackingSource}\u0000${period}\u0000${search}`;
   const [pagination, setPagination] = useState({ scope, cursors: [] as string[] });
   const cursors = pagination.scope === scope ? pagination.cursors : [];
   const cursor = cursors.at(-1);
   const params = new URLSearchParams({
     projectId: projectId ?? "",
     period,
+    source: trackingSource,
     limit: String(pageSize),
   });
   if (search) params.set("search", search);
   if (cursor) params.set("cursor", cursor);
   const report = useQuery({
-    queryKey: ["related-queries", projectId, period, search, cursor ?? ""],
+    queryKey: ["related-queries", projectId, trackingSource, period, search, cursor ?? ""],
     queryFn: () =>
       apiPage<RelatedQueriesOverview>(`/analytics/related-queries?${params}`),
     enabled: Boolean(projectId),
@@ -218,7 +220,7 @@ export function RelatedQueriesPage() {
       <PageHeader
         eyebrow={PERIOD_OPTIONS.find((option) => option.value === period)?.label}
         title="Related queries"
-        description="Questions ChatGPT searched to expand your tracked prompts. Repeated queries reveal topics worth monitoring directly."
+        description={`Questions ${TRACKING_SOURCE_LABELS[trackingSource]} used to expand your tracked prompts. Repeated queries reveal topics worth monitoring directly.`}
       />
       <div className="report-filters related-query-filters">
         <div className="search-filter">
@@ -306,7 +308,7 @@ export function RelatedQueriesPage() {
             ) : (
               <EmptyState
                 title={search ? "No matching related queries" : "No related queries yet"}
-                description={search ? "Try a broader search." : "Related queries will appear after ChatGPT expands a tracked prompt during a capture."}
+                description={search ? "Try a broader search." : `Related queries will appear when ${TRACKING_SOURCE_LABELS[trackingSource]} expands a tracked prompt.`}
               />
             )}
           </Card>
@@ -321,21 +323,23 @@ function ContextSourcesCard({
   queryKey,
   projectId,
   period,
+  source,
 }: {
   kind: "cited" | "retrieved";
   queryKey: string;
   projectId: string;
   period: RelatedQueryPeriod;
+  source: string;
 }) {
   const pageSize = 10;
-  const scope = `${kind}\u0000${period}\u0000${projectId}\u0000${queryKey}`;
+  const scope = `${kind}\u0000${source}\u0000${period}\u0000${projectId}\u0000${queryKey}`;
   const [pagination, setPagination] = useState({ scope, cursors: [] as string[] });
   const cursors = pagination.scope === scope ? pagination.cursors : [];
   const cursor = cursors.at(-1);
-  const params = new URLSearchParams({ projectId, period, kind, limit: String(pageSize) });
+  const params = new URLSearchParams({ projectId, period, kind, source, limit: String(pageSize) });
   if (cursor) params.set("cursor", cursor);
   const report = useQuery({
-    queryKey: ["related-query-sources", projectId, queryKey, period, kind, cursor ?? ""],
+    queryKey: ["related-query-sources", projectId, queryKey, source, period, kind, cursor ?? ""],
     queryFn: () => apiPage<ContextualSource[]>(`/analytics/related-queries/${queryKey}/sources?${params}`),
   });
   const rows = report.data?.data ?? [];
@@ -394,12 +398,12 @@ function ContextSourcesCard({
 }
 
 export function RelatedQueryDetailPage() {
-  const { projectId, session } = useApp();
+  const { projectId, session, trackingSource } = useApp();
   const { queryKey = "" } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const period = periodValue(searchParams.get("period"));
   const pageSize = 10;
-  const occurrenceScope = `${period}\u0000${projectId ?? ""}\u0000${queryKey}`;
+  const occurrenceScope = `${period}\u0000${trackingSource}\u0000${projectId ?? ""}\u0000${queryKey}`;
   const [occurrencePagination, setOccurrencePagination] = useState({
     scope: occurrenceScope,
     cursors: [] as string[],
@@ -409,14 +413,14 @@ export function RelatedQueryDetailPage() {
     : [];
   const occurrenceCursor = occurrenceCursors.at(-1);
   const detail = useQuery({
-    queryKey: ["related-query-detail", projectId, queryKey, period],
-    queryFn: () => api<RelatedQueryDetail>(`/analytics/related-queries/${queryKey}?projectId=${projectId}&period=${period}`),
+    queryKey: ["related-query-detail", projectId, queryKey, trackingSource, period],
+    queryFn: () => api<RelatedQueryDetail>(`/analytics/related-queries/${queryKey}?projectId=${projectId}&source=${trackingSource}&period=${period}`),
     enabled: Boolean(projectId && queryKey),
   });
-  const occurrenceParams = new URLSearchParams({ projectId: projectId ?? "", period, limit: String(pageSize) });
+  const occurrenceParams = new URLSearchParams({ projectId: projectId ?? "", source: trackingSource, period, limit: String(pageSize) });
   if (occurrenceCursor) occurrenceParams.set("cursor", occurrenceCursor);
   const occurrences = useQuery({
-    queryKey: ["related-query-occurrences", projectId, queryKey, period, occurrenceCursor ?? ""],
+    queryKey: ["related-query-occurrences", projectId, queryKey, trackingSource, period, occurrenceCursor ?? ""],
     queryFn: () => apiPage<RelatedQueryOccurrence[]>(`/analytics/related-queries/${queryKey}/occurrences?${occurrenceParams}`),
     enabled: Boolean(projectId && queryKey && detail.data && !detail.data.indexing),
   });
@@ -514,8 +518,8 @@ export function RelatedQueryDetailPage() {
         <span>Providers return related queries and source lists separately. The URLs below appeared in the same responses, but Belki cannot claim that a specific query produced a specific URL.</span>
       </div>
       <div className="related-query-source-grid">
-        <ContextSourcesCard kind="cited" period={period} projectId={projectId} queryKey={queryKey} />
-        <ContextSourcesCard kind="retrieved" period={period} projectId={projectId} queryKey={queryKey} />
+        <ContextSourcesCard kind="cited" period={period} projectId={projectId} queryKey={queryKey} source={trackingSource} />
+        <ContextSourcesCard kind="retrieved" period={period} projectId={projectId} queryKey={queryKey} source={trackingSource} />
       </div>
     </div>
   );

@@ -9,6 +9,7 @@ import {
   PromptTagMutationSchema,
   ProjectInputSchema,
   ProjectFeatureSettingsSchema,
+  ProjectTrackingSourcesSchema,
   ProjectUpdateSchema,
   QueryInputSchema,
   QueryUpdateSchema,
@@ -38,11 +39,19 @@ import {
 import { requestPromptPurges } from "../automation/prompt-purges";
 import {
   claimProjectSlot,
+  claimPromptSlots,
   releaseProjectSlot,
+  releasePromptSlots,
   reserveUsage,
   releaseUsage,
   USAGE_UNITS,
 } from "../lib/usage";
+import {
+  assertTrackingSourcesAllowed,
+  availableSources,
+  projectTrackingSources,
+  workspaceSourceEntitlement,
+} from "../lib/tracking-sources";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 const ProjectIdParamSchema = z.object({ projectId: z.string().uuid() });
@@ -65,7 +74,8 @@ async function requireProject(
   const project = await db
     .prepare(
       `SELECT id, html_capture_enabled
-       FROM projects WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`,
+       FROM projects WHERE id = ? AND workspace_id = ?
+         AND deleted_at IS NULL AND archived_at IS NULL`,
     )
     .bind(projectId, workspaceId)
     .first<ProjectOwnershipRow>();
@@ -125,6 +135,55 @@ coreRoutes.get("/projects", async (c) => {
   });
 });
 
+coreRoutes.get("/projects/archived", async (c) => {
+  const principal = requireRole(c, "admin");
+  const projects = await c.env.CONTROL_DB.prepare(
+    `SELECT id, name, primary_domain, archived_at
+     FROM projects WHERE workspace_id = ? AND deleted_at IS NULL
+       AND archived_at IS NOT NULL
+     ORDER BY archived_at DESC`,
+  ).bind(principal.workspaceId).all();
+  return c.json({ data: projects.results });
+});
+
+coreRoutes.patch(
+  "/projects/:id/restore",
+  zValidator("param", IdParamSchema),
+  async (c) => {
+    const principal = requireRole(c, "admin");
+    const { id } = c.req.valid("param");
+    const project = await c.env.CONTROL_DB.prepare(
+      `SELECT id FROM projects WHERE id = ? AND workspace_id = ?
+       AND deleted_at IS NULL AND archived_at IS NOT NULL`,
+    ).bind(id, principal.workspaceId).first();
+    if (!project) throw new ApiError(404, "archived_project_not_found", "Archived project not found.");
+    await claimProjectSlot(c.env, principal.workspaceId);
+    try {
+      const restored = await c.env.CONTROL_DB.prepare(
+        `UPDATE projects SET archived_at = NULL, updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL AND archived_at IS NOT NULL`,
+      ).bind(nowIso(), id, principal.workspaceId).run();
+      if (restored.meta.changes !== 1) {
+        await releaseProjectSlot(c.env, principal.workspaceId);
+        throw new ApiError(409, "project_already_restored", "This project has already been restored.");
+      }
+    } catch (error) {
+      if (!(error instanceof ApiError && error.code === "project_already_restored")) {
+        await releaseProjectSlot(c.env, principal.workspaceId);
+      }
+      throw error;
+    }
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "project.restored",
+      resourceType: "project",
+      resourceId: id,
+    });
+    return c.json({ data: { id, restored: true } });
+  },
+);
+
 coreRoutes.post("/projects", zValidator("json", ProjectInputSchema), async (c) => {
   const principal = requireRole(c, "editor");
   const input = c.req.valid("json");
@@ -146,6 +205,11 @@ coreRoutes.post("/projects", zValidator("json", ProjectInputSchema), async (c) =
       now,
       now,
     ),
+    c.env.CONTROL_DB.prepare(
+      `INSERT INTO project_tracking_sources (
+        project_id, source, enabled, created_at, updated_at
+      ) VALUES (?, 'chatgpt', 1, ?, ?)`,
+    ).bind(projectId, now, now),
     c.env.CONTROL_DB.prepare(
       `INSERT INTO tracked_brands (
         id, project_id, kind, name, aliases_json, domains_json, created_at, updated_at
@@ -239,7 +303,8 @@ coreRoutes.get(
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
     await requireProject(c.env.CONTROL_DB, principal.workspaceId, id);
-    const project = await c.env.CONTROL_DB.prepare(
+    const [project, sources, sourceEntitlement] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
       `SELECT id, name, primary_domain, html_capture_enabled,
         product_enrichment_enabled, entity_extraction_enabled,
         entity_auto_track_enabled, raw_retention_days, html_retention_days
@@ -257,7 +322,10 @@ coreRoutes.get(
         entity_auto_track_enabled: number;
         raw_retention_days: number;
         html_retention_days: number;
-      }>();
+      }>(),
+      projectTrackingSources(c.env, id),
+      workspaceSourceEntitlement(c.env, principal.workspaceId),
+    ]);
     if (!project) throw new ApiError(404, "project_not_found", "Project not found.");
     return c.json({
       data: {
@@ -270,8 +338,45 @@ coreRoutes.get(
         entityAutoTrackEnabled: project.entity_auto_track_enabled === 1,
         rawRetentionDays: project.raw_retention_days,
         htmlRetentionDays: project.html_retention_days,
+        trackingSources: sources,
+        availableTrackingSources: availableSources(c.env),
+        allowedTrackingSources: sourceEntitlement.allowedSources,
+        trackingSourceLimit: sourceEntitlement.sourceLimit,
       },
     });
+  },
+);
+
+coreRoutes.patch(
+  "/projects/:id/tracking-sources",
+  zValidator("param", IdParamSchema),
+  zValidator("json", ProjectTrackingSourcesSchema),
+  async (c) => {
+    const principal = requireRole(c, "admin");
+    const { id } = c.req.valid("param");
+    const { sources } = c.req.valid("json");
+    await requireProject(c.env.CONTROL_DB, principal.workspaceId, id);
+    await assertTrackingSourcesAllowed(c.env, principal.workspaceId, sources);
+    const now = nowIso();
+    await c.env.CONTROL_DB.batch(
+      ["chatgpt", "gemini", "google_ai_mode", "google_ai_overview"].map((source) =>
+        c.env.CONTROL_DB.prepare(
+          `INSERT INTO project_tracking_sources (project_id, source, enabled, created_at, updated_at)
+           VALUES (?, ?, ?, ?, ?)
+           ON CONFLICT(project_id, source) DO UPDATE SET
+             enabled = excluded.enabled, updated_at = excluded.updated_at`,
+        ).bind(id, source, sources.includes(source as typeof sources[number]) ? 1 : 0, now, now)
+      ),
+    );
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "project.tracking_sources_updated",
+      resourceType: "project",
+      resourceId: id,
+      metadata: { sources },
+    });
+    return c.json({ data: { id, trackingSources: sources } });
   },
 );
 
@@ -521,6 +626,9 @@ coreRoutes.delete(
     const principal = requireRole(c, "admin");
     const { id } = c.req.valid("param");
     await requireProject(c.env.CONTROL_DB, principal.workspaceId, id);
+    const promptCount = await c.env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM tracked_queries WHERE project_id = ? AND deleted_at IS NULL AND is_active = 1",
+    ).bind(id).first<{ count: number }>();
     const now = nowIso();
     await c.env.CONTROL_DB.batch([
       c.env.CONTROL_DB.prepare(
@@ -531,6 +639,9 @@ coreRoutes.delete(
       ).bind(now, now, id),
     ]);
     await releaseProjectSlot(c.env, principal.workspaceId);
+    if (Number(promptCount?.count ?? 0) > 0) {
+      await releasePromptSlots(c.env, principal.workspaceId, Number(promptCount?.count ?? 0));
+    }
     await writeAudit(c.env.CONTROL_DB, {
       workspaceId: principal.workspaceId,
       userId: principal.userId,
@@ -935,7 +1046,13 @@ coreRoutes.post(
         },
       });
     }
-    await c.env.CONTROL_DB.batch(statements);
+    if (records.length) await claimPromptSlots(c.env, principal.workspaceId, records.length);
+    try {
+      await c.env.CONTROL_DB.batch(statements);
+    } catch (error) {
+      if (records.length) await releasePromptSlots(c.env, principal.workspaceId, records.length);
+      throw error;
+    }
     await writeAudit(c.env.CONTROL_DB, {
       workspaceId: principal.workspaceId,
       userId: principal.userId,
@@ -990,7 +1107,9 @@ coreRoutes.post(
       projectId,
       input.tags,
     );
-    await c.env.CONTROL_DB.batch([
+    await claimPromptSlots(c.env, principal.workspaceId);
+    try {
+      await c.env.CONTROL_DB.batch([
       ...insertPromptTagStatements(
         c.env.CONTROL_DB,
         projectId,
@@ -1031,7 +1150,11 @@ coreRoutes.post(
         resolvedTags.tags,
         now,
       ),
-    ]);
+      ]);
+    } catch (error) {
+      await releasePromptSlots(c.env, principal.workspaceId);
+      throw error;
+    }
     await writeAudit(c.env.CONTROL_DB, {
       workspaceId: principal.workspaceId,
       userId: principal.userId,
@@ -1123,12 +1246,16 @@ coreRoutes.delete(
       .bind(id, principal.workspaceId, id, principal.workspaceId)
       .first<{ project_id: string }>();
     if (!current) throw new ApiError(404, "query_not_found", "Tracked query not found.");
+    const active = await c.env.CONTROL_DB.prepare(
+      "SELECT is_active FROM tracked_queries WHERE id = ?",
+    ).bind(id).first<{ is_active: number }>();
     const result = await requestPromptPurges(
       c.env,
       principal,
       current.project_id,
       [id],
     );
+    if (active?.is_active === 1) await releasePromptSlots(c.env, principal.workspaceId);
     return c.json({ data: result }, 202);
   },
 );
@@ -1141,18 +1268,36 @@ coreRoutes.patch(
     const principal = requireRole(c, "editor");
     const { id } = c.req.valid("param");
     const { isActive } = c.req.valid("json");
-    const result = await c.env.CONTROL_DB.prepare(
-      `UPDATE tracked_queries
-       SET is_active = ?, updated_at = ?
-       WHERE id = ? AND project_id IN (
-         SELECT id FROM projects WHERE workspace_id = ? AND deleted_at IS NULL
-       ) AND deleted_at IS NULL`,
-    )
-      .bind(isActive ? 1 : 0, nowIso(), id, principal.workspaceId)
-      .run();
+    const current = await c.env.CONTROL_DB.prepare(
+      `SELECT query.is_active FROM tracked_queries query
+       JOIN projects project ON project.id = query.project_id
+       WHERE query.id = ? AND project.workspace_id = ? AND query.deleted_at IS NULL
+         AND project.deleted_at IS NULL AND project.archived_at IS NULL`,
+    ).bind(id, principal.workspaceId).first<{ is_active: number }>();
+    if (!current) throw new ApiError(404, "query_not_found", "Tracked query not found.");
+    const claimedSlot = isActive && current.is_active !== 1;
+    if (claimedSlot) await claimPromptSlots(c.env, principal.workspaceId);
+    let result: D1Result;
+    try {
+      result = await c.env.CONTROL_DB.prepare(
+        `UPDATE tracked_queries
+         SET is_active = ?, updated_at = ?
+         WHERE id = ? AND project_id IN (
+           SELECT id FROM projects WHERE workspace_id = ? AND deleted_at IS NULL
+             AND archived_at IS NULL
+         ) AND deleted_at IS NULL`,
+      )
+        .bind(isActive ? 1 : 0, nowIso(), id, principal.workspaceId)
+        .run();
+    } catch (error) {
+      if (claimedSlot) await releasePromptSlots(c.env, principal.workspaceId);
+      throw error;
+    }
     if (result.meta.changes === 0) {
+      if (claimedSlot) await releasePromptSlots(c.env, principal.workspaceId);
       throw new ApiError(404, "query_not_found", "Tracked query not found.");
     }
+    if (!isActive && current.is_active === 1) await releasePromptSlots(c.env, principal.workspaceId);
     return c.json({ data: { id, isActive } });
   },
 );
@@ -1165,6 +1310,9 @@ coreRoutes.post(
     const principal = requireRole(c, "editor");
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
+    if (c.env.DEPLOYMENT_MODE !== "self_hosted") {
+      throw new ApiError(403, "manual_runs_unavailable", "Managed plans use scheduled tracking.");
+    }
     const query = await c.env.CONTROL_DB.prepare(
       `SELECT q.id, q.project_id, q.shard_id, p.html_capture_enabled
        FROM tracked_queries q
@@ -1179,6 +1327,10 @@ coreRoutes.post(
         html_capture_enabled: number;
       }>();
     if (!query) throw new ApiError(404, "query_not_found", "Tracked query not found.");
+    const enabledSources = await projectTrackingSources(c.env, query.project_id);
+    if (!enabledSources.includes(input.source)) {
+      throw new ApiError(409, "tracking_source_disabled", "Enable this tracking source in Project Settings first.");
+    }
 
     const jobId = crypto.randomUUID();
     const tag = await createSignedJobTag(jobId, c.env.APP_CRYPTO_KEY);
@@ -1197,10 +1349,10 @@ coreRoutes.post(
     try {
       await c.env.CONTROL_DB.prepare(
         `INSERT INTO crawl_jobs (
-          id, workspace_id, project_id, tracked_query_id, shard_id, run_type,
+          id, workspace_id, project_id, tracked_query_id, shard_id, tracking_source, run_type,
           delivery_method, status, scheduled_for, provider_tag, capture_html,
           provider_account_id, usage_reservation_id, usage_units, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, 'manual', ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, 'manual', ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
         .bind(
           jobId,
@@ -1208,6 +1360,7 @@ coreRoutes.post(
           query.project_id,
           query.id,
           query.shard_id,
+          input.source,
           deliveryMethod,
           now,
           tag,

@@ -281,14 +281,25 @@ in D1 or sent to the browser.
 
 ### Managed cloud mode
 
-Managed mode uses one platform DataForSEO account and sells Belki usage units,
+Managed mode uses one platform DataForSEO account and sells prompt tracking,
 not DataForSEO credentials or API credits. The public monthly tiers are:
 
-| Plan | Price | Included units | Projects | Seats |
-|---|---:|---:|---:|---:|
-| Starter | €10 | 1,000 | 1 | Unlimited |
-| Studio | €29 | 5,000 | 5 | Unlimited |
-| Agency | €149 | 30,000 | 30 | Unlimited |
+| Plan | Price | Active prompts | Projects | Tracking sources | Seats |
+|---|---:|---:|---:|---|---:|
+| Starter | €10 | 25 | 1 | ChatGPT | Unlimited |
+| Studio | €29 | 75 | 5 | Choose 2 per project | Unlimited |
+| Agency | €149 | 250 | 30 | All 4 per project | Unlimited |
+
+The available sources are ChatGPT, Gemini, Google AI Mode, and Google AI
+Overviews. ChatGPT is enabled by default. Optional sources are controlled by
+deployment feature flags so managed operators can release and disable them
+independently.
+
+Claude and Perplexity are intentionally not part of this release. DataForSEO's
+Responses API still requires a separate provider/model task for each response;
+it is not one request that returns every model. Future sources should use the
+same adapter, entitlement, cost-validation, and source-separated reporting
+contract rather than being treated as aliases of an existing source.
 
 Belki production is deployed with the non-secret `deployment/getbelki.json`
 profile, while `wrangler.jsonc` remains safe for self-hosters. Set
@@ -306,19 +317,19 @@ read-only.
 Upgrades are confirmed in Stripe and prorated immediately. Downgrades are
 Belki-owned Subscription Schedules that take effect at renewal, so a lower
 allowance never hard-stops a customer halfway through the paid period. A
-downgrade is blocked until the active project count fits the target plan, and a
-pending downgrade can be replaced or cancelled.
+downgrade stores an exact transition preview; at renewal, Belki archives excess
+projects, pauses excess prompts, and disables excess sources without deleting
+history. A pending downgrade can be replaced or cancelled.
 
 Protect `/api/v1/operator/*` with Cloudflare Access in managed deployments. The
 Worker additionally checks that the Access-authenticated email matches a row in
 `platform_operators`. Disable `workers.dev` and attach a custom production route
 before launching the managed service.
 
-Usage units are charged as follows: Standard prompt 1, priority/HTML prompt 2,
-Live prompt 4, entity-extraction chunk 1, and product enrichment 1. Reads,
-exports, alerts, and mirrored ad assets are unmetered. Reservations happen before
-paid work; accepted provider work is committed, while pre-submit failures and
-explicit provider rejections are released.
+Belki maintains internal workload budgets for cost and abuse protection. Those
+weights are implementation details rather than a customer-facing balance.
+Reservations happen before paid work; accepted provider work is committed,
+while pre-submit failures and explicit provider rejections are released.
 
 ## Operations
 

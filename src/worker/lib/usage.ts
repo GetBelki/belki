@@ -14,9 +14,9 @@ import type {
 import { ApiError, nowIso } from "./http";
 
 export const PLAN_ENTITLEMENTS = {
-  starter: { monthlyUnits: 1_000, projectLimit: 1 },
-  studio: { monthlyUnits: 5_000, projectLimit: 5 },
-  agency: { monthlyUnits: 30_000, projectLimit: 30 },
+  starter: { monthlyUnits: 4_000, projectLimit: 1, promptLimit: 25, sourceLimit: 1 },
+  studio: { monthlyUnits: 20_000, projectLimit: 5, promptLimit: 75, sourceLimit: 2 },
+  agency: { monthlyUnits: 125_000, projectLimit: 30, promptLimit: 250, sourceLimit: 4 },
 } as const;
 
 export const BILLING_PLANS = {
@@ -38,11 +38,12 @@ interface BillingEntitlementRow {
   status: SubscriptionStatus;
   monthly_units: number;
   project_limit: number;
+  prompt_limit: number;
+  source_limit: number;
   cycle_started_at: string;
   cycle_ends_at: string;
   read_only_until: string | null;
   workspace_status: WorkspaceStatus;
-  pending_plan_key: PlanKey | null;
 }
 
 function gate(env: Env, workspaceId: string): DurableObjectStub<WorkspaceUsageGate> {
@@ -59,13 +60,11 @@ function currentUtcMonth(): { start: string; end: string } {
 export async function syncUsageEntitlement(env: Env, workspaceId: string): Promise<UsageSummary> {
   const row = await env.CONTROL_DB.prepare(
     `SELECT billing.plan_key, billing.status, billing.monthly_units, billing.project_limit,
+      billing.prompt_limit, billing.source_limit,
       billing.cycle_started_at, billing.cycle_ends_at, billing.read_only_until,
-      workspace.status AS workspace_status, pending.to_plan_key AS pending_plan_key
+      workspace.status AS workspace_status
      FROM billing_accounts billing
      JOIN workspaces workspace ON workspace.id = billing.workspace_id
-     LEFT JOIN billing_plan_changes pending
-       ON pending.workspace_id = billing.workspace_id
-      AND pending.status IN ('creating', 'updating', 'scheduled', 'releasing')
      WHERE billing.workspace_id = ?`,
   )
     .bind(workspaceId)
@@ -84,35 +83,49 @@ export async function syncUsageEntitlement(env: Env, workspaceId: string): Promi
     ).bind(cycleStartedAt, cycleEndsAt, nowIso(), workspaceId).run();
   }
 
-  const pendingEntitlement = row.pending_plan_key === "starter" ||
-    row.pending_plan_key === "studio" || row.pending_plan_key === "agency"
-    ? PLAN_ENTITLEMENTS[row.pending_plan_key]
-    : null;
   const entitlement: UsageEntitlement = {
     planKey: row.plan_key,
     subscriptionStatus: row.status,
     workspaceStatus: row.workspace_status,
     allowance: Number(row.monthly_units),
-    projectLimit: Math.min(Number(row.project_limit), pendingEntitlement?.projectLimit ?? Number(row.project_limit)),
+    projectLimit: Number(row.project_limit),
+    promptLimit: Number(row.prompt_limit),
+    sourceLimit: Number(row.source_limit),
     cycleStartedAt,
     cycleEndsAt,
     readOnlyUntil: row.read_only_until,
   };
   const stub = gate(env, workspaceId);
   await stub.setEntitlement(entitlement);
-  const count = await env.CONTROL_DB.prepare(
-    "SELECT COUNT(*) AS count FROM projects WHERE workspace_id = ? AND deleted_at IS NULL",
-  ).bind(workspaceId).first<{ count: number }>();
-  return stub.syncProjectCount(Number(count?.count ?? 0));
+  const [projectCount, promptCount] = await Promise.all([
+    env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM projects WHERE workspace_id = ? AND deleted_at IS NULL AND archived_at IS NULL",
+    ).bind(workspaceId).first<{ count: number }>(),
+    env.CONTROL_DB.prepare(
+      `SELECT COUNT(*) AS count FROM tracked_queries query
+       JOIN projects project ON project.id = query.project_id
+       WHERE project.workspace_id = ? AND project.deleted_at IS NULL
+         AND project.archived_at IS NULL AND query.deleted_at IS NULL AND query.is_active = 1`,
+    ).bind(workspaceId).first<{ count: number }>(),
+  ]);
+  await stub.syncProjectCount(Number(projectCount?.count ?? 0));
+  return stub.syncPromptCount(Number(promptCount?.count ?? 0));
 }
 
 function usageError(error: unknown): ApiError {
   const message = error instanceof Error ? error.message : String(error);
   if (message.includes("usage_limit")) {
-    return new ApiError(402, "usage_limit", "This workspace has used its monthly allowance.");
+    return new ApiError(
+      402,
+      "usage_limit",
+      "This workspace has reached its monthly tracking safety limit.",
+    );
   }
   if (message.includes("project_limit")) {
     return new ApiError(402, "project_limit", "This workspace has reached its project limit.");
+  }
+  if (message.includes("prompt_limit")) {
+    return new ApiError(402, "prompt_limit", "This workspace has reached its active prompt limit.");
   }
   if (message.includes("payment_required") || message.includes("billing_cycle_inactive")) {
     return new ApiError(402, "payment_required", "An active subscription is required.");
@@ -221,6 +234,30 @@ export async function releaseProjectSlot(env: Env, workspaceId: string): Promise
       level: "error",
       message: "project_slot_release_failed",
       workspaceId,
+      error: error instanceof Error ? error.message : String(error),
+    }));
+  }
+}
+
+export async function claimPromptSlots(env: Env, workspaceId: string, count = 1): Promise<void> {
+  try {
+    await syncUsageEntitlement(env, workspaceId);
+    await gate(env, workspaceId).claimPrompts(count);
+  } catch (error) {
+    if (error instanceof ApiError) throw error;
+    throw usageError(error);
+  }
+}
+
+export async function releasePromptSlots(env: Env, workspaceId: string, count = 1): Promise<void> {
+  try {
+    await gate(env, workspaceId).releasePrompts(count);
+  } catch (error) {
+    console.error(JSON.stringify({
+      level: "error",
+      message: "prompt_slot_release_failed",
+      workspaceId,
+      count,
       error: error instanceof Error ? error.message : String(error),
     }));
   }

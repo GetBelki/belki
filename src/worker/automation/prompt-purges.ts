@@ -279,6 +279,63 @@ function rebuildMetricStatements(
   const datesJson = JSON.stringify(dates);
   return [
     env.CONTROL_DB.prepare(
+      `DELETE FROM daily_source_project_metrics
+       WHERE project_id = ? AND metric_date IN (SELECT value FROM json_each(?))`,
+    ).bind(projectId, datesJson),
+    env.CONTROL_DB.prepare(
+      `DELETE FROM daily_source_domain_metrics
+       WHERE project_id = ? AND metric_date IN (SELECT value FROM json_each(?))`,
+    ).bind(projectId, datesJson),
+    env.CONTROL_DB.prepare(
+      `DELETE FROM daily_source_brand_metrics
+       WHERE project_id = ? AND metric_date IN (SELECT value FROM json_each(?))`,
+    ).bind(projectId, datesJson),
+    env.CONTROL_DB.prepare(
+      `INSERT INTO daily_source_project_metrics (
+        project_id, tracking_source, metric_date, completed_runs,
+        surface_present_runs, cited_runs, brand_mentioned_runs,
+        product_runs, total_citations, updated_at
+      )
+      SELECT project_id, tracking_source, metric_date, SUM(completed_runs),
+        SUM(surface_present_runs), SUM(cited_runs), SUM(brand_mentioned_runs),
+        SUM(product_runs), SUM(total_citations), ?
+      FROM metric_contributions
+      WHERE project_id = ? AND metric_date IN (SELECT value FROM json_each(?))
+      GROUP BY project_id, tracking_source, metric_date`,
+    ).bind(now, projectId, datesJson),
+    env.CONTROL_DB.prepare(
+      `INSERT INTO daily_source_domain_metrics (
+        project_id, tracking_source, metric_date, domain,
+        cited_snapshot_count, citation_count, retrieved_snapshot_count,
+        retrieval_count, product_count, updated_at
+      )
+      SELECT contribution.project_id, contribution.tracking_source,
+        contribution.metric_date, domain.key,
+        SUM(CAST(json_extract(domain.value, '$.citedSnapshotCount') AS INTEGER)),
+        SUM(CAST(json_extract(domain.value, '$.citationCount') AS INTEGER)),
+        SUM(CAST(json_extract(domain.value, '$.retrievedSnapshotCount') AS INTEGER)),
+        SUM(CAST(json_extract(domain.value, '$.retrievalCount') AS INTEGER)),
+        SUM(CAST(json_extract(domain.value, '$.productCount') AS INTEGER)), ?
+      FROM metric_contributions contribution, json_each(contribution.domains_json) domain
+      WHERE contribution.project_id = ?
+        AND contribution.metric_date IN (SELECT value FROM json_each(?))
+      GROUP BY contribution.project_id, contribution.tracking_source,
+        contribution.metric_date, domain.key`,
+    ).bind(now, projectId, datesJson),
+    env.CONTROL_DB.prepare(
+      `INSERT INTO daily_source_brand_metrics (
+        project_id, tracking_source, tracked_brand_id, metric_date,
+        mentioned_snapshot_count, updated_at
+      )
+      SELECT contribution.project_id, contribution.tracking_source, brand.value,
+        contribution.metric_date, COUNT(*), ?
+      FROM metric_contributions contribution, json_each(contribution.brands_json) brand
+      WHERE contribution.project_id = ?
+        AND contribution.metric_date IN (SELECT value FROM json_each(?))
+      GROUP BY contribution.project_id, contribution.tracking_source,
+        brand.value, contribution.metric_date`,
+    ).bind(now, projectId, datesJson),
+    env.CONTROL_DB.prepare(
       `DELETE FROM daily_project_metrics
        WHERE project_id = ? AND metric_date IN (SELECT value FROM json_each(?))`,
     ).bind(projectId, datesJson),
@@ -298,7 +355,8 @@ function rebuildMetricStatements(
       SELECT project_id, metric_date, SUM(completed_runs), SUM(cited_runs),
         SUM(brand_mentioned_runs), SUM(product_runs), SUM(total_citations), ?
       FROM metric_contributions
-      WHERE project_id = ? AND metric_date IN (SELECT value FROM json_each(?))
+      WHERE project_id = ? AND tracking_source = 'chatgpt'
+        AND metric_date IN (SELECT value FROM json_each(?))
       GROUP BY project_id, metric_date`,
     ).bind(now, projectId, datesJson),
     env.CONTROL_DB.prepare(
@@ -314,6 +372,7 @@ function rebuildMetricStatements(
         SUM(CAST(json_extract(domain.value, '$.productCount') AS INTEGER)), ?
       FROM metric_contributions contribution, json_each(contribution.domains_json) domain
       WHERE contribution.project_id = ?
+        AND contribution.tracking_source = 'chatgpt'
         AND contribution.metric_date IN (SELECT value FROM json_each(?))
       GROUP BY contribution.project_id, contribution.metric_date, domain.key`,
     ).bind(now, projectId, datesJson),
@@ -324,6 +383,7 @@ function rebuildMetricStatements(
       SELECT contribution.project_id, brand.value, contribution.metric_date, COUNT(*), ?
       FROM metric_contributions contribution, json_each(contribution.brands_json) brand
       WHERE contribution.project_id = ?
+        AND contribution.tracking_source = 'chatgpt'
         AND contribution.metric_date IN (SELECT value FROM json_each(?))
       GROUP BY contribution.project_id, brand.value, contribution.metric_date`,
     ).bind(now, projectId, datesJson),

@@ -1,4 +1,8 @@
-import type { NormalizeQueueMessage, RollupQueueMessage } from "../../shared/contracts";
+import type {
+  NormalizeQueueMessage,
+  RollupQueueMessage,
+  TrackingSource,
+} from "../../shared/contracts";
 import { resolveProviderCost } from "../../shared/provider-cost";
 import {
   extractDomainsFromText,
@@ -12,7 +16,7 @@ import { jsonParse, nowIso } from "../lib/http";
 import { sha256 } from "../lib/crypto";
 import { getShard } from "../lib/shards";
 import { promptPurgeRequested } from "../lib/prompt-purges";
-import { parseAdvancedPayload } from "./dataforseo-schema";
+import { parseTrackingPayload } from "./dataforseo-schema";
 import { enqueueEntityExtractionForSnapshot } from "../automation/entity-extraction";
 import { normalizeAdItem } from "../lib/ads";
 
@@ -28,6 +32,7 @@ interface JobRow {
   status: string;
   deleted_at: string | null;
   purging: number;
+  tracking_source: TrackingSource;
 }
 
 interface BrandRow {
@@ -58,6 +63,8 @@ interface MetricPayload {
   totalCitations: number;
   domains: Record<string, DomainMetric>;
   brands: string[];
+  trackingSource: TrackingSource;
+  surfacePresentRuns: number;
 }
 
 function safeText(value: string | null | undefined, maximum = 200_000): string | null {
@@ -107,6 +114,7 @@ export async function normalizeSnapshot(
     `SELECT
       job.id, job.workspace_id, job.project_id, job.tracked_query_id, job.shard_id,
       job.capture_html, job.delivery_method, job.request_cost_usd, job.status,
+      job.tracking_source,
       query.deleted_at,
       EXISTS(
         SELECT 1 FROM prompt_purge_jobs purge
@@ -144,18 +152,20 @@ export async function normalizeSnapshot(
     )
       .bind(nowIso(), nowIso(), job.id)
       .run();
-    await enqueueEntityExtractionForSnapshot(env, {
-      id: existing.id,
-      workspaceId: job.workspace_id,
-      projectId: job.project_id,
-      trackedQueryId: job.tracked_query_id,
-      shardId: job.shard_id,
-    });
+    if (job.tracking_source === "chatgpt") {
+      await enqueueEntityExtractionForSnapshot(env, {
+        id: existing.id,
+        workspaceId: job.workspace_id,
+        projectId: job.project_id,
+        trackedQueryId: job.tracked_query_id,
+        shardId: job.shard_id,
+      });
+    }
     return existing.id;
   }
 
   const rawPayload = await readRawPayload(env, message);
-  const payload = parseAdvancedPayload(rawPayload);
+  const payload = parseTrackingPayload(rawPayload, job.tracking_source);
   const providerTask =
     payload.tasks.find((task) => task.id === message.taskId) ?? payload.tasks[0];
   const result = providerTask?.result?.[0];
@@ -192,7 +202,11 @@ export async function normalizeSnapshot(
   }
 
   let htmlR2Key: string | null = null;
-  if (job.capture_html === 1 && job.delivery_method !== "live") {
+  if (
+    job.tracking_source === "chatgpt" &&
+    job.capture_html === 1 &&
+    job.delivery_method !== "live"
+  ) {
     const html = await getTaskHtml(platformDataForSeoCredentials(env), message.taskId);
     htmlR2Key = `html/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${message.taskId}.html`;
     await env.EVIDENCE_BUCKET.put(htmlR2Key, html, {
@@ -216,12 +230,13 @@ export async function normalizeSnapshot(
       .prepare(
         `INSERT INTO snapshots (
           id, crawl_job_id, workspace_id, project_id, tracked_query_id,
-          dataforseo_task_id, keyword, location_code, language_code, model,
+          dataforseo_task_id, tracking_source, surface_present,
+          keyword, location_code, language_code, model,
           check_url, captured_at, answer_markdown, answer_hash, se_results_count,
           items_count, item_types_json, fan_out_queries_json, raw_r2_key,
           html_r2_key, provider_cost_usd, provider_status_code,
           provider_status_message, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         snapshotId,
@@ -230,6 +245,8 @@ export async function normalizeSnapshot(
         job.project_id,
         job.tracked_query_id,
         message.taskId,
+        job.tracking_source,
+        result.surface_present ? 1 : 0,
         result.keyword,
         result.location_code,
         result.language_code,
@@ -585,6 +602,8 @@ export async function normalizeSnapshot(
     totalCitations: distinctCitations.size,
     domains: metricDomains,
     brands: [...matchedBrands],
+    trackingSource: job.tracking_source,
+    surfacePresentRuns: result.surface_present ? 1 : 0,
   };
   statements.push(
     shard
@@ -622,10 +641,11 @@ export async function normalizeSnapshot(
     env.CONTROL_DB.prepare(
       `INSERT OR IGNORE INTO snapshot_index (
         id, crawl_job_id, workspace_id, project_id, tracked_query_id, shard_id,
-        dataforseo_task_id, captured_at, model, check_url, answer_hash,
+        dataforseo_task_id, tracking_source, surface_present,
+        captured_at, model, check_url, answer_hash,
         cited_domains_count, retrieved_domains_count, brand_entities_count,
         products_count, has_product_block, raw_r2_key, html_r2_key, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       snapshotId,
       job.id,
@@ -634,6 +654,8 @@ export async function normalizeSnapshot(
       job.tracked_query_id,
       job.shard_id,
       message.taskId,
+      job.tracking_source,
+      result.surface_present ? 1 : 0,
       capturedAt,
       result.model ?? null,
       result.check_url ?? null,
@@ -687,13 +709,19 @@ export async function normalizeSnapshot(
     snapshotId,
     shardId: job.shard_id,
   } satisfies RollupQueueMessage);
-  await enqueueEntityExtractionForSnapshot(env, {
-    id: snapshotId,
-    workspaceId: job.workspace_id,
-    projectId: job.project_id,
-    trackedQueryId: job.tracked_query_id,
-    shardId: job.shard_id,
-  });
+  if (
+    job.tracking_source === "chatgpt" &&
+    result.surface_present &&
+    result.markdown
+  ) {
+    await enqueueEntityExtractionForSnapshot(env, {
+      id: snapshotId,
+      workspaceId: job.workspace_id,
+      projectId: job.project_id,
+      trackedQueryId: job.tracked_query_id,
+      shardId: job.shard_id,
+    });
+  }
   return snapshotId;
 }
 
