@@ -4,6 +4,7 @@ import { PLAN_ENTITLEMENTS } from "../src/worker/lib/usage";
 import {
   availableSources,
   planSourceEntitlement,
+  scheduledForTrackingSource,
 } from "../src/worker/lib/tracking-sources";
 
 function featureEnv(flags: Partial<Record<string, string>> = {}): Env {
@@ -51,5 +52,16 @@ describe("tracking source entitlements", () => {
       allowedSources: [...TRACKING_SOURCES],
       sourceLimit: 2,
     });
+  });
+
+  it("keeps legacy schedule uniqueness while separating source jobs", () => {
+    const scheduledFor = "2026-08-17T12:00:00.000Z";
+    expect(scheduledForTrackingSource(scheduledFor, "chatgpt")).toBe(scheduledFor);
+    expect(scheduledForTrackingSource(scheduledFor, "gemini"))
+      .toBe("2026-08-17T12:00:00.001Z");
+    expect(scheduledForTrackingSource(scheduledFor, "google_ai_mode"))
+      .toBe("2026-08-17T12:00:00.002Z");
+    expect(scheduledForTrackingSource(scheduledFor, "google_ai_overview"))
+      .toBe("2026-08-17T12:00:00.003Z");
   });
 });
