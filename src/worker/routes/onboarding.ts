@@ -151,8 +151,9 @@ onboardingRoutes.post(
       c.env.CONTROL_DB.prepare(
         `INSERT INTO billing_accounts (
           workspace_id, provider, payment_mode, stripe_livemode, plan_key, status, monthly_units,
-          project_limit, cycle_started_at, cycle_ends_at, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          project_limit, prompt_limit, source_limit,
+          cycle_started_at, cycle_ends_at, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       ).bind(
         workspaceId,
         managed ? "stripe" : "self_hosted",
@@ -162,6 +163,8 @@ onboardingRoutes.post(
         managed ? "pending" : "active",
         managed ? PLAN_ENTITLEMENTS.starter.monthlyUnits : Number(c.env.DEFAULT_MONTHLY_RUN_CAP),
         managed ? PLAN_ENTITLEMENTS.starter.projectLimit : 1_000_000,
+        managed ? PLAN_ENTITLEMENTS.starter.promptLimit : 1_000_000,
+        managed ? PLAN_ENTITLEMENTS.starter.sourceLimit : 4,
         cycle.start,
         cycle.end,
         now,
@@ -261,16 +264,20 @@ onboardingRoutes.get("/operator/workspaces", async (c) => {
   const rows = await c.env.CONTROL_DB.prepare(
     `SELECT workspace.id, workspace.name, workspace.status, workspace.plan_key,
       billing.status AS subscription_status, billing.monthly_units,
-      billing.project_limit, billing.stripe_livemode,
+      billing.project_limit, billing.prompt_limit, billing.source_limit,
+      billing.stripe_livemode,
       billing.cycle_started_at, billing.cycle_ends_at,
       COUNT(DISTINCT membership.user_id) AS seats,
-      COUNT(DISTINCT project.id) AS projects
+      COUNT(DISTINCT project.id) AS projects,
+      COUNT(DISTINCT CASE WHEN query.is_active = 1 AND query.deleted_at IS NULL THEN query.id END) AS prompts
      FROM workspaces workspace
      LEFT JOIN billing_accounts billing ON billing.workspace_id = workspace.id
      LEFT JOIN memberships membership
        ON membership.workspace_id = workspace.id AND membership.status = 'active'
      LEFT JOIN projects project
        ON project.workspace_id = workspace.id AND project.deleted_at IS NULL
+      AND project.archived_at IS NULL
+     LEFT JOIN tracked_queries query ON query.project_id = project.id
      GROUP BY workspace.id
      ORDER BY workspace.created_at DESC`,
   ).all();
@@ -287,6 +294,7 @@ onboardingRoutes.patch(
     const input = c.req.valid("json");
     const current = await c.env.CONTROL_DB.prepare(
       `SELECT workspace.status, workspace.plan_key, billing.monthly_units, billing.project_limit,
+        billing.prompt_limit, billing.source_limit,
         billing.payment_mode
        FROM workspaces workspace
        JOIN billing_accounts billing ON billing.workspace_id = workspace.id
@@ -296,6 +304,8 @@ onboardingRoutes.patch(
       plan_key: string;
       monthly_units: number;
       project_limit: number;
+      prompt_limit: number;
+      source_limit: number;
       payment_mode: string;
     }>();
     if (!current) throw new ApiError(404, "workspace_not_found", "Workspace not found.");
@@ -315,6 +325,8 @@ onboardingRoutes.patch(
       : null;
     const monthlyUnits = input.monthlyUnits ?? predefined?.monthlyUnits ?? current.monthly_units;
     const projectLimit = input.projectLimit ?? predefined?.projectLimit ?? current.project_limit;
+    const promptLimit = predefined?.promptLimit ?? current.prompt_limit;
+    const sourceLimit = predefined?.sourceLimit ?? current.source_limit;
     const status = input.status ?? current.status;
     const subscriptionStatus = status === "active" ? "active" : status === "pending_payment" ? "pending" : "paused";
     const now = nowIso();
@@ -324,11 +336,21 @@ onboardingRoutes.patch(
       ).bind(status, planKey, now, id),
       c.env.CONTROL_DB.prepare(
         `UPDATE billing_accounts SET status = ?, plan_key = ?, monthly_units = ?,
-          project_limit = ?, updated_at = ? WHERE workspace_id = ?`,
-      ).bind(subscriptionStatus, planKey, monthlyUnits, projectLimit, now, id),
+          project_limit = ?, prompt_limit = ?, source_limit = ?,
+          updated_at = ? WHERE workspace_id = ?`,
+      ).bind(
+        subscriptionStatus,
+        planKey,
+        monthlyUnits,
+        projectLimit,
+        promptLimit,
+        sourceLimit,
+        now,
+        id,
+      ),
     ]);
     const usage = await syncUsageEntitlement(c.env, id);
-    return c.json({ data: { id, status, planKey, monthlyUnits, projectLimit, usage } });
+    return c.json({ data: { id, status, planKey, monthlyUnits, projectLimit, promptLimit, sourceLimit, usage } });
   },
 );
 

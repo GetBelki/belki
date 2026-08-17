@@ -164,10 +164,12 @@ function SnapshotTable({
 }
 
 export function SnapshotExplorerPage() {
-  const { projectId } = useApp();
+  const { projectId, trackingSource } = useApp();
   const snapshots = useQuery({
-    queryKey: ["snapshots", projectId],
-    queryFn: () => api<SnapshotIndex[]>(`/snapshots?projectId=${projectId}`),
+    queryKey: ["snapshots", projectId, trackingSource],
+    queryFn: () => api<SnapshotIndex[]>(
+      `/snapshots?projectId=${projectId}&source=${trackingSource}`,
+    ),
     enabled: Boolean(projectId),
   });
   if (!projectId) return <NoProject />;
@@ -185,7 +187,7 @@ export function SnapshotExplorerPage() {
         ) : (
           <EmptyState
             title="No responses yet"
-            description="Completed prompt runs will appear here."
+            description="Captured responses will appear here."
           />
         )}
       </Card>
@@ -194,7 +196,7 @@ export function SnapshotExplorerPage() {
 }
 
 export function QuerySnapshotsPage() {
-  const { projectId } = useApp();
+  const { projectId, session, trackingSource } = useApp();
   const { queryId = "" } = useParams();
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -205,13 +207,18 @@ export function QuerySnapshotsPage() {
       isRunInProgress(current.state.data?.latest_run_status) ? 3_000 : false,
   });
   const snapshots = useQuery({
-    queryKey: ["snapshots", projectId, queryId],
+    queryKey: ["snapshots", projectId, queryId, trackingSource],
     queryFn: () =>
-      api<SnapshotIndex[]>(`/snapshots?projectId=${projectId}&queryId=${queryId}`),
+      api<SnapshotIndex[]>(
+        `/snapshots?projectId=${projectId}&queryId=${queryId}&source=${trackingSource}`,
+      ),
     enabled: Boolean(projectId && queryId),
   });
   const manualRun = useMutation({
-    mutationFn: () => post(`/queries/${queryId}/runs`, { captureHtml: false }),
+    mutationFn: () => post(`/queries/${queryId}/runs`, {
+      captureHtml: false,
+      source: trackingSource,
+    }),
     onSuccess: async () => {
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: ["query", queryId] }),
@@ -263,7 +270,7 @@ export function QuerySnapshotsPage() {
         title={query.data.query_text}
         description={`${localeLabel(query.data.location_code, query.data.language_code)} · ${query.data.schedule_cadence} at ${query.data.schedule_time} · ${query.data.schedule_timezone}`}
         action={
-          <Button
+          session.workspace.plan_key === "self_hosted" ? <Button
             variant="secondary"
             disabled={
               manualRun.isPending ||
@@ -275,7 +282,7 @@ export function QuerySnapshotsPage() {
             {manualRun.isPending
               ? "Queued…"
               : runStatusLabel(query.data.latest_run_status)}
-          </Button>
+          </Button> : undefined
         }
       />
       <div className="query-summary-strip">
@@ -286,14 +293,18 @@ export function QuerySnapshotsPage() {
       <Card>
         <CardHeader
           title="No captures yet"
-          description="Run this prompt now to create its first snapshot."
+          description={session.workspace.plan_key === "self_hosted"
+            ? "Run this prompt now to create its first response."
+            : "Its first response will appear after the next scheduled update."}
         />
         {snapshots.isPending ? (
           <div className="evidence-loading"><Skeleton /><Skeleton /></div>
         ) : (
           <EmptyState
             title="No captures yet"
-            description="Run the prompt now or wait for its next scheduled capture."
+            description={session.workspace.plan_key === "self_hosted"
+              ? "Run the prompt now or wait for its next scheduled update."
+              : "Wait for its next scheduled update."}
           />
         )}
       </Card>
@@ -373,7 +384,7 @@ function ChangeSummary({ diff }: { diff: SnapshotDiff | undefined }) {
 }
 
 export function SnapshotDetailPage() {
-  const { projectId } = useApp();
+  const { projectId, trackingSource } = useApp();
   const { queryId } = useParams();
   const { snapshotId = "" } = useParams();
   const detail = useQuery({
@@ -387,12 +398,14 @@ export function SnapshotDetailPage() {
     enabled: Boolean(snapshotId),
   });
   const trackedQueryId = queryId ?? detail.data?.snapshot.tracked_query_id;
+  const snapshotSource = detail.data?.snapshot.tracking_source ?? trackingSource;
   const history = useInfiniteQuery({
-    queryKey: ["prompt-snapshot-history", projectId, trackedQueryId],
+    queryKey: ["prompt-snapshot-history", projectId, trackedQueryId, snapshotSource],
     queryFn: ({ pageParam }) => {
       const params = new URLSearchParams({
         projectId: projectId ?? "",
         queryId: trackedQueryId ?? "",
+        source: snapshotSource,
         limit: "10",
       });
       if (pageParam) params.set("cursor", pageParam);

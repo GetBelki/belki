@@ -24,8 +24,11 @@ interface ManagedWorkspace {
   subscription_status: string;
   monthly_units: number;
   project_limit: number;
+  prompt_limit: number;
+  source_limit: number;
   seats: number;
   projects: number;
+  prompts: number;
   stripe_livemode: number | null;
 }
 
@@ -89,7 +92,7 @@ export default function OperatorPage() {
               id: workspace.id,
               workspace: <div className="primary-cell"><strong>{workspace.name}</strong><span>{workspace.seats} seats · {workspace.projects} projects</span></div>,
               plan: <div className="primary-cell"><strong>{workspace.plan_key}</strong>{workspace.stripe_livemode === null ? null : <span>{workspace.stripe_livemode === 1 ? "Stripe live" : "Stripe sandbox"}</span>}</div>,
-              usage: `${workspace.monthly_units.toLocaleString()} units · ${workspace.project_limit} projects`,
+              usage: `${workspace.prompts}/${workspace.prompt_limit} prompts · ${workspace.projects}/${workspace.project_limit} projects · ${workspace.source_limit} source${workspace.source_limit === 1 ? "" : "s"} per project`,
               status: <Select
                 ariaLabel={`Status for ${workspace.name}`}
                 value={workspace.status}

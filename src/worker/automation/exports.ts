@@ -1,4 +1,5 @@
 import type { ExportQueueMessage } from "../../shared/contracts";
+import type { TrackingSource } from "../../shared/tracking-sources";
 import { exclusiveDateEnd, jsonParse, nowIso } from "../lib/http";
 
 interface ExportRow {
@@ -32,7 +33,11 @@ export async function processExport(env: Env, exportId: string): Promise<void> {
     .bind(nowIso(), row.id)
     .run();
 
-  const filters = jsonParse<{ dateFrom?: string; dateTo?: string }>(
+  const filters = jsonParse<{
+    dateFrom?: string;
+    dateTo?: string;
+    source?: TrackingSource;
+  }>(
     row.filters_json,
     {},
   );
@@ -51,7 +56,7 @@ export async function processExport(env: Env, exportId: string): Promise<void> {
     if (row.format === "csv") {
       await writer.write(
         encoder.encode(
-          "snapshot_id,project_id,query_id,captured_at,model,check_url,cited_domains,retrieved_domains,brand_entities,products\n",
+          "snapshot_id,project_id,query_id,tracking_source,captured_at,model,check_url,cited_domains,retrieved_domains,brand_entities,products\n",
         ),
       );
     }
@@ -82,6 +87,10 @@ export async function processExport(env: Env, exportId: string): Promise<void> {
         clauses.push("snapshot.captured_at < ?");
         bindings.push(exclusiveDateEnd(filters.dateTo));
       }
+      if (filters.source) {
+        clauses.push("snapshot.tracking_source = ?");
+        bindings.push(filters.source);
+      }
       const page = await env.CONTROL_DB.prepare(
         `SELECT snapshot.* FROM snapshot_index snapshot
          WHERE ${clauses.join(" AND ")}
@@ -98,6 +107,7 @@ export async function processExport(env: Env, exportId: string): Promise<void> {
                 snapshot.id,
                 snapshot.project_id,
                 snapshot.tracked_query_id,
+                snapshot.tracking_source,
                 snapshot.captured_at,
                 snapshot.model,
                 snapshot.check_url,

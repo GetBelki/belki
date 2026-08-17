@@ -15,6 +15,7 @@ import { requireRole } from "../lib/auth";
 import { writeAudit } from "../lib/audit";
 import { hmac } from "../lib/crypto";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
+import { projectTrackingSources } from "../lib/tracking-sources";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 
@@ -24,7 +25,7 @@ async function assertProject(
   projectId: string,
 ): Promise<void> {
   const row = await db
-    .prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL")
+    .prepare("SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL AND archived_at IS NULL")
     .bind(projectId, workspaceId)
     .first();
   if (!row) throw new ApiError(404, "project_not_found", "Project not found.");
@@ -157,9 +158,11 @@ automationRoutes.patch(
 automationRoutes.get("/alerts", async (c) => {
   const principal = c.get("principal");
   const rows = await c.env.CONTROL_DB.prepare(
-    `SELECT a.*, p.name AS project_name, q.query_text
+    `SELECT a.*, p.name AS project_name, q.query_text,
+      rule.tracking_source
      FROM alerts a
      JOIN projects p ON p.id = a.project_id
+     JOIN alert_rules rule ON rule.id = a.alert_rule_id
      LEFT JOIN tracked_queries q ON q.id = a.tracked_query_id
      WHERE p.workspace_id = ?
      ORDER BY a.created_at DESC LIMIT 200`,
@@ -440,13 +443,21 @@ automationRoutes.post(
     const { id: projectId } = c.req.valid("param");
     const input = c.req.valid("json");
     await assertProject(c.env.CONTROL_DB, principal.workspaceId, projectId);
+    const enabledSources = await projectTrackingSources(c.env, projectId);
+    if (!enabledSources.includes(input.source)) {
+      throw new ApiError(
+        422,
+        "tracking_source_disabled",
+        "Enable this tracking source in Project Settings first.",
+      );
+    }
     const id = crypto.randomUUID();
     const now = nowIso();
     await c.env.CONTROL_DB.prepare(
       `INSERT INTO alert_rules (
         id, project_id, name, event_type, threshold, tracked_brand_id,
-        is_enabled, channels_json, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
+        tracking_source, is_enabled, channels_json, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?)`,
     )
       .bind(
         id,
@@ -455,6 +466,7 @@ automationRoutes.post(
         input.eventType,
         input.threshold ?? null,
         input.trackedBrandId ?? null,
+        input.source,
         JSON.stringify(input.channels),
         now,
         now,
@@ -516,6 +528,16 @@ automationRoutes.post(
     const input = c.req.valid("json");
     if (input.projectId) {
       await assertProject(c.env.CONTROL_DB, principal.workspaceId, input.projectId);
+      if (input.source) {
+        const enabledSources = await projectTrackingSources(c.env, input.projectId);
+        if (!enabledSources.includes(input.source)) {
+          throw new ApiError(
+            422,
+            "tracking_source_disabled",
+            "Enable this tracking source in Project Settings first.",
+          );
+        }
+      }
     }
     const id = crypto.randomUUID();
     const now = nowIso();
@@ -531,7 +553,11 @@ automationRoutes.post(
         principal.userId,
         input.projectId ?? null,
         input.format,
-        JSON.stringify({ dateFrom: input.dateFrom, dateTo: input.dateTo }),
+        JSON.stringify({
+          dateFrom: input.dateFrom,
+          dateTo: input.dateTo,
+          source: input.source,
+        }),
         now,
         now,
       )

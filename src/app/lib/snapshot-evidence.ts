@@ -1,7 +1,10 @@
+import type { TrackingSource } from "../../shared/tracking-sources";
+
 export interface SnapshotIndex {
   id: string;
   tracked_query_id: string;
   query_text: string;
+  tracking_source: TrackingSource;
   captured_at: string;
   model: string | null;
   cited_domains_count: number;
@@ -16,6 +19,8 @@ export interface SnapshotRecord {
   id: string;
   tracked_query_id: string;
   keyword: string;
+  tracking_source: TrackingSource;
+  surface_present: number;
   location_code: number;
   language_code: string;
   model: string | null;

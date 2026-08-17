@@ -3,6 +3,10 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { AppEnv } from "../lib/app";
 import { allowedAdAssetUrl, decodeAdKey } from "../lib/ads";
+import {
+  analyticsReadModelSupports,
+  type AnalyticsReadModelState,
+} from "../lib/analytics-read-model";
 import { ApiError, exclusiveDateEnd } from "../lib/http";
 
 const PeriodSchema = z.enum(["7d", "30d", "90d", "365d"]);
@@ -310,8 +314,8 @@ adsRoutes.get(
          ORDER BY rendered_appearances DESC, served_appearances DESC, latest_seen DESC LIMIT 24`,
       ).bind(...filtered.bindings).all<CreativeRow>(),
       c.env.CONTROL_DB.prepare(
-        "SELECT status FROM analytics_read_model_projects WHERE project_id = ? AND schema_version = 5",
-      ).bind(input.projectId).first<{ status: string }>(),
+        "SELECT status, schema_version FROM analytics_read_model_projects WHERE project_id = ?",
+      ).bind(input.projectId).first<AnalyticsReadModelState>(),
     ]);
     const canUseSnapshotTotals = !input.search && !input.relationship;
     const indexedRenderedAppearances = Number(summary?.rendered_appearances ?? 0);
@@ -375,7 +379,7 @@ adsRoutes.get(
     }
     return c.json({ data: {
       period: input.period,
-      indexing: state?.status !== "ready" ||
+      indexing: !analyticsReadModelSupports(state) ||
         snapshotServedAppearances > indexedServedAppearances ||
         snapshotRenderedAppearances > indexedRenderedAppearances,
       summary: {

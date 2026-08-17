@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
+  ArchiveRestore,
   KeyRound,
   Pencil,
   Plus,
@@ -25,6 +26,12 @@ import {
 import { useApp } from "../context";
 import { api, patch, post, type Project, type Session } from "../lib/api";
 import { compact, formText, pluralize } from "../lib/utils";
+import {
+  TRACKING_SOURCE_DESCRIPTIONS,
+  TRACKING_SOURCE_LABELS,
+  TRACKING_SOURCES,
+  type TrackingSource,
+} from "../../shared/tracking-sources";
 
 type SettingsView = "project" | "workspace" | "diagnostics";
 
@@ -38,6 +45,10 @@ interface ProjectSettings {
   entityAutoTrackEnabled: boolean;
   rawRetentionDays: number;
   htmlRetentionDays: number;
+  trackingSources: TrackingSource[];
+  availableTrackingSources: TrackingSource[];
+  allowedTrackingSources: TrackingSource[];
+  trackingSourceLimit: number;
 }
 
 interface WebhookDestination {
@@ -45,6 +56,13 @@ interface WebhookDestination {
   name: string;
   url: string;
   is_enabled: number;
+}
+
+interface ArchivedProject {
+  id: string;
+  name: string;
+  primary_domain: string | null;
+  archived_at: string;
 }
 
 interface HealthSummary {
@@ -85,6 +103,11 @@ export default function SettingsPage() {
     queryFn: () => api<WebhookDestination[]>("/webhook-destinations"),
     enabled: canAdmin && view === "workspace",
   });
+  const archivedProjects = useQuery({
+    queryKey: ["archived-projects"],
+    queryFn: () => api<ArchivedProject[]>("/projects/archived"),
+    enabled: canAdmin && view === "workspace",
+  });
   const updateFeatures = useMutation({
     mutationFn: (body: Partial<Pick<ProjectSettings,
       "htmlCaptureEnabled" |
@@ -98,6 +121,19 @@ export default function SettingsPage() {
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["shopping-product"] }),
         queryClient.invalidateQueries({ queryKey: ["entities"] }),
+      ]);
+    },
+  });
+  const updateTrackingSources = useMutation({
+    mutationFn: (sources: TrackingSource[]) =>
+      patch<{ id: string; trackingSources: TrackingSource[] }>(
+        `/projects/${projectId}/tracking-sources`,
+        { sources },
+      ),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["project-settings", projectId] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
       ]);
     },
   });
@@ -129,6 +165,16 @@ export default function SettingsPage() {
         ? { ...current, workspaceId: workspace.id, workspace: { ...current.workspace, ...workspace } }
         : current);
       setWorkspaceOpen(false);
+    },
+  });
+  const restoreProject = useMutation({
+    mutationFn: (id: string) => patch(`/projects/${id}/restore`, {}),
+    onSuccess: async () => {
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["archived-projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["managed-billing-summary"] }),
+      ]);
     },
   });
   const createWebhook = useMutation({
@@ -254,6 +300,49 @@ export default function SettingsPage() {
             </section>
             <section className="settings-section">
               <div className="settings-section-heading">
+                <div>
+                  <h2>Tracking sources</h2>
+                  <p>
+                    Choose where Belki tracks this project. Your plan supports up to {projectSettings.data?.trackingSourceLimit ?? 1} source{projectSettings.data?.trackingSourceLimit === 1 ? "" : "s"} per project.
+                  </p>
+                </div>
+              </div>
+              {projectSettings.isPending ? (
+                <Skeleton className="settings-feature-skeleton" />
+              ) : projectSettings.data ? (
+                <div className="tracking-source-list">
+                  {TRACKING_SOURCES.map((source) => {
+                    const selected = projectSettings.data.trackingSources.includes(source);
+                    const allowed = projectSettings.data.allowedTrackingSources.includes(source);
+                    const deployed = projectSettings.data.availableTrackingSources.includes(source);
+                    const atLimit = !selected && projectSettings.data.trackingSources.length >= projectSettings.data.trackingSourceLimit;
+                    return (
+                      <div className="tracking-source-row" key={source}>
+                        <div>
+                          <strong>{TRACKING_SOURCE_LABELS[source]}</strong>
+                          <span>{TRACKING_SOURCE_DESCRIPTIONS[source]}</span>
+                          {!allowed ? <small>{deployed ? "Upgrade your plan to enable this source." : "Not enabled on this deployment yet."}</small> : null}
+                        </div>
+                        <Switch
+                          ariaLabel={`${selected ? "Disable" : "Enable"} ${TRACKING_SOURCE_LABELS[source]}`}
+                          checked={selected}
+                          disabled={!canAdmin || (!selected && !allowed) || atLimit || updateTrackingSources.isPending || (selected && projectSettings.data.trackingSources.length === 1)}
+                          onCheckedChange={(checked) => {
+                            const next = checked
+                              ? [...projectSettings.data.trackingSources, source]
+                              : projectSettings.data.trackingSources.filter((item) => item !== source);
+                            updateTrackingSources.mutate(next);
+                          }}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : null}
+              {updateTrackingSources.isError ? <p className="form-error">{updateTrackingSources.error.message}</p> : null}
+            </section>
+            <section className="settings-section">
+              <div className="settings-section-heading">
                 <div><h2>Features</h2><p>Paid and analytical workloads apply only to this project.</p></div>
               </div>
               {projectSettings.isPending ? (
@@ -327,6 +416,27 @@ export default function SettingsPage() {
               />
             ) : <EmptyState title="No projects" description="Create a project to start monitoring a brand." />}
           </section>
+          {canAdmin && (archivedProjects.data?.length ?? 0) > 0 ? (
+            <section className="settings-section">
+              <div className="settings-section-heading">
+                <div><h2>Archived projects</h2><p>History is preserved. Restore a project when your current plan has space.</p></div>
+              </div>
+              <DataTable
+                columns={[
+                  { key: "project", label: "Project" },
+                  { key: "archived", label: "Archived" },
+                  { key: "action", label: "" },
+                ]}
+                rows={(archivedProjects.data ?? []).map((project) => ({
+                  id: project.id,
+                  project: <div className="domain-cell"><DomainFavicon domain={project.primary_domain} size={18}/><strong>{project.name}</strong></div>,
+                  archived: new Date(project.archived_at).toLocaleDateString(),
+                  action: <Button disabled={restoreProject.isPending} onClick={() => restoreProject.mutate(project.id)} variant="secondary"><ArchiveRestore size={14}/> Restore</Button>,
+                }))}
+              />
+              {restoreProject.isError ? <p className="form-error">{restoreProject.error.message}</p> : null}
+            </section>
+          ) : null}
           <section className="settings-section">
             <div className="settings-section-heading">
               <div><h2>Webhook delivery</h2><p>Workspace-wide signed alert destinations.</p></div>

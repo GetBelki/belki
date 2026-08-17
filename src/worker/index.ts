@@ -53,6 +53,7 @@ import {
   reconcileEntityExtractionJobs,
 } from "./automation/entity-extraction";
 import { adAssetBatch, reconcileAdAssets } from "./automation/ad-assets";
+import { TrackingSourceSchema } from "../shared/contracts";
 
 export { WorkspaceUsageGate } from "./durable-objects/workspace-usage-gate";
 
@@ -84,7 +85,10 @@ app.use("*", async (c, next) => {
 
 app.onError((error, c) => errorResponse(c, error));
 
-app.post("/api/webhooks/dataforseo/chatgpt", async (c) => {
+app.post("/api/webhooks/dataforseo/:source", async (c) => {
+  const parsedSource = TrackingSourceSchema.safeParse(c.req.param("source"));
+  if (!parsedSource.success) return c.text("not found", 404);
+  const trackingSource = parsedSource.data;
   const token = c.req.query("token");
   const taskId = c.req.query("id");
   const tag = c.req.query("tag");
@@ -99,18 +103,23 @@ app.post("/api/webhooks/dataforseo/chatgpt", async (c) => {
   const jobId = await verifySignedJobTag(tag, c.env.APP_CRYPTO_KEY);
   if (!jobId) return c.text("unauthorized", 401);
   const job = await c.env.CONTROL_DB.prepare(
-    `SELECT job.id, job.workspace_id, job.project_id
+    `SELECT job.id, job.workspace_id, job.project_id, job.tracking_source
      FROM crawl_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
-     WHERE job.id = ? AND job.provider_tag = ?
+     WHERE job.id = ? AND job.provider_tag = ? AND job.tracking_source = ?
        AND query.deleted_at IS NULL
        AND NOT EXISTS (
          SELECT 1 FROM prompt_purge_jobs purge
          WHERE purge.tracked_query_id = query.id
        )`,
   )
-    .bind(jobId, tag)
-    .first<{ id: string; workspace_id: string; project_id: string }>();
+    .bind(jobId, tag, trackingSource)
+    .first<{
+      id: string;
+      workspace_id: string;
+      project_id: string;
+      tracking_source: string;
+    }>();
   if (!job) return c.text("not found", 404);
   const contentLength = Number(c.req.header("content-length") ?? "0");
   if (contentLength > 20 * 1024 * 1024) return c.text("payload too large", 413);
@@ -119,7 +128,7 @@ app.post("/api/webhooks/dataforseo/chatgpt", async (c) => {
   const contentEncoding = c.req.header("content-encoding")?.toLowerCase().includes("gzip")
     ? "gzip"
     : "identity";
-  const rawKey = `raw/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${taskId}.json${
+  const rawKey = `raw/${job.workspace_id}/${job.project_id}/${trackingSource}/${new Date().toISOString().slice(0, 7)}/${taskId}.json${
     contentEncoding === "gzip" ? ".gz" : ""
   }`;
   await c.env.EVIDENCE_BUCKET.put(rawKey, c.req.raw.body, {
@@ -127,7 +136,7 @@ app.post("/api/webhooks/dataforseo/chatgpt", async (c) => {
       contentType: "application/json",
       ...(contentEncoding === "gzip" ? { contentEncoding: "gzip" } : {}),
     },
-    customMetadata: { jobId, taskId, source: "postback" },
+    customMetadata: { jobId, taskId, source: "postback", trackingSource },
   });
   try {
     await c.env.CONTROL_DB.batch([

@@ -8,6 +8,7 @@ import { getShard } from "../lib/shards";
 import { jsonParse, nowIso } from "../lib/http";
 import { matchedBrandTerms, normalizeBrand, normalizeHostname } from "../lib/domain";
 import { normalizeAdItem } from "../lib/ads";
+import { ANALYTICS_READ_MODEL_SCHEMA_VERSION } from "../lib/analytics-read-model";
 import { registerAdAssetSources } from "../automation/ad-assets";
 
 interface SnapshotReadModelRow {
@@ -18,6 +19,8 @@ interface SnapshotReadModelRow {
   provider_cost_usd: number | null;
   answer_markdown: string | null;
   fan_out_queries_json: string;
+  tracking_source: string;
+  surface_present: number;
 }
 
 interface OwnedBrandRow {
@@ -169,7 +172,7 @@ export async function syncAnalyticsReadModel(
       shard
         .prepare(
           `SELECT id, project_id, tracked_query_id, captured_at, provider_cost_usd,
-            answer_markdown, fan_out_queries_json
+            answer_markdown, fan_out_queries_json, tracking_source, surface_present
            FROM snapshots WHERE id = ?`,
         )
         .bind(payload.snapshotId)
@@ -290,14 +293,17 @@ export async function syncAnalyticsReadModel(
   const statements: D1PreparedStatement[] = [
     env.CONTROL_DB.prepare(
       `INSERT INTO analytics_snapshot_facts (
-        snapshot_id, project_id, tracked_query_id, shard_id, captured_at,
+        snapshot_id, project_id, tracked_query_id, shard_id, tracking_source,
+        surface_present, captured_at,
         metric_date, cited_domains_count, retrieved_domains_count, citation_count,
         brand_mentioned_runs, brand_mentions_count, products_count, ads_count,
         rendered_ads_count, ads_indexed_at, ad_render_status_indexed_at,
         related_queries_count, related_queries_indexed_at,
         provider_cost_usd, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(snapshot_id) DO UPDATE SET
+        tracking_source = excluded.tracking_source,
+        surface_present = excluded.surface_present,
         cited_domains_count = excluded.cited_domains_count,
         retrieved_domains_count = excluded.retrieved_domains_count,
         citation_count = excluded.citation_count,
@@ -317,6 +323,8 @@ export async function syncAnalyticsReadModel(
       payload.projectId,
       payload.trackedQueryId,
       shardId,
+      snapshot.tracking_source,
+      snapshot.surface_present,
       snapshot.captured_at,
       payload.metricDate,
       citedDomainsCount,
@@ -338,12 +346,17 @@ export async function syncAnalyticsReadModel(
     env.CONTROL_DB.prepare(
       `INSERT INTO analytics_read_model_projects (
         project_id, status, schema_version, last_ingested_at, updated_at
-      ) VALUES (?, 'pending', 5, ?, ?)
+      ) VALUES (?, 'pending', ?, ?, ?)
       ON CONFLICT(project_id) DO UPDATE SET
         last_ingested_at = excluded.last_ingested_at,
         schema_version = MAX(schema_version, excluded.schema_version),
         updated_at = excluded.updated_at`,
-    ).bind(payload.projectId, snapshot.captured_at, updatedAt),
+    ).bind(
+      payload.projectId,
+      ANALYTICS_READ_MODEL_SCHEMA_VERSION,
+      snapshot.captured_at,
+      updatedAt,
+    ),
     env.CONTROL_DB.prepare(
       "DELETE FROM analytics_citation_occurrences WHERE snapshot_id = ?",
     ).bind(payload.snapshotId),

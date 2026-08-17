@@ -16,6 +16,7 @@ export function PromptRowActions({
   toggleDisabled,
   deleteDisabled,
   canDelete,
+  canRun = true,
   onRun,
   onToggle,
   onDelete,
@@ -27,13 +28,14 @@ export function PromptRowActions({
   toggleDisabled: boolean;
   deleteDisabled: boolean;
   canDelete: boolean;
+  canRun?: boolean;
   onRun: () => void;
   onToggle: () => void;
   onDelete: () => void;
 }) {
   return (
     <div className="prompt-row-actions">
-      {isActive ? (
+      {isActive && canRun ? (
         <Button
           className="prompt-action-button prompt-action-primary"
           disabled={runDisabled}
@@ -44,7 +46,7 @@ export function PromptRowActions({
           <RefreshCw size={13} />
           {runLabel}
         </Button>
-      ) : (
+      ) : !isActive ? (
         <Button
           className="prompt-action-button prompt-action-primary"
           disabled={toggleDisabled}
@@ -55,7 +57,7 @@ export function PromptRowActions({
           <Play size={13} />
           {toggleDisabled ? "Saving…" : "Resume"}
         </Button>
-      )}
+      ) : null}
 
       <DropdownMenu.Root>
         <DropdownMenu.Trigger asChild>
@@ -85,7 +87,7 @@ export function PromptRowActions({
                 <Pause size={14} />
                 <span>{toggleDisabled ? "Saving…" : "Pause"}</span>
               </DropdownMenu.Item>
-            ) : (
+            ) : canRun ? (
               <DropdownMenu.Item
                 className="prompt-actions-menu-item"
                 disabled={runDisabled}
@@ -94,7 +96,7 @@ export function PromptRowActions({
                 <RefreshCw size={14} />
                 <span>{runLabel}</span>
               </DropdownMenu.Item>
-            )}
+            ) : null}
 
             {canDelete ? (
               <>

@@ -4666,12 +4666,14 @@ a.evidence-source:hover strong {
 }
 
 .settings-feature-list,
+.tracking-source-list,
 .settings-webhook-list,
 .settings-health-list {
   border-top: 1px solid #f4f4f5;
 }
 
 .settings-feature-row,
+.tracking-source-row,
 .settings-webhook-list > div,
 .settings-health-list > div {
   align-items: center;
@@ -4683,17 +4685,73 @@ a.evidence-source:hover strong {
 }
 
 .settings-feature-row + .settings-feature-row,
+.tracking-source-row + .tracking-source-row,
 .settings-webhook-list > div + div,
 .settings-health-list > div + div {
   border-top: 1px solid #f4f4f5;
 }
 
 .settings-feature-row > div,
+.tracking-source-row > div,
 .settings-webhook-list > div > div {
   display: flex;
   flex-direction: column;
   gap: 3px;
   min-width: 0;
+}
+
+.tracking-source-row {
+  align-items: center;
+  display: flex;
+  gap: 24px;
+  justify-content: space-between;
+  min-height: 78px;
+  padding: 15px 0;
+}
+
+.tracking-source-row strong {
+  color: #27272a;
+  font-size: 12px;
+}
+
+.tracking-source-row span,
+.tracking-source-row small {
+  color: #71717a;
+  font-size: 10px;
+  line-height: 1.5;
+}
+
+.tracking-source-row small {
+  color: #a16207;
+}
+
+.tracking-source-tabs {
+  align-items: center;
+  border-bottom: 1px solid #e4e4e7;
+  display: flex;
+  gap: 28px;
+  margin: 0 clamp(24px, 3vw, 56px);
+  min-height: 54px;
+  overflow-x: auto;
+}
+
+.tracking-source-tabs button {
+  align-self: stretch;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #71717a;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 0 0;
+  white-space: nowrap;
+}
+
+.tracking-source-tabs button.active {
+  border-bottom-color: #18181b;
+  color: #18181b;
 }
 
 .settings-webhook-list span {
@@ -6255,6 +6313,7 @@ body .billing-alert-settings { border-radius: 14px; padding: 26px; }
 body .billing-warning,
 body .billing-notice { border-radius: 11px; padding: 16px 18px; }
 body .billing-subscription-actions { border-top: 1px solid #e4e4e7; padding-top: 22px; }
+body .billing-usage-explainer { color: #71717a; font-size: 11px; line-height: 1.55; margin: -10px 0 0; }
 
 body .prompts-page .page-header { margin-bottom: 0; }
 body .prompts-page .report-filters { margin: 0; }

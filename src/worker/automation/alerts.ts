@@ -1,4 +1,5 @@
 import type { NotificationQueueMessage } from "../../shared/contracts";
+import type { TrackingSource } from "../../shared/tracking-sources";
 import { jsonParse, nowIso } from "../lib/http";
 import { getShard } from "../lib/shards";
 import { promptPurgeRequested } from "../lib/prompt-purges";
@@ -8,6 +9,7 @@ interface RuleRow {
   event_type: string;
   threshold: number | null;
   tracked_brand_id: string | null;
+  tracking_source: TrackingSource;
   channels_json: string;
 }
 
@@ -78,7 +80,7 @@ export async function evaluateSnapshotAlerts(
 ): Promise<void> {
   const current = await env.CONTROL_DB.prepare(
     `SELECT
-      id, project_id, tracked_query_id, captured_at, has_product_block
+      id, project_id, tracked_query_id, tracking_source, captured_at, has_product_block
      FROM snapshot_index WHERE id = ?`,
   )
     .bind(snapshotId)
@@ -86,24 +88,27 @@ export async function evaluateSnapshotAlerts(
       id: string;
       project_id: string;
       tracked_query_id: string;
+      tracking_source: TrackingSource;
       captured_at: string;
       has_product_block: number;
     }>();
   if (!current) return;
   if (await promptPurgeRequested(env.CONTROL_DB, current.tracked_query_id)) return;
   const rules = await env.CONTROL_DB.prepare(
-    "SELECT id, event_type, threshold, tracked_brand_id, channels_json FROM alert_rules WHERE project_id = ? AND is_enabled = 1",
+    `SELECT id, event_type, threshold, tracked_brand_id, tracking_source, channels_json
+     FROM alert_rules
+     WHERE project_id = ? AND tracking_source = ? AND is_enabled = 1`,
   )
-    .bind(current.project_id)
+    .bind(current.project_id, current.tracking_source)
     .all<RuleRow>();
   if (!rules.results.length) return;
   const previous = await env.CONTROL_DB.prepare(
     `SELECT id, has_product_block
      FROM snapshot_index
-     WHERE tracked_query_id = ? AND captured_at < ?
+     WHERE tracked_query_id = ? AND tracking_source = ? AND captured_at < ?
      ORDER BY captured_at DESC LIMIT 1`,
   )
-    .bind(current.tracked_query_id, current.captured_at)
+    .bind(current.tracked_query_id, current.tracking_source, current.captured_at)
     .first<{ id: string; has_product_block: number }>();
   if (!previous) return;
   const shard = getShard(env, shardId);
@@ -240,9 +245,10 @@ export async function evaluateSnapshotAlerts(
           SUM(CASE WHEN metric_date >= date('now', '-6 days') THEN completed_runs ELSE 0 END) AS current_runs,
           SUM(CASE WHEN metric_date BETWEEN date('now', '-13 days') AND date('now', '-7 days') THEN cited_runs ELSE 0 END) AS previous_cited,
           SUM(CASE WHEN metric_date BETWEEN date('now', '-13 days') AND date('now', '-7 days') THEN completed_runs ELSE 0 END) AS previous_runs
-        FROM daily_project_metrics WHERE project_id = ?`,
+        FROM daily_source_project_metrics
+        WHERE project_id = ? AND tracking_source = ?`,
       )
-        .bind(current.project_id)
+        .bind(current.project_id, current.tracking_source)
         .first<{
           current_cited: number;
           current_runs: number;
@@ -277,7 +283,7 @@ export async function emitRunFailureAlerts(
   errorMessage: string,
 ): Promise<void> {
   const job = await env.CONTROL_DB.prepare(
-    `SELECT job.project_id, job.tracked_query_id
+    `SELECT job.project_id, job.tracked_query_id, job.tracking_source
      FROM crawl_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
      WHERE job.id = ? AND query.deleted_at IS NULL
@@ -287,14 +293,19 @@ export async function emitRunFailureAlerts(
        )`,
   )
     .bind(jobId)
-    .first<{ project_id: string; tracked_query_id: string }>();
+    .first<{
+      project_id: string;
+      tracked_query_id: string;
+      tracking_source: TrackingSource;
+    }>();
   if (!job) return;
   const rules = await env.CONTROL_DB.prepare(
-    `SELECT id, event_type, threshold, tracked_brand_id, channels_json
+    `SELECT id, event_type, threshold, tracked_brand_id, tracking_source, channels_json
      FROM alert_rules
-     WHERE project_id = ? AND event_type = 'run_failed' AND is_enabled = 1`,
+     WHERE project_id = ? AND tracking_source = ?
+       AND event_type = 'run_failed' AND is_enabled = 1`,
   )
-    .bind(job.project_id)
+    .bind(job.project_id, job.tracking_source)
     .all<RuleRow>();
   for (const rule of rules.results) {
     await emitAlert(env, {
@@ -303,7 +314,7 @@ export async function emitRunFailureAlerts(
       queryId: job.tracked_query_id,
       snapshotId: null,
       dedupeResourceId: jobId,
-      title: "Tracking run failed",
+      title: "Tracking update failed",
       message: errorMessage,
       payload: { jobId },
     });

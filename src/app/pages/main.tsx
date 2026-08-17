@@ -71,6 +71,7 @@ import {
 } from "../lib/overview";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 import type { RunStatus } from "../../shared/contracts";
+import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
 
 interface OverviewProduct {
   id: string;
@@ -91,6 +92,7 @@ interface OverviewProduct {
 interface Overview {
   summary: {
     completed_runs: number;
+    surface_present_runs: number;
     cited_runs: number;
     brand_mentioned_runs: number;
     product_runs: number;
@@ -377,13 +379,13 @@ function OverviewChartTooltip({
 }
 
 export function OverviewPage() {
-  const { projectId, currentProject } = useApp();
+  const { projectId, currentProject, trackingSource } = useApp();
   const [brandMetric, setBrandMetric] = useState<"visibility" | "shareOfVoice">(
     "visibility",
   );
   const overview = useQuery({
-    queryKey: ["overview", projectId],
-    queryFn: () => api<Overview>(`/analytics/overview?projectId=${projectId}`),
+    queryKey: ["overview", projectId, trackingSource],
+    queryFn: () => api<Overview>(`/analytics/overview?projectId=${projectId}&source=${trackingSource}`),
     enabled: Boolean(projectId),
   });
   if (!projectId) return <NoProject />;
@@ -427,7 +429,7 @@ export function OverviewPage() {
       <PageHeader
         eyebrow="Last 30 days"
         title="Visibility overview"
-        description={`How ${currentProject?.name ?? "your brand"} appears across monitored ChatGPT web results.`}
+        description={`How ${currentProject?.name ?? "your brand"} appears across monitored ${TRACKING_SOURCE_LABELS[trackingSource]} results.`}
         action={<Button variant="secondary" onClick={() => void overview.refetch()}><RefreshCw size={15} /> Refresh</Button>}
       />
       {overview.isPending ? (
@@ -458,7 +460,17 @@ export function OverviewPage() {
             icon={<Scale size={19} />}
             tone="green"
           />
-          <KpiCard label="Completed runs" value={compact(overview.data?.summary.completed_runs ?? 0)} detail={`${pluralize(overview.data?.summary.total_citations ?? 0, "citation")} captured`} icon={<CompletedRunsIcon size={19} />} tone="amber" />
+          <KpiCard
+            label={trackingSource === "google_ai_overview" ? "AI Overviews found" : "Responses captured"}
+            value={compact(trackingSource === "google_ai_overview"
+              ? overview.data?.summary.surface_present_runs ?? 0
+              : overview.data?.summary.completed_runs ?? 0)}
+            detail={trackingSource === "google_ai_overview"
+              ? `${overview.data?.summary.completed_runs ?? 0} prompts tracked`
+              : `${pluralize(overview.data?.summary.total_citations ?? 0, "citation")} captured`}
+            icon={<CompletedRunsIcon size={19} />}
+            tone="amber"
+          />
         </div>
       )}
       <div className="overview-dashboard">
@@ -726,7 +738,7 @@ interface PurgePromptsResult {
 }
 
 export function PromptsPage() {
-  const { projectId, session } = useApp();
+  const { projectId, session, trackingSource } = useApp();
   const canEdit = session.user.role !== "viewer";
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -781,7 +793,7 @@ export function PromptsPage() {
     .filter(Boolean);
   const tagKey = selectedTagIds.join(",");
   const pageSize = 50;
-  const pageScope = [projectId, search, country, language, tagKey].join("\u0000");
+  const pageScope = [projectId, trackingSource, search, country, language, tagKey].join("\u0000");
   const [promptPagination, setPromptPagination] = useState<{
     scope: string;
     cursors: string[];
@@ -812,7 +824,10 @@ export function PromptsPage() {
     queryFn: () => api<PromptTag[]>(`/projects/${projectId}/tags`),
     enabled: Boolean(projectId),
   });
-  const reportParams = new URLSearchParams({ projectId: projectId ?? "" });
+  const reportParams = new URLSearchParams({
+    projectId: projectId ?? "",
+    source: trackingSource,
+  });
   if (search) reportParams.set("search", search);
   if (country) reportParams.set("locationCode", country);
   if (language) reportParams.set("languageCode", language);
@@ -823,6 +838,7 @@ export function PromptsPage() {
     queryKey: [
       "prompts",
       projectId,
+      trackingSource,
       search,
       country,
       language,
@@ -883,7 +899,10 @@ export function PromptsPage() {
     onError: (value: Error) => setError(value.message),
   });
   const manualRun = useMutation({
-    mutationFn: (queryId: string) => post(`/queries/${queryId}/runs`, { captureHtml: false }),
+    mutationFn: (queryId: string) => post(`/queries/${queryId}/runs`, {
+      captureHtml: false,
+      source: trackingSource,
+    }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["prompts", projectId] }),
   });
   const toggle = useMutation({
@@ -1288,6 +1307,7 @@ export function PromptsPage() {
                 actions: (
                   <PromptRowActions
                     canDelete={canEdit}
+                    canRun={session.workspace.plan_key === "self_hosted"}
                     deleteDisabled={purgePrompts.isPending}
                     isActive={query.isActive}
                     onDelete={() => {

@@ -1,8 +1,9 @@
 import { z } from "zod";
 import { extractTaskHtml } from "./dataforseo-html";
 import type { DataForSeoCredentials } from "./provider-credentials";
+import type { TrackingSource } from "../../shared/contracts";
 
-const API_BASE = "https://api.dataforseo.com/v3/ai_optimization/chat_gpt/llm_scraper";
+const API_ORIGIN = "https://api.dataforseo.com";
 const MAX_PROVIDER_BODY_BYTES = 20 * 1024 * 1024;
 
 const TaskResponseSchema = z
@@ -32,12 +33,56 @@ export interface StandardTaskInput {
   keyword: string;
   location_code: number;
   language_code: string;
-  force_web_search: boolean;
+  force_web_search?: boolean;
   priority: 1 | 2;
-  expand_citations: boolean;
+  expand_citations?: boolean;
+  device?: "desktop";
+  os?: "windows";
+  depth?: number;
+  load_async_ai_overview?: boolean;
   tag: string;
   postback_url: string;
   postback_data: "advanced";
+}
+
+const SOURCE_PATHS: Record<TrackingSource, string> = {
+  chatgpt: "/v3/ai_optimization/chat_gpt/llm_scraper",
+  gemini: "/v3/ai_optimization/gemini/llm_scraper",
+  google_ai_mode: "/v3/serp/google/ai_mode",
+  google_ai_overview: "/v3/serp/google/organic",
+};
+
+function apiBase(source: TrackingSource): string {
+  return `${API_ORIGIN}${SOURCE_PATHS[source]}`;
+}
+
+export function dataForSeoTask(
+  source: TrackingSource,
+  input: Omit<StandardTaskInput, "force_web_search" | "expand_citations" | "device" | "os" | "depth" | "load_async_ai_overview"> & {
+    force_web_search: boolean;
+    expand_citations: boolean;
+  },
+): StandardTaskInput {
+  if (source === "chatgpt") return input;
+  if (source === "gemini") {
+    const geminiTask: StandardTaskInput = { ...input };
+    delete geminiTask.force_web_search;
+    return geminiTask;
+  }
+  const common: StandardTaskInput = {
+    keyword: input.keyword,
+    location_code: input.location_code,
+    language_code: input.language_code,
+    priority: input.priority,
+    tag: input.tag,
+    postback_url: input.postback_url,
+    postback_data: "advanced",
+    device: "desktop",
+    os: "windows",
+  };
+  return source === "google_ai_overview"
+    ? { ...common, depth: 10, load_async_ai_overview: true }
+    : common;
 }
 
 function authorization(credentials: DataForSeoCredentials): string {
@@ -58,9 +103,10 @@ async function readBounded(response: Response): Promise<ArrayBuffer> {
 
 export async function postStandardTasks(
   credentials: DataForSeoCredentials,
+  source: TrackingSource,
   tasks: StandardTaskInput[],
 ): Promise<DataForSeoResponse> {
-  const response = await fetch(`${API_BASE}/task_post`, {
+  const response = await fetch(`${apiBase(source)}/task_post`, {
     method: "POST",
     headers: {
       authorization: authorization(credentials),
@@ -75,19 +121,40 @@ export async function postStandardTasks(
 
 export async function postLiveAdvanced(
   credentials: DataForSeoCredentials,
+  source: TrackingSource,
   task: Pick<
     StandardTaskInput,
     "keyword" | "location_code" | "language_code" | "force_web_search" | "tag"
   >,
 ): Promise<{ payload: DataForSeoResponse; bytes: ArrayBuffer }> {
-  const response = await fetch(`${API_BASE}/live/advanced`, {
+  const liveTask = source === "chatgpt"
+    ? task
+    : source === "gemini"
+      ? {
+          keyword: task.keyword,
+          location_code: task.location_code,
+          language_code: task.language_code,
+          tag: task.tag,
+        }
+    : {
+        keyword: task.keyword,
+        location_code: task.location_code,
+        language_code: task.language_code,
+        tag: task.tag,
+        device: "desktop",
+        os: "windows",
+        ...(source === "google_ai_overview"
+          ? { depth: 10, load_async_ai_overview: true }
+          : {}),
+      };
+  const response = await fetch(`${apiBase(source)}/live/advanced`, {
     method: "POST",
     headers: {
       authorization: authorization(credentials),
       "content-type": "application/json",
       accept: "application/json",
     },
-    body: JSON.stringify([task]),
+    body: JSON.stringify([liveTask]),
   });
   if (!response.ok) throw new Error(`DataForSEO live/advanced returned HTTP ${response.status}`);
   const bytes = await readBounded(response);
@@ -95,7 +162,7 @@ export async function postLiveAdvanced(
   return { payload, bytes };
 }
 
-export async function getTasksReady(credentials: DataForSeoCredentials): Promise<
+export async function getTasksReady(credentials: DataForSeoCredentials, source: TrackingSource): Promise<
   Array<{
     id: string;
     tag: string | null;
@@ -103,7 +170,7 @@ export async function getTasksReady(credentials: DataForSeoCredentials): Promise
     endpointHtml: string | null;
   }>
 > {
-  const response = await fetch(`${API_BASE}/tasks_ready`, {
+  const response = await fetch(`${apiBase(source)}/tasks_ready`, {
     headers: { authorization: authorization(credentials), accept: "application/json" },
   });
   if (!response.ok) throw new Error(`DataForSEO tasks_ready returned HTTP ${response.status}`);
@@ -135,9 +202,10 @@ export async function getTasksReady(credentials: DataForSeoCredentials): Promise
 
 export async function getTaskResult(
   credentials: DataForSeoCredentials,
+  source: TrackingSource,
   endpoint: string,
 ): Promise<ArrayBuffer> {
-  if (!endpoint.startsWith("/v3/ai_optimization/chat_gpt/llm_scraper/")) {
+  if (!endpoint.startsWith(`${SOURCE_PATHS[source]}/`)) {
     throw new Error("Unexpected DataForSEO endpoint");
   }
   const response = await fetch(`https://api.dataforseo.com${endpoint}`, {
@@ -150,6 +218,7 @@ export async function getTaskResult(
 export async function getTaskHtml(credentials: DataForSeoCredentials, taskId: string): Promise<string> {
   const bytes = await getTaskResult(
     credentials,
+    "chatgpt",
     `/v3/ai_optimization/chat_gpt/llm_scraper/task_get/html/${taskId}`,
   );
   return extractTaskHtml(JSON.parse(new TextDecoder().decode(bytes)));
@@ -159,7 +228,7 @@ export async function getLocaleCatalog(
   credentials: DataForSeoCredentials,
   kind: "locations" | "languages",
 ): Promise<DataForSeoResponse> {
-  const response = await fetch(`${API_BASE}/${kind}`, {
+  const response = await fetch(`${apiBase("chatgpt")}/${kind}`, {
     headers: { authorization: authorization(credentials), accept: "application/json" },
   });
   if (!response.ok) throw new Error(`DataForSEO ${kind} returned HTTP ${response.status}`);

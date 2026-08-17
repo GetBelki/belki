@@ -12,6 +12,8 @@ export interface UsageEntitlement {
   workspaceStatus: WorkspaceStatus;
   allowance: number;
   projectLimit: number;
+  promptLimit: number;
+  sourceLimit: number;
   cycleStartedAt: string;
   cycleEndsAt: string;
   readOnlyUntil: string | null;
@@ -40,6 +42,7 @@ export interface UsageSummary extends UsageEntitlement {
   reserved: number;
   remaining: number;
   projectCount: number;
+  promptCount: number;
 }
 
 interface EntitlementRow extends Record<string, SqlStorageValue> {
@@ -48,10 +51,13 @@ interface EntitlementRow extends Record<string, SqlStorageValue> {
   workspace_status: WorkspaceStatus;
   allowance: number;
   project_limit: number;
+  prompt_limit: number;
+  source_limit: number;
   cycle_started_at: string;
   cycle_ends_at: string;
   read_only_until: string | null;
   project_count: number;
+  prompt_count: number;
 }
 
 interface ReservationRow extends Record<string, SqlStorageValue> {
@@ -72,10 +78,13 @@ export class WorkspaceUsageGate extends DurableObject<Env> {
           workspace_status TEXT NOT NULL,
           allowance INTEGER NOT NULL,
           project_limit INTEGER NOT NULL,
+          prompt_limit INTEGER NOT NULL DEFAULT 1000000,
+          source_limit INTEGER NOT NULL DEFAULT 4,
           cycle_started_at TEXT NOT NULL,
           cycle_ends_at TEXT NOT NULL,
           read_only_until TEXT,
-          project_count INTEGER NOT NULL DEFAULT 0
+          project_count INTEGER NOT NULL DEFAULT 0,
+          prompt_count INTEGER NOT NULL DEFAULT 0
         );
         CREATE TABLE IF NOT EXISTS reservations (
           reservation_id TEXT PRIMARY KEY,
@@ -91,24 +100,47 @@ export class WorkspaceUsageGate extends DurableObject<Env> {
         CREATE INDEX IF NOT EXISTS reservations_cycle_status_idx
           ON reservations(cycle_started_at, status);
       `);
-      await this.ctx.storage.put("schema_version", 1);
+      const columns = new Set(
+        this.ctx.storage.sql.exec<{ name: string }>("PRAGMA table_info(entitlement)")
+          .toArray().map((column) => column.name),
+      );
+      if (!columns.has("prompt_limit")) {
+        this.ctx.storage.sql.exec(
+          "ALTER TABLE entitlement ADD COLUMN prompt_limit INTEGER NOT NULL DEFAULT 1000000",
+        );
+      }
+      if (!columns.has("source_limit")) {
+        this.ctx.storage.sql.exec(
+          "ALTER TABLE entitlement ADD COLUMN source_limit INTEGER NOT NULL DEFAULT 4",
+        );
+      }
+      if (!columns.has("prompt_count")) {
+        this.ctx.storage.sql.exec(
+          "ALTER TABLE entitlement ADD COLUMN prompt_count INTEGER NOT NULL DEFAULT 0",
+        );
+      }
+      await this.ctx.storage.put("schema_version", 2);
     });
   }
 
   setEntitlement(input: UsageEntitlement): UsageSummary {
     const previous = this.entitlement();
     const projectCount = previous?.project_count ?? 0;
+    const promptCount = previous?.prompt_count ?? 0;
     this.ctx.storage.sql.exec(
       `INSERT INTO entitlement (
         singleton, plan_key, subscription_status, workspace_status, allowance,
-        project_limit, cycle_started_at, cycle_ends_at, read_only_until, project_count
-      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        project_limit, prompt_limit, source_limit, cycle_started_at, cycle_ends_at,
+        read_only_until, project_count, prompt_count
+      ) VALUES (1, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(singleton) DO UPDATE SET
         plan_key = excluded.plan_key,
         subscription_status = excluded.subscription_status,
         workspace_status = excluded.workspace_status,
         allowance = excluded.allowance,
         project_limit = excluded.project_limit,
+        prompt_limit = excluded.prompt_limit,
+        source_limit = excluded.source_limit,
         cycle_started_at = excluded.cycle_started_at,
         cycle_ends_at = excluded.cycle_ends_at,
         read_only_until = excluded.read_only_until`,
@@ -117,10 +149,13 @@ export class WorkspaceUsageGate extends DurableObject<Env> {
       input.workspaceStatus,
       input.allowance,
       input.projectLimit,
+      input.promptLimit,
+      input.sourceLimit,
       input.cycleStartedAt,
       input.cycleEndsAt,
       input.readOnlyUntil,
       projectCount,
+      promptCount,
     );
     return this.summary();
   }
@@ -184,6 +219,35 @@ export class WorkspaceUsageGate extends DurableObject<Env> {
     return this.summary();
   }
 
+  syncPromptCount(count: number): UsageSummary {
+    if (!Number.isInteger(count) || count < 0) throw new Error("invalid_prompt_count");
+    this.requireEntitlement();
+    this.ctx.storage.sql.exec("UPDATE entitlement SET prompt_count = ? WHERE singleton = 1", count);
+    return this.summary();
+  }
+
+  claimPrompts(count = 1): UsageSummary {
+    if (!Number.isInteger(count) || count <= 0) throw new Error("invalid_prompt_count");
+    const entitlement = this.requireEntitlement();
+    this.assertWritable(entitlement);
+    if (entitlement.prompt_count + count > entitlement.prompt_limit) throw new Error("prompt_limit");
+    this.ctx.storage.sql.exec(
+      "UPDATE entitlement SET prompt_count = prompt_count + ? WHERE singleton = 1",
+      count,
+    );
+    return this.summary();
+  }
+
+  releasePrompts(count = 1): UsageSummary {
+    if (!Number.isInteger(count) || count <= 0) throw new Error("invalid_prompt_count");
+    this.requireEntitlement();
+    this.ctx.storage.sql.exec(
+      "UPDATE entitlement SET prompt_count = MAX(0, prompt_count - ?) WHERE singleton = 1",
+      count,
+    );
+    return this.summary();
+  }
+
   claimProject(): UsageSummary {
     const entitlement = this.requireEntitlement();
     this.assertWritable(entitlement);
@@ -229,7 +293,8 @@ export class WorkspaceUsageGate extends DurableObject<Env> {
   private entitlement(): EntitlementRow | null {
     return this.ctx.storage.sql.exec<EntitlementRow>(
       `SELECT plan_key, subscription_status, workspace_status, allowance, project_limit,
-        cycle_started_at, cycle_ends_at, read_only_until, project_count
+        prompt_limit, source_limit, cycle_started_at, cycle_ends_at, read_only_until,
+        project_count, prompt_count
        FROM entitlement WHERE singleton = 1`,
     ).toArray()[0] ?? null;
   }
@@ -290,10 +355,13 @@ export class WorkspaceUsageGate extends DurableObject<Env> {
       workspaceStatus: row.workspace_status,
       allowance: row.allowance,
       projectLimit: row.project_limit,
+      promptLimit: row.prompt_limit,
+      sourceLimit: row.source_limit,
       cycleStartedAt: row.cycle_started_at,
       cycleEndsAt: row.cycle_ends_at,
       readOnlyUntil: row.read_only_until,
       projectCount: row.project_count,
+      promptCount: row.prompt_count,
       committed: totals.committed,
       reserved: totals.reserved,
       remaining: Math.max(0, row.allowance - totals.committed - totals.reserved),

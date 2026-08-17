@@ -5,6 +5,10 @@ import {
   normalizePromptTagName,
   uniquePromptTagNames,
 } from "./prompt-tags";
+import { TRACKING_SOURCES } from "./tracking-sources";
+
+export const TrackingSourceSchema = z.enum(TRACKING_SOURCES);
+export type TrackingSource = z.infer<typeof TrackingSourceSchema>;
 
 export const RoleSchema = z.enum(["owner", "admin", "editor", "viewer"]);
 export type Role = z.infer<typeof RoleSchema>;
@@ -118,6 +122,10 @@ export const BillingPlanChangeSchema = z.object({
   replacePending: z.boolean().default(false),
 });
 
+export const BillingPlanChangePreviewSchema = z.object({
+  planKey: PlanKeySchema.exclude(["self_hosted", "custom"]),
+});
+
 export const BillingCancellationSchema = z.object({
   replacePending: z.boolean().default(false),
 });
@@ -173,6 +181,11 @@ export const ProjectFeatureSettingsSchema = z.object({
   entityExtractionEnabled: z.boolean().optional(),
   entityAutoTrackEnabled: z.boolean().optional(),
 }).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+export const ProjectTrackingSourcesSchema = z.object({
+  sources: z.array(TrackingSourceSchema).min(1).max(TRACKING_SOURCES.length)
+    .transform((sources) => [...new Set(sources)]),
+});
 
 export const ProjectBillingAlertsSchema = z.object({
   productEnrichmentWarningUsd: z.number().finite().min(0).max(1_000_000).optional(),
@@ -275,6 +288,10 @@ export const QueryUpdateSchema = QueryInputSchema.omit({ tags: true }).partial()
   "At least one field is required",
 );
 
+export const QueryActivitySchema = z.object({
+  active: z.boolean(),
+});
+
 export const PromptTagMutationSchema = z.object({
   queryIds: z.array(z.string().uuid()).min(1).max(50),
   tagNames: z.array(PromptTagNameSchema).min(1).max(MAX_PROMPT_TAGS).transform(
@@ -298,6 +315,7 @@ export const MembershipUpdateSchema = z.object({
 
 export const ManualRunSchema = z.object({
   captureHtml: z.boolean().default(false),
+  source: TrackingSourceSchema.default("chatgpt"),
 });
 
 export const AlertRuleInputSchema = z.object({
@@ -312,6 +330,7 @@ export const AlertRuleInputSchema = z.object({
   ]),
   threshold: z.number().min(0).max(100).optional().nullable(),
   trackedBrandId: z.string().uuid().optional().nullable(),
+  source: TrackingSourceSchema.default("chatgpt"),
   channels: z.array(z.enum(["in_app", "webhook"])).min(1).default(["in_app"]),
 });
 
@@ -325,6 +344,7 @@ export const ExportInputSchema = z.object({
   format: z.enum(["csv", "ndjson"]),
   dateFrom: z.string().date().optional(),
   dateTo: z.string().date().optional(),
+  source: TrackingSourceSchema.optional(),
 });
 
 export const RunStatusSchema = z.enum([

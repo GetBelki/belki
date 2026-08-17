@@ -13,6 +13,11 @@ import { decodeCursor, encodeCursor } from "../lib/cursor";
 import { matchedBrandTerms, normalizeHostname } from "../lib/domain";
 import { allowedAdAssetUrl, normalizeAdItem } from "../lib/ads";
 import { evidenceResponseHeaders } from "../lib/evidence";
+import {
+  analyticsReadModelSupports,
+  RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION,
+  type AnalyticsReadModelState,
+} from "../lib/analytics-read-model";
 import { getShard } from "../lib/shards";
 import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
 import {
@@ -45,10 +50,13 @@ import {
 import {
   ProductEnrichmentPreferenceSchema,
   ProductEnrichmentRequestSchema,
+  TrackingSourceSchema,
+  type TrackingSource,
 } from "../../shared/contracts";
 
 const DateRangeSchema = z.object({
   projectId: z.string().uuid(),
+  source: TrackingSourceSchema.default("chatgpt"),
   from: z.string().date().optional(),
   to: z.string().date().optional(),
 });
@@ -77,6 +85,7 @@ const PromptTagIdsSchema = z
   );
 const PromptAnalyticsSchema = z.object({
   projectId: z.string().uuid(),
+  source: TrackingSourceSchema.default("chatgpt"),
   search: z.string().trim().max(200).optional(),
   locationCode: z.coerce.number().int().optional(),
   languageCode: z.string().trim().max(12).optional(),
@@ -100,6 +109,7 @@ const ShoppingProductParamSchema = z.object({
 });
 const ShoppingProductDetailSchema = z.object({
   projectId: z.string().uuid(),
+  source: TrackingSourceSchema.default("chatgpt"),
   period: z.enum(["7d", "30d", "90d", "365d"]).default("30d"),
   cursor: z.string().max(4096).optional(),
   offset: z.coerce.number().int().min(0).optional(),
@@ -110,6 +120,7 @@ const ShoppingProductDetailSchema = z.object({
 const RelatedQueryPeriodSchema = z.enum(["7d", "30d", "90d", "365d"]);
 const RelatedQueriesSchema = z.object({
   projectId: z.string().uuid(),
+  source: TrackingSourceSchema.default("chatgpt"),
   period: RelatedQueryPeriodSchema.default("30d"),
   search: z.string().trim().max(200).optional(),
   cursor: z.string().max(4096).optional(),
@@ -120,6 +131,7 @@ const RelatedQueryParamSchema = z.object({
 });
 const RelatedQueryDetailSchema = z.object({
   projectId: z.string().uuid(),
+  source: TrackingSourceSchema.default("chatgpt"),
   period: RelatedQueryPeriodSchema.default("30d"),
 });
 const RelatedQueryPageSchema = RelatedQueryDetailSchema.extend({
@@ -153,6 +165,7 @@ async function verifyStoredBrandMentions(
   to: string,
   extraSnapshotIds: string[] = [],
   ownedOnly = true,
+  source: TrackingSource = "chatgpt",
 ): Promise<VerifiedBrandMentions> {
   const uniqueExtraIds = [...new Set(extraSnapshotIds)];
   const candidateCondition = ownedOnly
@@ -163,10 +176,11 @@ async function verifyStoredBrandMentions(
       `SELECT snapshot_id, tracked_query_id, metric_date
        FROM metric_contributions
        WHERE project_id = ?
+         AND tracking_source = ?
          AND ${candidateCondition}
          AND metric_date BETWEEN ? AND ?`,
     )
-      .bind(projectId, from, to)
+      .bind(projectId, source, from, to)
       .all<{
         snapshot_id: string;
         tracked_query_id: string;
@@ -177,10 +191,11 @@ async function verifyStoredBrandMentions(
         `SELECT snapshot_id, tracked_query_id, metric_date
          FROM metric_contributions
          WHERE project_id = ?
+           AND tracking_source = ?
            AND ${candidateCondition}
            AND snapshot_id IN (${ids.map(() => "?").join(",")})`,
       )
-        .bind(projectId, ...ids)
+        .bind(projectId, source, ...ids)
         .all<{
           snapshot_id: string;
           tracked_query_id: string;
@@ -379,11 +394,12 @@ async function loadReadModelShoppingProductOccurrences(
   startTimestamp: string,
   endExclusiveTimestamp: string,
   identity?: string,
+  source: TrackingSource = "chatgpt",
 ): Promise<ShoppingProductOccurrence[]> {
   const identityClause = identity ? " AND p.product_identity = ?" : "";
   const bindings = identity
-    ? [projectId, startTimestamp, endExclusiveTimestamp, identity]
-    : [projectId, startTimestamp, endExclusiveTimestamp];
+    ? [projectId, source, startTimestamp, endExclusiveTimestamp, identity]
+    : [projectId, source, startTimestamp, endExclusiveTimestamp];
   const result = await env.CONTROL_DB.prepare(
     `SELECT
       p.product_row_id AS id,
@@ -411,7 +427,9 @@ async function loadReadModelShoppingProductOccurrences(
       p.captured_at
      FROM analytics_product_occurrences p
      JOIN tracked_queries q ON q.id = p.tracked_query_id
+     JOIN analytics_snapshot_facts fact ON fact.snapshot_id = p.snapshot_id
      WHERE p.project_id = ?
+       AND fact.tracking_source = ?
        AND p.captured_at >= ?
        AND p.captured_at < ?${identityClause}
      ORDER BY p.captured_at DESC, p.product_row_id DESC`,
@@ -439,6 +457,7 @@ async function loadReadModelCitationOccurrences(
   domain: string,
   startTimestamp: string,
   endExclusiveTimestamp: string,
+  source: TrackingSource = "chatgpt",
 ): Promise<CitationSourceOccurrence[]> {
   const result = await env.CONTROL_DB.prepare(
     `SELECT
@@ -453,13 +472,15 @@ async function loadReadModelCitationOccurrences(
       citation.captured_at
      FROM analytics_citation_occurrences citation
      JOIN tracked_queries query ON query.id = citation.tracked_query_id
+     JOIN analytics_snapshot_facts fact ON fact.snapshot_id = citation.snapshot_id
      WHERE citation.project_id = ?
+       AND fact.tracking_source = ?
        AND citation.registrable_domain = ?
        AND citation.captured_at >= ?
        AND citation.captured_at < ?
      ORDER BY citation.captured_at DESC, citation.snapshot_id, citation.ordinal`,
   )
-    .bind(projectId, domain, startTimestamp, endExclusiveTimestamp)
+    .bind(projectId, source, domain, startTimestamp, endExclusiveTimestamp)
     .all<CitationSourceOccurrence>();
   return result.results;
 }
@@ -810,7 +831,7 @@ async function assertProjectAccess(
 ): Promise<void> {
   const lookup = () =>
     env.CONTROL_DB.prepare(
-      "SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL",
+      "SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL AND archived_at IS NULL",
     )
       .bind(projectId, workspaceId)
       .first();
@@ -824,20 +845,21 @@ async function analyticsReadModelReady(
   env: Env,
   projectId: string,
   timing?: AppEnv["Variables"]["timing"],
+  requiredVersion?: number,
 ): Promise<boolean> {
   const lookup = () =>
     env.CONTROL_DB.prepare(
-      `SELECT status
+      `SELECT status, schema_version
        FROM analytics_read_model_projects
-       WHERE project_id = ? AND schema_version = 4`,
+       WHERE project_id = ?`,
     )
       .bind(projectId)
-      .first<{ status: string }>();
+      .first<AnalyticsReadModelState>();
   try {
     const state = timing
       ? await timing.measure("read_model_check", lookup)
       : await lookup();
-    return state?.status === "ready";
+    return analyticsReadModelSupports(state, requiredVersion);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (message.includes("no such table: analytics_read_model_projects")) {
@@ -895,6 +917,7 @@ async function loadReadModelBrandMentions(
   from: string,
   to: string,
   extraSnapshotIds: string[] = [],
+  source: TrackingSource = "chatgpt",
 ): Promise<VerifiedBrandMentions> {
   type FactRow = {
     snapshot_id: string;
@@ -908,9 +931,10 @@ async function loadReadModelBrandMentions(
       `SELECT snapshot_id, tracked_query_id, metric_date,
         brand_mentioned_runs, brand_mentions_count
        FROM analytics_snapshot_facts
-       WHERE project_id = ? AND metric_date BETWEEN ? AND ?`,
+       WHERE project_id = ? AND tracking_source = ?
+         AND metric_date BETWEEN ? AND ?`,
     )
-      .bind(projectId, from, to)
+      .bind(projectId, source, from, to)
       .all<FactRow>(),
     ...chunks([...new Set(extraSnapshotIds)]).map((snapshotIds) =>
       env.CONTROL_DB.prepare(
@@ -918,9 +942,10 @@ async function loadReadModelBrandMentions(
           brand_mentioned_runs, brand_mentions_count
          FROM analytics_snapshot_facts
          WHERE project_id = ?
+           AND tracking_source = ?
            AND snapshot_id IN (${snapshotIds.map(() => "?").join(",")})`,
       )
-        .bind(projectId, ...snapshotIds)
+        .bind(projectId, source, ...snapshotIds)
         .all<FactRow>(),
     ),
   ];
@@ -964,6 +989,12 @@ analyticsRoutes.get(
   zValidator("query", BillingQuerySchema),
   async (c) => {
     const principal = requireRole(c, "admin");
+    const billing = await c.env.CONTROL_DB.prepare(
+      "SELECT payment_mode FROM billing_accounts WHERE workspace_id = ?",
+    ).bind(principal.workspaceId).first<{ payment_mode: string }>();
+    if (billing?.payment_mode !== "disabled") {
+      throw new ApiError(403, "provider_costs_private", "Provider cost reporting is available only to self-hosted installations.");
+    }
     const input = c.req.valid("query");
     if (input.projectId) {
       await assertProjectAccess(
@@ -1262,7 +1293,7 @@ analyticsRoutes.get(
       c.get("timing"),
     );
     const dates = range(input);
-    const readModelReady = await analyticsReadModelReady(
+    const readModelReady = input.source === "chatgpt" && await analyticsReadModelReady(
       c.env,
       input.projectId,
       c.get("timing"),
@@ -1282,16 +1313,19 @@ analyticsRoutes.get(
       c.env.CONTROL_DB.prepare(
         `SELECT
           COALESCE(SUM(completed_runs), 0) AS completed_runs,
+          COALESCE(SUM(surface_present_runs), 0) AS surface_present_runs,
           COALESCE(SUM(cited_runs), 0) AS cited_runs,
           COALESCE(SUM(brand_mentioned_runs), 0) AS brand_mentioned_runs,
           COALESCE(SUM(product_runs), 0) AS product_runs,
           COALESCE(SUM(total_citations), 0) AS total_citations
-        FROM daily_project_metrics
-        WHERE project_id = ? AND metric_date BETWEEN ? AND ?`,
+        FROM daily_source_project_metrics
+        WHERE project_id = ? AND tracking_source = ?
+          AND metric_date BETWEEN ? AND ?`,
       )
-        .bind(input.projectId, dates.from, dates.to)
+        .bind(input.projectId, input.source, dates.from, dates.to)
         .first<{
           completed_runs: number;
+          surface_present_runs: number;
           cited_runs: number;
           brand_mentioned_runs: number;
           product_runs: number;
@@ -1305,6 +1339,7 @@ analyticsRoutes.get(
               SELECT s.has_product_block
               FROM snapshot_index s
               WHERE s.tracked_query_id = q.id
+                AND s.tracking_source = ?
                 AND s.captured_at >= ?
                 AND s.captured_at < ?
               ORDER BY s.captured_at DESC
@@ -1317,6 +1352,7 @@ analyticsRoutes.get(
           AND q.deleted_at IS NULL`,
       )
         .bind(
+          input.source,
           `${dates.from}T00:00:00.000Z`,
           exclusiveDateEnd(dates.to),
           input.projectId,
@@ -1326,11 +1362,12 @@ analyticsRoutes.get(
           product_prompt_count: number;
         }>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT * FROM daily_project_metrics
-         WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+        `SELECT * FROM daily_source_project_metrics
+         WHERE project_id = ? AND tracking_source = ?
+           AND metric_date BETWEEN ? AND ?
          ORDER BY metric_date`,
       )
-        .bind(input.projectId, dates.from, dates.to)
+        .bind(input.projectId, input.source, dates.from, dates.to)
         .all<{
           project_id: string;
           metric_date: string;
@@ -1346,6 +1383,7 @@ analyticsRoutes.get(
         : c.env.CONTROL_DB.prepare(
             `SELECT id, shard_id FROM snapshot_index
              WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
+               AND tracking_source = ?
                AND products_count > 0
              ORDER BY captured_at DESC`,
           )
@@ -1353,18 +1391,20 @@ analyticsRoutes.get(
               input.projectId,
               `${dates.from}T00:00:00.000Z`,
               exclusiveDateEnd(dates.to),
+              input.source,
             )
             .all<ProductSnapshotIndex>(),
       c.env.CONTROL_DB.prepare(
         `SELECT domain, SUM(citation_count) AS total_citations
-         FROM daily_domain_metrics
-         WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+         FROM daily_source_domain_metrics
+         WHERE project_id = ? AND tracking_source = ?
+           AND metric_date BETWEEN ? AND ?
            AND citation_count > 0
          GROUP BY domain
          ORDER BY total_citations DESC, domain
          LIMIT 5`,
       )
-        .bind(input.projectId, dates.from, dates.to)
+        .bind(input.projectId, input.source, dates.from, dates.to)
         .all<{ domain: string; total_citations: number }>(),
       c.env.CONTROL_DB.prepare(
         "SELECT primary_domain FROM projects WHERE id = ?",
@@ -1380,6 +1420,8 @@ analyticsRoutes.get(
                 input.projectId,
                 dates.from,
                 dates.to,
+                [],
+                input.source,
               ),
             )
         : c
@@ -1390,6 +1432,9 @@ analyticsRoutes.get(
                 input.projectId,
                 dates.from,
                 dates.to,
+                [],
+                true,
+                input.source,
               ),
             ),
       c.env.CONTROL_DB.prepare(
@@ -1414,6 +1459,7 @@ analyticsRoutes.get(
             ON brand.id = CAST(brand_value.value AS TEXT)
            AND brand.project_id = contribution.project_id
           WHERE contribution.project_id = ?
+            AND contribution.tracking_source = ?
             AND contribution.metric_date BETWEEN ? AND ?
 
           UNION ALL
@@ -1426,10 +1472,12 @@ analyticsRoutes.get(
             1 AS extracted_match
           FROM entity_mentions AS mention
           JOIN project_entities AS entity ON entity.id = mention.entity_id
+          JOIN snapshot_index AS mention_snapshot ON mention_snapshot.id = mention.snapshot_id
           JOIN tracked_brands AS brand
             ON brand.id = entity.tracked_brand_id
            AND brand.project_id = mention.project_id
           WHERE mention.project_id = ?
+            AND mention_snapshot.tracking_source = ?
             AND mention.captured_at >= ?
             AND mention.captured_at < ?
             AND entity.tracked_brand_id IS NOT NULL
@@ -1470,9 +1518,11 @@ analyticsRoutes.get(
       )
         .bind(
           input.projectId,
+          input.source,
           dates.from,
           dates.to,
           input.projectId,
+          input.source,
           `${dates.from}T00:00:00.000Z`,
           exclusiveDateEnd(dates.to),
         )
@@ -1506,12 +1556,13 @@ analyticsRoutes.get(
     const sourceMetrics = sourceDomains.length
       ? await c.env.CONTROL_DB.prepare(
           `SELECT domain, metric_date, cited_snapshot_count, citation_count
-           FROM daily_domain_metrics
-           WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+           FROM daily_source_domain_metrics
+           WHERE project_id = ? AND tracking_source = ?
+             AND metric_date BETWEEN ? AND ?
              AND domain IN (${sourceDomains.map(() => "?").join(",")})
            ORDER BY metric_date, domain`,
         )
-          .bind(input.projectId, dates.from, dates.to, ...sourceDomains)
+          .bind(input.projectId, input.source, dates.from, dates.to, ...sourceDomains)
           .all<{
             domain: string;
             metric_date: string;
@@ -1559,6 +1610,8 @@ analyticsRoutes.get(
                 input.projectId,
                 `${dates.from}T00:00:00.000Z`,
                 exclusiveDateEnd(dates.to),
+                undefined,
+                input.source,
               ),
             )
         : await c
@@ -1591,6 +1644,7 @@ analyticsRoutes.get(
     );
     return c.json({
       data: {
+        trackingSource: input.source,
         summary: {
           ...summary,
           brand_mentioned_runs: verifiedBrandMentions.total,
@@ -1678,13 +1732,14 @@ analyticsRoutes.get(
         SUM(retrieved_snapshot_count) AS retrieved_snapshot_count,
         SUM(retrieval_count) AS retrieval_count,
         SUM(product_count) AS product_count
-      FROM daily_domain_metrics
-      WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+      FROM daily_source_domain_metrics
+      WHERE project_id = ? AND tracking_source = ?
+        AND metric_date BETWEEN ? AND ?
       GROUP BY domain
       ORDER BY citation_count DESC, retrieval_count DESC
       LIMIT 250`,
     )
-      .bind(input.projectId, dates.from, dates.to)
+      .bind(input.projectId, input.source, dates.from, dates.to)
       .all();
     return c.json({ data: rows.results });
   },
@@ -1770,21 +1825,33 @@ analyticsRoutes.get(
         q.schedule_cadence, q.schedule_time, q.schedule_timezone, q.is_active,
         q.shard_id,
         (SELECT s.id FROM snapshot_index s WHERE s.tracked_query_id = q.id
+          AND s.tracking_source = ?
           ORDER BY s.captured_at DESC LIMIT 1) AS latest_snapshot_id,
         (SELECT s.captured_at FROM snapshot_index s WHERE s.tracked_query_id = q.id
+          AND s.tracking_source = ?
           ORDER BY s.captured_at DESC LIMIT 1) AS latest_captured_at,
         (SELECT s.id FROM snapshot_index s WHERE s.tracked_query_id = q.id
+          AND s.tracking_source = ?
           ORDER BY s.captured_at DESC LIMIT 1 OFFSET 1) AS previous_snapshot_id,
-        (SELECT COUNT(*) FROM snapshot_index s WHERE s.tracked_query_id = q.id)
+        (SELECT COUNT(*) FROM snapshot_index s WHERE s.tracked_query_id = q.id
+          AND s.tracking_source = ?)
           AS snapshot_count,
         (SELECT j.status FROM crawl_jobs j WHERE j.tracked_query_id = q.id
+          AND j.tracking_source = ?
           ORDER BY j.created_at DESC LIMIT 1) AS latest_run_status
       FROM tracked_queries q
       WHERE ${clauses.join(" AND ")}
       ORDER BY q.created_at DESC, q.id DESC
       LIMIT ?${!promptCursor && input.offset !== undefined ? " OFFSET ?" : ""}`,
     )
-      .bind(...bindings)
+      .bind(
+        input.source,
+        input.source,
+        input.source,
+        input.source,
+        input.source,
+        ...bindings,
+      )
       .all<{
         id: string;
         query_text: string;
@@ -1925,6 +1992,7 @@ analyticsRoutes.get(
                 mentionDates.from,
                 mentionDates.to,
                 contributionIds,
+                input.source,
               ),
             )
         : c
@@ -1936,6 +2004,8 @@ analyticsRoutes.get(
                 mentionDates.from,
                 mentionDates.to,
                 contributionIds,
+                true,
+                input.source,
               ),
             ),
       c.env.CONTROL_DB.prepare(
@@ -1944,10 +2014,11 @@ analyticsRoutes.get(
          FROM ${
            readModelReady ? "analytics_snapshot_facts" : "metric_contributions"
          }
-         WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+         WHERE project_id = ? AND tracking_source = ?
+           AND metric_date BETWEEN ? AND ?
          GROUP BY tracked_query_id`,
       )
-        .bind(input.projectId, mentionDates.from, mentionDates.to)
+        .bind(input.projectId, input.source, mentionDates.from, mentionDates.to)
         .all<{
           tracked_query_id: string;
           completed_runs: number;
@@ -2031,7 +2102,7 @@ analyticsRoutes.get(
       c.get("timing"),
     );
     const dates = range(input);
-    const readModelReady = await analyticsReadModelReady(
+    const readModelReady = input.source === "chatgpt" && await analyticsReadModelReady(
       c.env,
       input.projectId,
       c.get("timing"),
@@ -2055,6 +2126,7 @@ analyticsRoutes.get(
       : "";
     const pageBindings: Array<string | number> = [
       input.projectId,
+      input.source,
       dates.from,
       dates.to,
     ];
@@ -2072,30 +2144,33 @@ analyticsRoutes.get(
     const [completedResult, totalResult, pageResult] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT COALESCE(SUM(completed_runs), 0) AS completed
-         FROM daily_project_metrics
-         WHERE project_id = ? AND metric_date BETWEEN ? AND ?`,
+         FROM daily_source_project_metrics
+         WHERE project_id = ? AND tracking_source = ?
+           AND metric_date BETWEEN ? AND ?`,
       )
-        .bind(input.projectId, dates.from, dates.to)
+        .bind(input.projectId, input.source, dates.from, dates.to)
         .first<{ completed: number }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT COUNT(*) AS total
          FROM (
            SELECT domain
-           FROM daily_domain_metrics
-           WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+           FROM daily_source_domain_metrics
+           WHERE project_id = ? AND tracking_source = ?
+             AND metric_date BETWEEN ? AND ?
            GROUP BY domain
            HAVING SUM(citation_count) > 0
          )`,
       )
-        .bind(input.projectId, dates.from, dates.to)
+        .bind(input.projectId, input.source, dates.from, dates.to)
         .first<{ total: number }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT
            domain,
            SUM(cited_snapshot_count) AS cited_snapshots,
            SUM(citation_count) AS total_citations
-         FROM daily_domain_metrics
-         WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+         FROM daily_source_domain_metrics
+         WHERE project_id = ? AND tracking_source = ?
+           AND metric_date BETWEEN ? AND ?
          GROUP BY domain
          HAVING SUM(citation_count) > 0
          ${cursorClause}
@@ -2147,10 +2222,12 @@ analyticsRoutes.get(
       } else {
         const indexes = await c.env.CONTROL_DB.prepare(
           `SELECT id, shard_id FROM snapshot_index
-           WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
+           WHERE project_id = ? AND tracking_source = ?
+             AND captured_at >= ? AND captured_at < ?`,
         )
           .bind(
             input.projectId,
+            input.source,
             `${dates.from}T00:00:00.000Z`,
             exclusiveDateEnd(dates.to),
           )
@@ -2238,7 +2315,7 @@ analyticsRoutes.get(
       c.get("timing"),
     );
     const dates = range(input);
-    const readModelReady = await analyticsReadModelReady(
+    const readModelReady = input.source === "chatgpt" && await analyticsReadModelReady(
       c.env,
       input.projectId,
       c.get("timing"),
@@ -2250,15 +2327,17 @@ analyticsRoutes.get(
           p.completed_runs,
           COALESCE(d.cited_snapshot_count, 0) AS cited_snapshot_count,
           COALESCE(d.citation_count, 0) AS citation_count
-         FROM daily_project_metrics p
-         LEFT JOIN daily_domain_metrics d
+         FROM daily_source_project_metrics p
+         LEFT JOIN daily_source_domain_metrics d
            ON d.project_id = p.project_id
+          AND d.tracking_source = p.tracking_source
           AND d.metric_date = p.metric_date
           AND d.domain = ?
-         WHERE p.project_id = ? AND p.metric_date BETWEEN ? AND ?
+         WHERE p.project_id = ? AND p.tracking_source = ?
+           AND p.metric_date BETWEEN ? AND ?
          ORDER BY p.metric_date`,
       )
-        .bind(domain, input.projectId, dates.from, dates.to)
+        .bind(domain, input.projectId, input.source, dates.from, dates.to)
         .all<{
           metric_date: string;
           completed_runs: number;
@@ -2269,10 +2348,12 @@ analyticsRoutes.get(
         ? Promise.resolve({ results: [] as ProductSnapshotIndex[] })
         : c.env.CONTROL_DB.prepare(
             `SELECT id, shard_id FROM snapshot_index
-             WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
+             WHERE project_id = ? AND tracking_source = ?
+               AND captured_at >= ? AND captured_at < ?`,
           )
             .bind(
               input.projectId,
+              input.source,
               `${dates.from}T00:00:00.000Z`,
               exclusiveDateEnd(dates.to),
             )
@@ -2292,6 +2373,7 @@ analyticsRoutes.get(
               domain,
               `${dates.from}T00:00:00.000Z`,
               exclusiveDateEnd(dates.to),
+              input.source,
             ),
           )
       : (
@@ -2514,7 +2596,7 @@ analyticsRoutes.get(
       c.get("timing"),
     );
     const dates = range(input);
-    const readModelReady = await analyticsReadModelReady(
+    const readModelReady = input.source === "chatgpt" && await analyticsReadModelReady(
       c.env,
       input.projectId,
       c.get("timing"),
@@ -2523,11 +2605,13 @@ analyticsRoutes.get(
       ? { results: [] as ProductSnapshotIndex[] }
       : await c.env.CONTROL_DB.prepare(
           `SELECT id, shard_id FROM snapshot_index
-           WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
+           WHERE project_id = ? AND tracking_source = ?
+             AND captured_at >= ? AND captured_at < ?
              AND products_count > 0 ORDER BY captured_at DESC`,
         )
           .bind(
             input.projectId,
+            input.source,
             `${dates.from}T00:00:00.000Z`,
             exclusiveDateEnd(dates.to),
           )
@@ -2572,6 +2656,8 @@ analyticsRoutes.get(
                 input.projectId,
                 `${dates.from}T00:00:00.000Z`,
                 exclusiveDateEnd(dates.to),
+                undefined,
+                input.source,
               ),
             )
         : await c
@@ -2723,23 +2809,26 @@ analyticsRoutes.get(
         ? Promise.resolve({ results: [] as ProductSnapshotIndex[] })
         : c.env.CONTROL_DB.prepare(
             `SELECT id, shard_id FROM snapshot_index
-             WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
+             WHERE project_id = ? AND tracking_source = ?
+               AND captured_at >= ? AND captured_at < ?
                AND products_count > 0
              ORDER BY captured_at DESC`,
           )
             .bind(
               input.projectId,
+              input.source,
               dates.startTimestamp,
               dates.endExclusiveTimestamp,
             )
             .all<ProductSnapshotIndex>(),
       c.env.CONTROL_DB.prepare(
         `SELECT metric_date, completed_runs
-         FROM daily_project_metrics
-         WHERE project_id = ? AND metric_date BETWEEN ? AND ?
+         FROM daily_source_project_metrics
+         WHERE project_id = ? AND tracking_source = ?
+           AND metric_date BETWEEN ? AND ?
          ORDER BY metric_date`,
       )
-        .bind(input.projectId, dates.from, dates.to)
+        .bind(input.projectId, input.source, dates.from, dates.to)
         .all<{ metric_date: string; completed_runs: number }>(),
     ]);
     const occurrences = (
@@ -2753,6 +2842,7 @@ analyticsRoutes.get(
                 dates.startTimestamp,
                 dates.endExclusiveTimestamp,
                 identity,
+                input.source,
               ),
             )
         : await c
@@ -3356,6 +3446,7 @@ analyticsRoutes.get(
         dates.to,
         [],
         false,
+        input.source,
       ),
     ]);
     return c.json({
@@ -3453,12 +3544,14 @@ analyticsRoutes.get(
     const dates = range(input);
     const indexes = await c.env.CONTROL_DB.prepare(
       `SELECT id, shard_id FROM snapshot_index
-       WHERE project_id = ? AND captured_at >= ? AND captured_at < ?
+       WHERE project_id = ? AND tracking_source = ?
+         AND captured_at >= ? AND captured_at < ?
          AND products_count > 0
        ORDER BY captured_at DESC LIMIT 500`,
     )
       .bind(
         input.projectId,
+        input.source,
         `${dates.from}T00:00:00.000Z`,
         exclusiveDateEnd(dates.to),
       )
@@ -3503,6 +3596,7 @@ analyticsRoutes.get(
     "query",
     z.object({
       projectId: z.string().uuid(),
+      source: TrackingSourceSchema.default("chatgpt"),
       queryId: z.string().uuid().optional(),
       cursor: z.string().max(4096).optional(),
       limit: z.coerce.number().int().min(1).max(100).default(50),
@@ -3517,8 +3611,8 @@ analyticsRoutes.get(
       input.projectId,
       c.get("timing"),
     );
-    const clauses = ["s.project_id = ?"];
-    const bindings: Array<string | number> = [input.projectId];
+    const clauses = ["s.project_id = ?", "s.tracking_source = ?"];
+    const bindings: Array<string | number> = [input.projectId, input.source];
     if (input.queryId) {
       clauses.push("s.tracked_query_id = ?");
       bindings.push(input.queryId);
@@ -3821,7 +3915,7 @@ analyticsRoutes.get(
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const current = await c.env.CONTROL_DB.prepare(
-      `SELECT id, tracked_query_id, shard_id, captured_at, model, answer_hash, has_product_block
+      `SELECT id, tracked_query_id, shard_id, tracking_source, captured_at, model, answer_hash, has_product_block
        FROM snapshot_index WHERE id = ? AND workspace_id = ?`,
     )
       .bind(id, principal.workspaceId)
@@ -3829,6 +3923,7 @@ analyticsRoutes.get(
         id: string;
         tracked_query_id: string;
         shard_id: number;
+        tracking_source: TrackingSource;
         captured_at: string;
         model: string | null;
         answer_hash: string;
@@ -3838,10 +3933,10 @@ analyticsRoutes.get(
     const previous = await c.env.CONTROL_DB.prepare(
       `SELECT id, model, answer_hash, has_product_block, captured_at
        FROM snapshot_index
-       WHERE tracked_query_id = ? AND captured_at < ?
+       WHERE tracked_query_id = ? AND tracking_source = ? AND captured_at < ?
        ORDER BY captured_at DESC LIMIT 1`,
     )
-      .bind(current.tracked_query_id, current.captured_at)
+      .bind(current.tracked_query_id, current.tracking_source, current.captured_at)
       .first<{
         id: string;
         model: string | null;
@@ -3919,6 +4014,7 @@ analyticsRoutes.get(
       c.env,
       input.projectId,
       c.get("timing"),
+      RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION,
     );
     if (!ready) {
       return c.json({
@@ -3948,12 +4044,14 @@ analyticsRoutes.get(
     }>(input.cursor, "related-query-list");
     const where = [
       "related.project_id = ?",
+      "fact.tracking_source = ?",
       "related.captured_at >= ?",
       "related.captured_at < ?",
       ...(search ? ["INSTR(related.normalized_query, ?) > 0"] : []),
     ];
     const bindings: Array<string | number> = [
       input.projectId,
+      input.source,
       dates.from,
       dates.to,
       ...(search ? [search] : []),
@@ -3985,20 +4083,24 @@ analyticsRoutes.get(
           (
             SELECT latest.query_text
             FROM analytics_related_query_occurrences latest
+            JOIN analytics_snapshot_facts latest_fact
+              ON latest_fact.snapshot_id = latest.snapshot_id
             WHERE latest.project_id = related.project_id
               AND latest.normalized_query = related.normalized_query
+              AND latest_fact.tracking_source = ?
               AND latest.captured_at >= ? AND latest.captured_at < ?
             ORDER BY latest.captured_at DESC, latest.snapshot_id DESC
             LIMIT 1
           ) AS query_text
          FROM analytics_related_query_occurrences related
+         JOIN analytics_snapshot_facts fact ON fact.snapshot_id = related.snapshot_id
          WHERE ${where.join(" AND ")}
          GROUP BY related.normalized_query
          ${having}
          ORDER BY appearances DESC, last_seen DESC, related.normalized_query
          LIMIT ?`,
       )
-        .bind(dates.from, dates.to, ...bindings, input.limit + 1)
+        .bind(input.source, dates.from, dates.to, ...bindings, input.limit + 1)
         .all<{
           normalized_query: string;
           query_text: string;
@@ -4010,17 +4112,20 @@ analyticsRoutes.get(
       c.env.CONTROL_DB.prepare(
         `SELECT
           COUNT(*) AS appearances,
-          COUNT(DISTINCT normalized_query) AS unique_queries,
-          COUNT(DISTINCT snapshot_id) AS responses_with_queries,
+          COUNT(DISTINCT related.normalized_query) AS unique_queries,
+          COUNT(DISTINCT related.snapshot_id) AS responses_with_queries,
           (SELECT COUNT(*) FROM analytics_snapshot_facts fact
-            WHERE fact.project_id = ? AND fact.captured_at >= ? AND fact.captured_at < ?
+            WHERE fact.project_id = ? AND fact.tracking_source = ?
+              AND fact.captured_at >= ? AND fact.captured_at < ?
           ) AS completed_responses
-         FROM analytics_related_query_occurrences
-         WHERE project_id = ? AND captured_at >= ? AND captured_at < ?`,
+         FROM analytics_related_query_occurrences related
+         JOIN analytics_snapshot_facts fact ON fact.snapshot_id = related.snapshot_id
+         WHERE related.project_id = ? AND fact.tracking_source = ?
+           AND related.captured_at >= ? AND related.captured_at < ?`,
       )
         .bind(
-          input.projectId, dates.from, dates.to,
-          input.projectId, dates.from, dates.to,
+          input.projectId, input.source, dates.from, dates.to,
+          input.projectId, input.source, dates.from, dates.to,
         )
         .first<{
           appearances: number;
@@ -4032,6 +4137,7 @@ analyticsRoutes.get(
         `SELECT COUNT(*) AS count FROM (
           SELECT 1
           FROM analytics_related_query_occurrences related
+          JOIN analytics_snapshot_facts fact ON fact.snapshot_id = related.snapshot_id
           WHERE ${where.join(" AND ")}
           GROUP BY related.normalized_query
         )`,
@@ -4091,28 +4197,39 @@ analyticsRoutes.get(
     const input = c.req.valid("query");
     const normalizedQuery = decodedRelatedQuery(c.req.valid("param").queryKey);
     await assertProjectAccess(c.env, principal.workspaceId, input.projectId, c.get("timing"));
-    const ready = await analyticsReadModelReady(c.env, input.projectId, c.get("timing"));
+    const ready = await analyticsReadModelReady(
+      c.env,
+      input.projectId,
+      c.get("timing"),
+      RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION,
+    );
     if (!ready) return c.json({ data: { indexing: true } });
     const dates = relatedQueryRange(input.period);
     const [summary, parentPrompts, tracked] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT COUNT(*) AS appearances,
-          COUNT(DISTINCT tracked_query_id) AS parent_prompts,
-          MIN(captured_at) AS first_seen,
-          MAX(captured_at) AS last_seen,
+          COUNT(DISTINCT related.tracked_query_id) AS parent_prompts,
+          MIN(related.captured_at) AS first_seen,
+          MAX(related.captured_at) AS last_seen,
           (SELECT latest.query_text
            FROM analytics_related_query_occurrences latest
+           JOIN analytics_snapshot_facts latest_fact
+             ON latest_fact.snapshot_id = latest.snapshot_id
            WHERE latest.project_id = ? AND latest.normalized_query = ?
+             AND latest_fact.tracking_source = ?
              AND latest.captured_at >= ? AND latest.captured_at < ?
            ORDER BY latest.captured_at DESC, latest.snapshot_id DESC LIMIT 1
           ) AS query_text
-         FROM analytics_related_query_occurrences
-         WHERE project_id = ? AND normalized_query = ?
-           AND captured_at >= ? AND captured_at < ?`,
+         FROM analytics_related_query_occurrences related
+         JOIN analytics_snapshot_facts fact
+           ON fact.snapshot_id = related.snapshot_id
+         WHERE related.project_id = ? AND related.normalized_query = ?
+           AND fact.tracking_source = ?
+           AND related.captured_at >= ? AND related.captured_at < ?`,
       )
         .bind(
-          input.projectId, normalizedQuery, dates.from, dates.to,
-          input.projectId, normalizedQuery, dates.from, dates.to,
+          input.projectId, normalizedQuery, input.source, dates.from, dates.to,
+          input.projectId, normalizedQuery, input.source, dates.from, dates.to,
         )
         .first<{
           appearances: number;
@@ -4126,21 +4243,26 @@ analyticsRoutes.get(
           COUNT(*) AS appearances, MAX(related.captured_at) AS last_seen,
           (SELECT latest.snapshot_id
            FROM analytics_related_query_occurrences latest
+           JOIN analytics_snapshot_facts latest_fact
+             ON latest_fact.snapshot_id = latest.snapshot_id
            WHERE latest.project_id = ? AND latest.normalized_query = ?
              AND latest.tracked_query_id = query.id
+             AND latest_fact.tracking_source = ?
              AND latest.captured_at >= ? AND latest.captured_at < ?
            ORDER BY latest.captured_at DESC, latest.snapshot_id DESC LIMIT 1
           ) AS latest_snapshot_id
          FROM analytics_related_query_occurrences related
+         JOIN analytics_snapshot_facts fact ON fact.snapshot_id = related.snapshot_id
          JOIN tracked_queries query ON query.id = related.tracked_query_id
          WHERE related.project_id = ? AND related.normalized_query = ?
+           AND fact.tracking_source = ?
            AND related.captured_at >= ? AND related.captured_at < ?
          GROUP BY query.id
          ORDER BY appearances DESC, last_seen DESC, query.id`,
       )
         .bind(
-          input.projectId, normalizedQuery, dates.from, dates.to,
-          input.projectId, normalizedQuery, dates.from, dates.to,
+          input.projectId, normalizedQuery, input.source, dates.from, dates.to,
+          input.projectId, normalizedQuery, input.source, dates.from, dates.to,
         )
         .all<{
           id: string;
@@ -4156,12 +4278,15 @@ analyticsRoutes.get(
     const fallback = summary?.query_text
       ? null
       : await c.env.CONTROL_DB.prepare(
-          `SELECT query_text
-           FROM analytics_related_query_occurrences
-           WHERE project_id = ? AND normalized_query = ?
-           ORDER BY captured_at DESC, snapshot_id DESC LIMIT 1`,
+          `SELECT related.query_text
+           FROM analytics_related_query_occurrences related
+           JOIN analytics_snapshot_facts fact
+             ON fact.snapshot_id = related.snapshot_id
+           WHERE related.project_id = ? AND related.normalized_query = ?
+             AND fact.tracking_source = ?
+           ORDER BY related.captured_at DESC, related.snapshot_id DESC LIMIT 1`,
         )
-          .bind(input.projectId, normalizedQuery)
+          .bind(input.projectId, normalizedQuery, input.source)
           .first<{ query_text: string }>();
     const queryText = summary?.query_text ?? fallback?.query_text;
     if (!queryText) {
@@ -4212,7 +4337,12 @@ analyticsRoutes.get(
     const input = c.req.valid("query");
     const normalizedQuery = decodedRelatedQuery(c.req.valid("param").queryKey);
     await assertProjectAccess(c.env, principal.workspaceId, input.projectId, c.get("timing"));
-    const ready = await analyticsReadModelReady(c.env, input.projectId, c.get("timing"));
+    const ready = await analyticsReadModelReady(
+      c.env,
+      input.projectId,
+      c.get("timing"),
+      RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION,
+    );
     if (!ready) return c.json({ data: [], page: { nextCursor: null, total: 0 } });
     const dates = relatedQueryRange(input.period);
     const cursor = decodeCursor<{ capturedAt: string; snapshotId: string }>(
@@ -4235,13 +4365,14 @@ analyticsRoutes.get(
          JOIN tracked_queries query ON query.id = related.tracked_query_id
          JOIN analytics_snapshot_facts fact ON fact.snapshot_id = related.snapshot_id
          WHERE related.project_id = ? AND related.normalized_query = ?
+           AND fact.tracking_source = ?
            AND related.captured_at >= ? AND related.captured_at < ?
            ${cursorClause}
          ORDER BY related.captured_at DESC, related.snapshot_id DESC
          LIMIT ?`,
       )
         .bind(
-          input.projectId, normalizedQuery, dates.from, dates.to,
+          input.projectId, normalizedQuery, input.source, dates.from, dates.to,
           ...cursorBindings, input.limit + 1,
         )
         .all<{
@@ -4257,11 +4388,14 @@ analyticsRoutes.get(
         }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT COUNT(*) AS count
-         FROM analytics_related_query_occurrences
-         WHERE project_id = ? AND normalized_query = ?
-           AND captured_at >= ? AND captured_at < ?`,
+         FROM analytics_related_query_occurrences related
+         JOIN analytics_snapshot_facts fact
+           ON fact.snapshot_id = related.snapshot_id
+         WHERE related.project_id = ? AND related.normalized_query = ?
+           AND fact.tracking_source = ?
+           AND related.captured_at >= ? AND related.captured_at < ?`,
       )
-        .bind(input.projectId, normalizedQuery, dates.from, dates.to)
+        .bind(input.projectId, normalizedQuery, input.source, dates.from, dates.to)
         .first<{ count: number }>(),
     ]);
     const hasMore = rows.results.length > input.limit;
@@ -4303,7 +4437,12 @@ analyticsRoutes.get(
     const input = c.req.valid("query");
     const normalizedQuery = decodedRelatedQuery(c.req.valid("param").queryKey);
     await assertProjectAccess(c.env, principal.workspaceId, input.projectId, c.get("timing"));
-    const ready = await analyticsReadModelReady(c.env, input.projectId, c.get("timing"));
+    const ready = await analyticsReadModelReady(
+      c.env,
+      input.projectId,
+      c.get("timing"),
+      RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION,
+    );
     if (!ready) return c.json({ data: [], page: { nextCursor: null, total: 0 } });
     const dates = relatedQueryRange(input.period);
     const cursor = decodeCursor<{ offset: number }>(
@@ -4317,10 +4456,13 @@ analyticsRoutes.get(
     const [rows, total] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `WITH matching_snapshots AS (
-          SELECT snapshot_id
-          FROM analytics_related_query_occurrences
-          WHERE project_id = ? AND normalized_query = ?
-            AND captured_at >= ? AND captured_at < ?
+          SELECT related.snapshot_id
+          FROM analytics_related_query_occurrences related
+          JOIN analytics_snapshot_facts fact
+            ON fact.snapshot_id = related.snapshot_id
+          WHERE related.project_id = ? AND related.normalized_query = ?
+            AND fact.tracking_source = ?
+            AND related.captured_at >= ? AND related.captured_at < ?
         )
         SELECT COALESCE(source.canonical_url, source.raw_url) AS url,
           MAX(source.registrable_domain) AS domain,
@@ -4336,7 +4478,7 @@ analyticsRoutes.get(
         LIMIT ? OFFSET ?`,
       )
         .bind(
-          input.projectId, normalizedQuery, dates.from, dates.to,
+          input.projectId, normalizedQuery, input.source, dates.from, dates.to,
           input.limit + 1, offset,
         )
         .all<{
@@ -4349,10 +4491,13 @@ analyticsRoutes.get(
         }>(),
       c.env.CONTROL_DB.prepare(
         `WITH matching_snapshots AS (
-          SELECT snapshot_id
-          FROM analytics_related_query_occurrences
-          WHERE project_id = ? AND normalized_query = ?
-            AND captured_at >= ? AND captured_at < ?
+          SELECT related.snapshot_id
+          FROM analytics_related_query_occurrences related
+          JOIN analytics_snapshot_facts fact
+            ON fact.snapshot_id = related.snapshot_id
+          WHERE related.project_id = ? AND related.normalized_query = ?
+            AND fact.tracking_source = ?
+            AND related.captured_at >= ? AND related.captured_at < ?
         )
         SELECT COUNT(*) AS count FROM (
           SELECT 1
@@ -4362,7 +4507,7 @@ analyticsRoutes.get(
           GROUP BY COALESCE(source.canonical_url, source.raw_url)
         )`,
       )
-        .bind(input.projectId, normalizedQuery, dates.from, dates.to)
+        .bind(input.projectId, normalizedQuery, input.source, dates.from, dates.to)
         .first<{ count: number }>(),
     ]);
     const hasMore = rows.results.length > input.limit;

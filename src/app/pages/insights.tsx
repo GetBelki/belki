@@ -69,10 +69,10 @@ import { formatPrice, formatProviderCost, productDestination } from "../lib/snap
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 
 function useProjectAnalytics<T>(name: string) {
-  const { projectId } = useApp();
+  const { projectId, trackingSource } = useApp();
   return useQuery({
-    queryKey: [name, projectId],
-    queryFn: () => api<T>(`/analytics/${name}?projectId=${projectId}`),
+    queryKey: [name, projectId, trackingSource],
+    queryFn: () => api<T>(`/analytics/${name}?projectId=${projectId}&source=${trackingSource}`),
     enabled: Boolean(projectId),
   });
 }
@@ -136,7 +136,7 @@ function CitationRateCell({ value }: { value: number }) {
 }
 
 export function CitationSourcesPage() {
-  const { projectId } = useApp();
+  const { projectId, trackingSource } = useApp();
   const navigate = useNavigate();
   const pageSize = 10;
   const [pagination, setPagination] = useState({
@@ -148,10 +148,10 @@ export function CitationSourcesPage() {
   const cursor = cursors.at(-1);
   const pageOffset = cursors.length * pageSize;
   const query = useQuery({
-    queryKey: ["citation-sources", projectId, cursor ?? ""],
+    queryKey: ["citation-sources", projectId, trackingSource, cursor ?? ""],
     queryFn: () =>
       apiPage<CitationSourceRow[]>(
-        `/analytics/citation-sources?projectId=${projectId}&limit=${pageSize}${
+        `/analytics/citation-sources?projectId=${projectId}&source=${trackingSource}&limit=${pageSize}${
           cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
         }`,
       ),
@@ -308,7 +308,7 @@ function urlPathLabel(value: string): string {
 }
 
 export function CitationSourceDetailPage() {
-  const { projectId } = useApp();
+  const { projectId, trackingSource } = useApp();
   const { domain: routeDomain = "" } = useParams();
   const domain = routeDomain.trim().toLowerCase();
   const pageSize = 10;
@@ -328,10 +328,10 @@ export function CitationSourceDetailPage() {
   const promptOffset =
     promptPagination.pageKey === pageKey ? promptPagination.offset : 0;
   const query = useQuery({
-    queryKey: ["citation-source", projectId, domain, cursor ?? ""],
+    queryKey: ["citation-source", projectId, trackingSource, domain, cursor ?? ""],
     queryFn: () =>
       apiPage<CitationSourceDetail>(
-        `/analytics/citation-sources/${encodeURIComponent(domain)}?projectId=${projectId}&limit=${pageSize}${
+        `/analytics/citation-sources/${encodeURIComponent(domain)}?projectId=${projectId}&source=${trackingSource}&limit=${pageSize}${
           cursor ? `&cursor=${encodeURIComponent(cursor)}` : ""
         }`,
       ),
@@ -464,7 +464,7 @@ export function CitationSourceDetailPage() {
               ) : (
                 <EmptyState
                   title="No trend data"
-                  description="Citation history will appear after completed prompt runs."
+                  description="Citation history will appear after responses are captured."
                 />
               )}
             </div>
@@ -938,7 +938,7 @@ function EnrichedProductIcon({ size = 14 }: { size?: number }) {
 }
 
 export function ShoppingPage() {
-  const { projectId } = useApp();
+  const { projectId, trackingSource } = useApp();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const search = searchParams.get("search") ?? "";
@@ -953,7 +953,7 @@ export function ShoppingPage() {
     .filter(Boolean);
   const tagKey = selectedTagIds.join(",");
   const pageSize = 10;
-  const pageScope = [projectId, search, country, tagKey, enrichment].join("\u0000");
+  const pageScope = [projectId, trackingSource, search, country, tagKey, enrichment].join("\u0000");
   const [pagination, setPagination] = useState({
     scope: "",
     cursors: [] as string[],
@@ -971,6 +971,7 @@ export function ShoppingPage() {
     .filter((tag): tag is PromptTag => Boolean(tag));
   const reportParams = new URLSearchParams({
     projectId: projectId ?? "",
+    source: trackingSource,
     limit: String(pageSize),
   });
   if (cursor) reportParams.set("cursor", cursor);
@@ -982,6 +983,7 @@ export function ShoppingPage() {
     queryKey: [
       "shopping",
       projectId,
+      trackingSource,
       search,
       country,
       tagKey,
@@ -1655,7 +1657,7 @@ function ProductMarketSection({
 }
 
 export function ProductAnalyticsPage() {
-  const { projectId, session } = useApp();
+  const { projectId, session, trackingSource } = useApp();
   const queryClient = useQueryClient();
   const { productKey: routeProductKey = "" } = useParams();
   const productKey = routeProductKey.trim();
@@ -1663,7 +1665,7 @@ export function ProductAnalyticsPage() {
   const [period, setPeriod] =
     useState<"7d" | "30d" | "90d" | "365d">("7d");
   const pageSize = 10;
-  const pageScope = `${projectId ?? ""}:${productKey}:${period}`;
+  const pageScope = `${projectId ?? ""}:${trackingSource}:${productKey}:${period}`;
   const [pagination, setPagination] = useState({
     scope: pageScope,
     occurrenceCursors: [] as string[],
@@ -1682,6 +1684,7 @@ export function ProductAnalyticsPage() {
     queryKey: [
       "shopping-product",
       projectId,
+      trackingSource,
       productKey,
       period,
       occurrenceCursor ?? "",
@@ -1689,7 +1692,7 @@ export function ProductAnalyticsPage() {
     ],
     queryFn: () =>
       apiPage<ProductAnalyticsDetail>(
-        `/analytics/shopping/${encodeURIComponent(productKey)}?projectId=${projectId}&period=${period}&limit=${pageSize}${
+        `/analytics/shopping/${encodeURIComponent(productKey)}?projectId=${projectId}&source=${trackingSource}&period=${period}&limit=${pageSize}${
           occurrenceCursor
             ? `&cursor=${encodeURIComponent(occurrenceCursor)}`
             : ""
@@ -2205,7 +2208,7 @@ export function ProductAnalyticsPage() {
 }
 
 export function AlertsPage() {
-  const { projectId } = useApp();
+  const { projectId, trackingSource } = useApp();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
   const alerts = useQuery({ queryKey: ["alerts"], queryFn: () => api<Array<Record<string, string | number>>>("/alerts") });
@@ -2222,14 +2225,20 @@ export function AlertsPage() {
   const submit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    create.mutate({ name: data.get("name"), eventType: data.get("eventType"), threshold: data.get("threshold") ? Number(data.get("threshold")) : null, channels: ["in_app", "webhook"] });
+    create.mutate({ name: data.get("name"), eventType: data.get("eventType"), threshold: data.get("threshold") ? Number(data.get("threshold")) : null, source: trackingSource, channels: ["in_app", "webhook"] });
   };
+  const visibleAlerts = alerts.data?.filter(
+    (alert) => alert.tracking_source === trackingSource,
+  );
+  const visibleRules = rules.data?.filter(
+    (rule) => rule.tracking_source === trackingSource,
+  );
   return (
     <div className="page">
       <PageHeader title="Alerts" description="Change detection with in-app history and signed webhook delivery." action={<Button onClick={() => setOpen(true)}><Plus size={15}/> Add rule</Button>} />
       <div className="split-grid">
-        <Card><CardHeader title="Recent events" description="Newest visibility changes across projects." />{alerts.data?.length ? <div className="alert-list">{alerts.data.map((alert) => <div className="alert-row" key={String(alert.id)}><span className="alert-icon"><AlertTriangle size={16}/></span><div><strong>{alert.title}</strong><p>{alert.message}</p><span>{dateTime(String(alert.created_at))}</span></div><Badge tone={alert.is_read ? "neutral" : "warning"}>{alert.is_read ? "Read" : "New"}</Badge></div>)}</div> : <EmptyState title="No alerts" description="Configured changes will appear here." />}</Card>
-        <Card><CardHeader title="Rules" description={`${rules.data?.length ?? 0} configured`} />{rules.data?.length ? <div className="rule-list">{rules.data.map((rule) => <div key={String(rule.id)}><span className="status-dot"/><div><strong>{rule.name}</strong><span>{String(rule.event_type).replaceAll("_", " ")}</span></div><Badge tone="success">Active</Badge></div>)}</div> : <EmptyState title="No rules" description="Create a rule for the changes that matter." />}</Card>
+        <Card><CardHeader title="Recent events" description="Newest visibility changes for this source." />{visibleAlerts?.length ? <div className="alert-list">{visibleAlerts.map((alert) => <div className="alert-row" key={String(alert.id)}><span className="alert-icon"><AlertTriangle size={16}/></span><div><strong>{alert.title}</strong><p>{alert.message}</p><span>{dateTime(String(alert.created_at))}</span></div><Badge tone={alert.is_read ? "neutral" : "warning"}>{alert.is_read ? "Read" : "New"}</Badge></div>)}</div> : <EmptyState title="No alerts" description="Configured changes will appear here." />}</Card>
+        <Card><CardHeader title="Rules" description={`${visibleRules?.length ?? 0} configured`} />{visibleRules?.length ? <div className="rule-list">{visibleRules.map((rule) => <div key={String(rule.id)}><span className="status-dot"/><div><strong>{rule.name}</strong><span>{String(rule.event_type).replaceAll("_", " ")}</span></div><Badge tone="success">Active</Badge></div>)}</div> : <EmptyState title="No rules" description="Create a rule for the changes that matter." />}</Card>
       </div>
       <Dialog open={open} onOpenChange={setOpen} title="Create alert rule" description="Webhook delivery is used when a destination is configured.">
         <form className="form-stack" onSubmit={submit}><Label>Rule name</Label><Input name="name" required /><Label>Event</Label><select className="input" name="eventType"><option value="own_citation_lost">Owned citation lost</option><option value="brand_mention_lost">Brand mention lost</option><option value="competitor_citation_gained">Competitor gained visibility</option><option value="product_block_changed">Product block changed</option><option value="visibility_drop">Visibility drop</option><option value="run_failed">Run failed</option></select><Label hint="Used for visibility drop">Threshold (percentage points)</Label><Input name="threshold" type="number" min="0" max="100" defaultValue="10" /><div className="dialog-actions"><Button variant="ghost" type="button" onClick={() => setOpen(false)}>Cancel</Button><Button>Create rule</Button></div></form>
@@ -2239,11 +2248,15 @@ export function AlertsPage() {
 }
 
 export function ExportsPage() {
-  const { projectId } = useApp();
+  const { projectId, trackingSource } = useApp();
   const queryClient = useQueryClient();
   const exportsQuery = useQuery({ queryKey: ["exports"], queryFn: () => api<Array<Record<string, string | number | null>>>("/exports"), refetchInterval: 10_000 });
   const create = useMutation({
-    mutationFn: (format: "csv" | "ndjson") => post("/exports", { projectId, format }),
+    mutationFn: (format: "csv" | "ndjson") => post("/exports", {
+      projectId,
+      source: trackingSource,
+      format,
+    }),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ["exports"] }),
   });
   return (

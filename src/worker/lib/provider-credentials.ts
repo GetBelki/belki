@@ -4,7 +4,14 @@ export interface DataForSeoCredentials {
   password: string;
 }
 
-export function platformDataForSeoCredentials(env: Env): DataForSeoCredentials {
+interface DataForSeoCredentialEnv {
+  DATAFORSEO_LOGIN: string;
+  DATAFORSEO_PASSWORD: string;
+}
+
+export function platformDataForSeoCredentials(
+  env: DataForSeoCredentialEnv,
+): DataForSeoCredentials {
   return {
     accountId: "dataforseo:platform:v1",
     login: env.DATAFORSEO_LOGIN,

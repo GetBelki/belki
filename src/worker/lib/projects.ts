@@ -34,7 +34,7 @@ export async function listProjects(
           WHERE f.project_id = p.id
         ) AS ads_count
       FROM projects p
-      WHERE p.workspace_id = ? AND p.deleted_at IS NULL
+      WHERE p.workspace_id = ? AND p.deleted_at IS NULL AND p.archived_at IS NULL
       ORDER BY p.updated_at DESC`,
     )
     .bind(workspaceId)
