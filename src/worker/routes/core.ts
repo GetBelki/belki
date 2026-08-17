@@ -36,6 +36,7 @@ import {
   promptTagKey,
   uniquePromptTagNames,
 } from "../../shared/prompt-tags";
+import { planAllowsManualRuns } from "../../shared/plan-access";
 import { requestPromptPurges } from "../automation/prompt-purges";
 import {
   claimProjectSlot,
@@ -1311,7 +1312,8 @@ coreRoutes.post(
     const principal = requireRole(c, "editor");
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
-    if (c.env.DEPLOYMENT_MODE !== "self_hosted") {
+    const { planKey } = await workspaceSourceEntitlement(c.env, principal.workspaceId);
+    if (!planAllowsManualRuns(planKey)) {
       throw new ApiError(403, "manual_runs_unavailable", "Managed plans use scheduled tracking.");
     }
     const query = await c.env.CONTROL_DB.prepare(
