@@ -50,6 +50,7 @@ import {
   assertTrackingSourcesAllowed,
   availableSources,
   projectTrackingSources,
+  scheduledForTrackingSource,
   workspaceSourceEntitlement,
 } from "../lib/tracking-sources";
 
@@ -1362,7 +1363,7 @@ coreRoutes.post(
           query.shard_id,
           input.source,
           deliveryMethod,
-          now,
+          scheduledForTrackingSource(now, input.source),
           tag,
           captureHtml ? 1 : 0,
           "dataforseo:platform:v1",

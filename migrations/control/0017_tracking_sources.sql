@@ -1,5 +1,3 @@
-PRAGMA foreign_keys = OFF;
-
 ALTER TABLE projects ADD COLUMN archived_at TEXT;
 
 CREATE TABLE project_tracking_sources (
@@ -37,68 +35,13 @@ UPDATE billing_accounts SET
 
 ALTER TABLE billing_plan_changes ADD COLUMN transition_json TEXT;
 
-CREATE TABLE crawl_jobs_v2 (
-  id TEXT PRIMARY KEY,
-  workspace_id TEXT NOT NULL,
-  project_id TEXT NOT NULL,
-  tracked_query_id TEXT NOT NULL,
-  shard_id INTEGER NOT NULL,
-  tracking_source TEXT NOT NULL DEFAULT 'chatgpt' CHECK (tracking_source IN (
-    'chatgpt', 'gemini', 'google_ai_mode', 'google_ai_overview'
-  )),
-  run_type TEXT NOT NULL CHECK (run_type IN ('scheduled', 'manual', 'backfill')),
-  delivery_method TEXT NOT NULL CHECK (delivery_method IN ('standard', 'standard_priority', 'live')),
-  status TEXT NOT NULL CHECK (status IN (
-    'queued', 'submitting', 'submission_unknown', 'submitted',
-    'awaiting_result', 'normalizing', 'completed', 'failed', 'cancelled'
-  )),
-  scheduled_for TEXT NOT NULL,
-  dataforseo_task_id TEXT UNIQUE,
-  provider_tag TEXT NOT NULL UNIQUE,
-  capture_html INTEGER NOT NULL DEFAULT 0,
-  submit_attempts INTEGER NOT NULL DEFAULT 0,
-  request_cost_usd REAL,
-  task_status_code INTEGER,
-  task_status_message TEXT,
-  error_code TEXT,
-  error_message TEXT,
-  submitted_at TEXT,
-  completed_at TEXT,
-  created_at TEXT NOT NULL,
-  updated_at TEXT NOT NULL,
-  raw_r2_key TEXT,
-  html_r2_key TEXT,
-  provider_account_id TEXT,
-  usage_reservation_id TEXT,
-  usage_units INTEGER NOT NULL DEFAULT 0,
-  UNIQUE (tracked_query_id, tracking_source, scheduled_for, run_type),
-  FOREIGN KEY (workspace_id) REFERENCES workspaces(id) ON DELETE CASCADE,
-  FOREIGN KEY (project_id) REFERENCES projects(id) ON DELETE CASCADE,
-  FOREIGN KEY (tracked_query_id) REFERENCES tracked_queries(id) ON DELETE CASCADE
-);
-
-INSERT INTO crawl_jobs_v2 (
-  id, workspace_id, project_id, tracked_query_id, shard_id, tracking_source,
-  run_type, delivery_method, status, scheduled_for, dataforseo_task_id,
-  provider_tag, capture_html, submit_attempts, request_cost_usd,
-  task_status_code, task_status_message, error_code, error_message,
-  submitted_at, completed_at, created_at, updated_at, raw_r2_key, html_r2_key,
-  provider_account_id, usage_reservation_id, usage_units
-)
-SELECT
-  id, workspace_id, project_id, tracked_query_id, shard_id, 'chatgpt',
-  run_type, delivery_method, status, scheduled_for, dataforseo_task_id,
-  provider_tag, capture_html, submit_attempts, request_cost_usd,
-  task_status_code, task_status_message, error_code, error_message,
-  submitted_at, completed_at, created_at, updated_at, raw_r2_key, html_r2_key,
-  provider_account_id, usage_reservation_id, usage_units
-FROM crawl_jobs;
-
-DROP TABLE crawl_jobs;
-ALTER TABLE crawl_jobs_v2 RENAME TO crawl_jobs;
-CREATE INDEX idx_jobs_status_time ON crawl_jobs(status, created_at);
-CREATE INDEX idx_jobs_query_time ON crawl_jobs(tracked_query_id, scheduled_for DESC);
-CREATE INDEX crawl_jobs_provider_account_idx ON crawl_jobs(provider_account_id, status);
+-- Keep this parent table in place. D1 migrations are transactional, so trying
+-- to disable foreign keys before rebuilding it would not prevent cascades from
+-- snapshot_index and ingest_events.
+ALTER TABLE crawl_jobs ADD COLUMN tracking_source TEXT NOT NULL DEFAULT 'chatgpt'
+  CHECK (tracking_source IN ('chatgpt', 'gemini', 'google_ai_mode', 'google_ai_overview'));
+CREATE UNIQUE INDEX crawl_jobs_source_schedule_idx
+  ON crawl_jobs(tracked_query_id, tracking_source, scheduled_for, run_type);
 CREATE INDEX crawl_jobs_source_status_idx ON crawl_jobs(tracking_source, status, created_at);
 
 ALTER TABLE snapshot_index ADD COLUMN tracking_source TEXT NOT NULL DEFAULT 'chatgpt'
@@ -182,5 +125,3 @@ INSERT INTO daily_source_brand_metrics
 SELECT project_id, 'chatgpt', tracked_brand_id, metric_date,
   mentioned_snapshot_count, updated_at
 FROM daily_brand_metrics;
-
-PRAGMA foreign_keys = ON;

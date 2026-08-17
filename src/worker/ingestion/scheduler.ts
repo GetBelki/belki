@@ -6,7 +6,10 @@ import { calculateNextRun, scheduleFromRow } from "../lib/schedule";
 import { getShard, SHARD_COUNT } from "../lib/shards";
 import { platformDataForSeoCredentials } from "../lib/provider-credentials";
 import { releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
-import { sourceAvailable } from "../lib/tracking-sources";
+import {
+  scheduledForTrackingSource,
+  sourceAvailable,
+} from "../lib/tracking-sources";
 
 interface DueQueryRow {
   id: string;
@@ -100,7 +103,7 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
           query.shard_id,
           query.tracking_source,
           deliveryMethod,
-          query.next_run_at,
+          scheduledForTrackingSource(query.next_run_at, query.tracking_source),
           tag,
           captureHtml ? 1 : 0,
           "dataforseo:platform:v1",

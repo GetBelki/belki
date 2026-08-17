@@ -29,11 +29,12 @@ currency.
    `stripe_livemode` stored in D1. Never change Stripe keys while payments are
    enabled.
 4. Database migrations run before the Worker upload. Migrations `0015` and
-   `0016` add managed billing. Migration `0017` rebuilds the crawl-job table to
-   add source identity; its defaults keep the previous Worker compatible during
-   the short migration/upload window. Avoid initiating manual collection during
-   the cutover. Legacy data is backfilled as ChatGPT and legacy workspaces
-   remain self-hosted and active.
+   `0016` add managed billing. Migration `0017` adds source identity without
+   rebuilding or dropping the foreign-key parent `crawl_jobs` table; its
+   defaults keep the previous Worker compatible during the short
+   migration/upload window. Avoid initiating manual collection during the
+   cutover. Legacy data is backfilled as ChatGPT and legacy workspaces remain
+   self-hosted and active.
 5. Plan downgrades are scheduled through Stripe Subscription Schedules. Never
    configure Stripe's generic portal to perform Belki plan switches.
 
@@ -170,8 +171,9 @@ Cloudflare runs `pnpm deploy:getbelki`, which applies:
 - `0016_billing_plan_changes.sql`: canonical Stripe item/schedule state,
   checkout locking, webhook claiming, and durable plan-change records.
 - `0017_tracking_sources.sql`: prompt/source entitlements, project source
-  settings, source-aware jobs and reporting, archived projects, and stored
-  downgrade previews.
+  settings, additive source-aware job fields and indexes, source-aware
+  reporting, archived projects, and stored downgrade previews. It deliberately
+  preserves the existing `crawl_jobs` table and its foreign-key dependents.
 - Snapshot migration `0005_tracking_sources.sql` on every snapshot shard:
   source identity and AI-surface presence.
 - Durable Object migration `v1`: `WorkspaceUsageGate` for atomic internal

@@ -22,6 +22,18 @@ export function availableSources(env: Env): TrackingSource[] {
   return TRACKING_SOURCES.filter((source) => sourceAvailable(env, source));
 }
 
+export function scheduledForTrackingSource(
+  scheduledFor: string,
+  source: TrackingSource,
+): string {
+  if (source === "chatgpt") return scheduledFor;
+  const timestamp = Date.parse(scheduledFor);
+  if (!Number.isFinite(timestamp)) {
+    throw new Error(`Invalid scheduled time: ${scheduledFor}`);
+  }
+  return new Date(timestamp + TRACKING_SOURCES.indexOf(source)).toISOString();
+}
+
 export function planSourceEntitlement(planKey: PlanKey): SourceEntitlement {
   if (planKey === "starter") return { allowedSources: ["chatgpt"], sourceLimit: 1 };
   if (planKey === "studio") return { allowedSources: [...TRACKING_SOURCES], sourceLimit: 2 };
