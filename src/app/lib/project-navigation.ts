@@ -26,3 +26,20 @@ export function projectChangeDestination(pathname: string): string | null {
     )?.destination ?? null
   );
 }
+
+export function trackingSourceChangeDestination(
+  pathname: string,
+): string | null {
+  for (const path of [
+    "/prompts/:queryId/snapshots/:snapshotId",
+    "/queries/:queryId/snapshots/:snapshotId",
+  ]) {
+    const match = matchPath({ path, end: true }, pathname);
+    if (match?.params.queryId) {
+      return `/prompts/${encodeURIComponent(match.params.queryId)}`;
+    }
+  }
+  return matchPath({ path: "/snapshots/:snapshotId", end: true }, pathname)
+    ? "/snapshots"
+    : null;
+}

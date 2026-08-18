@@ -1307,6 +1307,275 @@ tbody tr:hover { background: #fcfbfd; }
   .operator-security-note { align-items: flex-start; flex-direction: column; }
 }
 
+/* Overview owns its platform scope so the combined report can lead. */
+body .overview-page {
+  gap: 0;
+}
+
+body .overview-source-filter {
+  border-bottom: 1px solid #e4e4e7;
+  display: flex;
+  gap: 28px;
+  margin-bottom: 34px;
+  min-height: 44px;
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+body .overview-source-filter::-webkit-scrollbar { display: none; }
+
+body .overview-source-filter button {
+  align-self: stretch;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  color: #71717a;
+  cursor: pointer;
+  flex: 0 0 auto;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  padding: 0;
+  white-space: nowrap;
+}
+
+body .overview-source-filter button.active {
+  border-bottom-color: #18181b;
+  color: #18181b;
+}
+
+body .overview-page .page-header { margin-bottom: 28px; }
+
+body .overview-kpi-strip {
+  border-bottom: 1px solid #e4e4e7;
+  border-top: 1px solid #e4e4e7;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 30px;
+  min-height: 104px;
+}
+
+body .overview-kpi {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+  padding: 22px 18px;
+}
+
+body .overview-kpi + .overview-kpi { border-left: 1px solid #e4e4e7; }
+
+body .overview-kpi-icon {
+  align-items: center;
+  background: #f4f4f5;
+  border-radius: 7px;
+  color: #52525b;
+  display: flex;
+  flex: 0 0 auto;
+  height: 36px;
+  justify-content: center;
+  width: 36px;
+}
+
+body .overview-kpi-copy {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+body .overview-kpi-copy span {
+  color: #71717a;
+  font-size: 10px;
+}
+
+body .overview-kpi-copy strong {
+  color: #18181b;
+  font-size: 22px;
+  letter-spacing: -.035em;
+  line-height: 1.1;
+  margin: 2px 0;
+}
+
+body .overview-kpi-copy small {
+  color: #8a8a93;
+  font-size: 9px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+body .overview-kpi-skeleton {
+  border-radius: 0;
+  height: 60px;
+  margin: 22px 18px;
+}
+
+body .source-comparison-legend .source-comparison-label {
+  align-items: center;
+  background: #fafafa;
+  border: 1px solid #e4e4e7;
+  border-radius: 4px;
+  color: #52525b;
+  display: inline-flex;
+  font-size: 9px;
+  gap: 6px;
+  line-height: 20px;
+  max-width: 100%;
+  padding: 0 7px;
+}
+
+body .platform-comparison {
+  border-top: 1px solid #d4d4d8;
+  margin-top: 10px;
+  padding-top: 28px;
+}
+
+body .platform-comparison > header {
+  align-items: end;
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 18px;
+}
+
+body .platform-comparison h2 {
+  font-size: 16px;
+  letter-spacing: -.02em;
+  margin: 0 0 4px;
+}
+
+body .platform-comparison p {
+  color: #71717a;
+  font-size: 11px;
+  margin: 0;
+}
+
+body .platform-comparison-table { border-bottom: 1px solid #e4e4e7; }
+
+body .platform-comparison-head,
+body .platform-comparison-row {
+  align-items: center;
+  display: grid;
+  gap: 20px;
+  grid-template-columns: minmax(220px, 1.5fr) repeat(4, minmax(100px, .7fr));
+}
+
+body .platform-comparison-head {
+  border-bottom: 1px solid #e4e4e7;
+  color: #8a8a93;
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: .055em;
+  padding: 0 12px 10px;
+  text-transform: uppercase;
+}
+
+body .platform-comparison-row {
+  background: transparent;
+  border: 0;
+  border-bottom: 1px solid #ededf0;
+  color: #3f3f46;
+  cursor: pointer;
+  font: inherit;
+  min-height: 68px;
+  padding: 12px;
+  text-align: left;
+  width: 100%;
+}
+
+body .platform-comparison-row:last-child { border-bottom: 0; }
+body .platform-comparison-row:hover { background: #fafafa; }
+body .platform-comparison-row:focus-visible { outline: 2px solid #18181b; outline-offset: -2px; }
+
+body .platform-comparison-row > span:not(.platform-comparison-name) {
+  color: #18181b;
+  font-size: 12px;
+  font-weight: 650;
+}
+
+body .platform-comparison-name {
+  align-items: center;
+  display: flex;
+  gap: 12px;
+  min-width: 0;
+}
+
+body .platform-comparison-name > span:last-child {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+body .platform-comparison-name strong { color: #18181b; font-size: 12px; }
+body .platform-comparison-name small { color: #8a8a93; font-size: 9px; margin-top: 2px; }
+
+body .platform-comparison-mark {
+  align-items: center;
+  background: #f4f4f5;
+  border-radius: 7px;
+  display: flex;
+  flex: 0 0 auto;
+  height: 34px;
+  justify-content: center;
+  width: 34px;
+}
+
+body .platform-comparison-mark svg { height: 19px; width: 19px; }
+body .platform-comparison-skeleton { height: 250px; }
+
+@media (max-width: 1100px) {
+  body .overview-charts-row { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 760px) {
+  body .overview-source-filter {
+    gap: 24px;
+    margin: -4px 0 26px;
+  }
+
+  body .overview-page .page-header { margin-bottom: 24px; }
+
+  body .overview-kpi-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    margin-bottom: 26px;
+  }
+
+  body .overview-kpi { min-height: 96px; padding: 18px 12px; }
+  body .overview-kpi + .overview-kpi { border-left: 0; }
+  body .overview-kpi:nth-child(even) { border-left: 1px solid #e4e4e7; }
+  body .overview-kpi:nth-child(n + 3) { border-top: 1px solid #e4e4e7; }
+  body .overview-kpi-copy strong { font-size: 20px; }
+
+  body .platform-comparison { margin-top: 4px; padding-top: 24px; }
+  body .platform-comparison > header { margin-bottom: 10px; }
+  body .platform-comparison-head { display: none; }
+
+  body .platform-comparison-row {
+    align-items: start;
+    gap: 16px 18px;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    padding: 20px 2px;
+  }
+
+  body .platform-comparison-name { grid-column: 1 / -1; }
+
+  body .platform-comparison-row > span:not(.platform-comparison-name) {
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+  }
+
+  body .platform-comparison-row > span:not(.platform-comparison-name)::before {
+    color: #8a8a93;
+    content: attr(data-label);
+    font-size: 9px;
+    font-weight: 500;
+  }
+
+  body .overview-page .chart-card .card-header { padding: 18px 18px 14px; }
+  body .overview-page .brand-comparison-legend,
+  body .overview-page .source-comparison-legend { padding-inline: 18px; }
+}
+
 /* Neutral shadcn-style system: quiet surfaces, compact geometry, no elevation. */
 :root {
   color: #09090b;
@@ -4696,6 +4965,13 @@ a.evidence-source:hover strong {
   min-width: 0;
 }
 
+.settings-feature-row .settings-feature-cost-note {
+  color: #a16207;
+  line-height: 15px;
+  margin-top: 3px;
+  max-width: 760px;
+}
+
 .tracking-source-count {
   align-items: center;
   color: #52525b;
@@ -6398,34 +6674,150 @@ body .settings-tabs button.active {
   color: #18181b;
 }
 
+body .billing-page.page-flow { gap: 24px; }
 body .subscription-panel { display: flex; flex-direction: column; gap: 26px; }
 body .subscription-panel > .card-header { padding: 0; }
 body .subscription-panel > .card-header h3 { font-size: 22px; }
-body .subscription-summary-grid { max-width: 760px; }
+body .subscription-summary-grid {
+  grid-template-columns: repeat(2, minmax(240px, 1fr));
+  max-width: 760px;
+  width: 100%;
+}
+body .billing-limits-panel {
+  background: #fff;
+  border: 1px solid #e4e4e7;
+  border-radius: 14px;
+  max-width: 800px;
+  padding: 24px;
+}
 body .billing-usage-toolbar { align-items: center; display: flex; gap: 14px; justify-content: flex-end; }
 body .billing-usage-toolbar .select-trigger { min-width: 250px; }
 body .billing-period-toggle { align-items: center; background: #f4f4f5; border: 0; border-radius: 9px; display: flex; gap: 2px; padding: 3px; }
 body .billing-period-toggle button { border: 0; border-radius: 7px; min-height: 36px; padding: 0 14px; white-space: nowrap; }
 body .billing-period-toggle button.active { background: #fff; box-shadow: 0 1px 3px rgba(24, 24, 27, .12); }
-body .billing-summary-grid { gap: 16px; }
-body .billing-metric { background: #f8fafc; border: 0; border-radius: 12px; min-height: 112px; padding: 20px; }
-body .billing-summary-grid .billing-metric:nth-child(2) { background: #f5f3ff; }
-body .billing-summary-grid .billing-metric:nth-child(3) { background: #ecfdf5; }
-body .billing-summary-grid .billing-metric:nth-child(4) { background: #fff7ed; }
-body .billing-metric-icon { background: rgba(255, 255, 255, .78); border: 0; }
-body .billing-metric-copy strong { font-size: 23px; }
-body .billing-breakdown-grid { gap: 14px; }
-body .billing-breakdown-card { background: #f8fafc; border: 0; border-radius: 11px; min-height: 86px; padding: 18px 20px; }
-body .billing-breakdown-card:nth-child(2) { background: #ecfdf5; }
-body .billing-breakdown-card:nth-child(3) { background: #f5f3ff; }
-body .billing-category-swatch { display: none; }
+body .billing-page .billing-summary-grid:not(.subscription-summary-grid) {
+  border-bottom: 1px solid #e4e4e7;
+  border-top: 1px solid #e4e4e7;
+  gap: 0;
+  grid-template-columns: 1.2fr repeat(3, minmax(0, 1fr));
+  margin-bottom: 0;
+}
+body .billing-page .billing-summary-grid:not(.subscription-summary-grid) .billing-metric {
+  align-items: flex-start;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  border-right: 1px solid #e4e4e7;
+  box-shadow: none;
+  min-height: 0;
+  padding: 20px;
+}
+body .billing-page .billing-summary-grid:not(.subscription-summary-grid) .billing-metric:last-child { border-right: 0; }
+body .billing-metric-icon { background: #f4f4f5; border: 0; color: #52525b; }
+body .billing-metric-copy strong {
+  font-size: clamp(19px, 1.8vw, 23px);
+  font-variant-numeric: tabular-nums;
+  line-height: 1.08;
+  white-space: nowrap;
+}
+body .billing-metric-copy > span {
+  line-height: 1.35;
+  overflow: visible;
+  text-overflow: clip;
+  white-space: normal;
+}
+body .billing-page .billing-summary-grid:not(.subscription-summary-grid) .billing-metric:first-child .billing-metric-copy strong {
+  font-size: clamp(24px, 2.2vw, 30px);
+}
+body .billing-breakdown-section > header { margin-bottom: 8px; }
+body .billing-breakdown-section > header h2 {
+  color: #18181b;
+  font-size: 15px;
+  letter-spacing: -.01em;
+  margin: 0 0 3px;
+}
+body .billing-breakdown-section > header p {
+  color: #71717a;
+  font-size: 11px;
+  margin: 0;
+}
+body .billing-breakdown-list { border-top: 1px solid #e4e4e7; }
+body .billing-breakdown-row {
+  align-items: center;
+  border-bottom: 1px solid #e4e4e7;
+  display: grid;
+  gap: 10px 24px;
+  grid-template-columns: minmax(180px, .75fr) minmax(260px, 1.6fr) minmax(150px, .65fr);
+  padding: 18px 2px;
+}
+body .billing-breakdown-identity,
+body .billing-breakdown-detail,
+body .billing-breakdown-total { display: flex; flex-direction: column; min-width: 0; }
+body .billing-breakdown-identity { grid-column: 1; grid-row: 1; }
+body .billing-breakdown-detail { flex-flow: row wrap; gap: 3px 14px; grid-column: 2; grid-row: 1; }
+body .billing-breakdown-detail .billing-provider-failure-detail { color: #b45309; flex-basis: 100%; }
+body .billing-breakdown-total { grid-column: 3; grid-row: 1; text-align: right; }
+body .billing-breakdown-identity strong,
+body .billing-breakdown-total strong { color: #18181b; font-size: 12px; }
+body .billing-breakdown-identity span,
+body .billing-breakdown-detail span,
+body .billing-breakdown-total span { color: #71717a; font-size: 10px; line-height: 1.5; }
+body .billing-breakdown-section .estimated-label {
+  background: #f0fdfa;
+  border: 1px solid #99f6e4;
+  border-radius: 999px;
+  color: #0f766e;
+  font-size: 8px;
+  font-weight: 600;
+  margin-left: 4px;
+  padding: 1px 5px;
+  text-transform: uppercase;
+}
+body .billing-cost-share {
+  appearance: none;
+  background: #f4f4f5;
+  border: 0;
+  border-radius: 999px;
+  grid-column: 1 / -1;
+  grid-row: 2;
+  height: 3px;
+  overflow: hidden;
+  width: 100%;
+}
+body .billing-cost-share::-webkit-progress-bar { background: #f4f4f5; }
+body .billing-cost-share::-webkit-progress-value { background: #27272a; border-radius: 999px; }
+body .billing-cost-share::-moz-progress-bar { background: #27272a; border-radius: 999px; }
+body .billing-cost-share.entities::-webkit-progress-value { background: #0f766e; }
+body .billing-cost-share.entities::-moz-progress-bar { background: #0f766e; }
+body .billing-cost-share.enrichment::-webkit-progress-value { background: #7c3aed; }
+body .billing-cost-share.enrichment::-moz-progress-bar { background: #7c3aed; }
 body .billing-chart-card,
 body .billing-project-table,
-body .billing-alert-settings { border-radius: 14px; padding: 26px; }
+body .billing-alert-settings { border-radius: 12px; padding: 22px; }
 body .billing-warning,
 body .billing-notice { border-radius: 11px; padding: 16px 18px; }
 body .billing-subscription-actions { border-top: 1px solid #e4e4e7; padding-top: 22px; }
-body .billing-usage-explainer { color: #71717a; font-size: 11px; line-height: 1.55; margin: -10px 0 0; }
+body .billing-usage-explainer {
+  background: transparent;
+  border-radius: 0;
+  color: #52525b;
+  font-size: 12px;
+  line-height: 1.55;
+  margin: -4px 0 0;
+  max-width: 960px;
+  padding: 0;
+}
+body .billing-retention-detail { color: #a16207 !important; }
+body .billing-project-table td small { color: #a16207; display: block; font-size: 9px; margin-top: 2px; }
+
+@media (max-width: 1100px) {
+  body .billing-page .billing-summary-grid:not(.subscription-summary-grid) {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  body .billing-page .billing-summary-grid:not(.subscription-summary-grid) .billing-metric:nth-child(2) { border-right: 0; }
+  body .billing-page .billing-summary-grid:not(.subscription-summary-grid) .billing-metric:nth-child(-n + 2) { border-bottom: 1px solid #e4e4e7; }
+  body .billing-breakdown-row { grid-template-columns: minmax(160px, .8fr) minmax(220px, 1.4fr) minmax(145px, .7fr); }
+}
 
 body .prompts-page .page-header { margin-bottom: 0; }
 body .prompts-page .report-filters { margin: 0; }
@@ -6455,9 +6847,50 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 
 @media (max-width: 640px) {
   body .page { padding: 24px 18px 42px; }
-  body .page-flow { gap: 24px; }
+  body .page-flow,
+  body .billing-page.page-flow { gap: 20px; }
+  body .billing-tabs { gap: 24px; }
   body .billing-usage-toolbar { align-items: stretch; flex-direction: column; }
   body .billing-usage-toolbar .select-trigger { min-width: 0; width: 100%; }
   body .billing-period-toggle { display: grid; grid-template-columns: 1fr 1fr; }
   body .billing-period-toggle button { padding-inline: 8px; }
+  body .billing-page .billing-summary-grid:not(.subscription-summary-grid) { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body .subscription-summary-grid { grid-template-columns: 1fr; }
+  body .billing-page .billing-summary-grid:not(.subscription-summary-grid) .billing-metric {
+    min-height: 102px;
+    padding: 17px 12px;
+  }
+  body .billing-page .billing-summary-grid:not(.subscription-summary-grid) .billing-metric:nth-child(odd) { border-right: 1px solid #e4e4e7; }
+  body .billing-page .billing-summary-grid:not(.subscription-summary-grid) .billing-metric:nth-child(even) { border-right: 0; }
+  body .billing-page .billing-summary-grid:not(.subscription-summary-grid) .billing-metric:nth-child(-n + 2) { border-bottom: 1px solid #e4e4e7; }
+  body .billing-metric-copy strong { font-size: 20px; }
+  body .billing-page .billing-summary-grid:not(.subscription-summary-grid) .billing-metric:first-child .billing-metric-copy strong { font-size: 24px; }
+  body .billing-limits-panel {
+    border-radius: 11px;
+    padding: 18px;
+  }
+  body .billing-limits-panel > .card-header h3 { font-size: 20px; }
+  body .billing-breakdown-section > header { margin-bottom: 4px; }
+  body .billing-breakdown-row {
+    align-items: start;
+    gap: 9px 16px;
+    grid-template-columns: minmax(0, 1fr) auto;
+    padding: 20px 0;
+  }
+  body .billing-breakdown-identity { grid-column: 1; grid-row: 1; }
+  body .billing-breakdown-total { grid-column: 2; grid-row: 1; }
+  body .billing-breakdown-detail { grid-column: 1 / -1; grid-row: 2; }
+  body .billing-cost-share { grid-row: 3; }
+  body .billing-usage-explainer {
+    font-size: 11px;
+    margin-top: 0;
+    padding: 0;
+  }
+  body .billing-chart-card,
+  body .billing-project-table,
+  body .billing-alert-settings {
+    border-radius: 10px;
+    padding: 16px;
+  }
+  body .billing-chart { padding: 0 2px 12px 0; }
 }

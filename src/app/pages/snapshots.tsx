@@ -434,6 +434,14 @@ export function SnapshotDetailPage() {
       </div>
     );
   }
+  if (detail.data.snapshot.tracking_source !== trackingSource) {
+    return (
+      <Navigate
+        replace
+        to={`/prompts/${queryId ?? detail.data.snapshot.tracked_query_id}`}
+      />
+    );
+  }
 
   const {
     snapshot,

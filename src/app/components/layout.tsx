@@ -18,7 +18,10 @@ import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../context";
 import { post } from "../lib/api";
 import { APP_NAME } from "../lib/branding";
-import { projectChangeDestination } from "../lib/project-navigation";
+import {
+  projectChangeDestination,
+  trackingSourceChangeDestination,
+} from "../lib/project-navigation";
 import { AppIcon } from "./app-icon";
 import { DomainFavicon } from "./domain-favicon";
 import {
@@ -194,7 +197,7 @@ export function AppLayout() {
             <strong>{APP_NAME}</strong>
           </NavLink>
         </header>
-        {projectId && trackingSources.length > 1 && ![
+        {projectId && trackingSources.length > 1 && location.pathname !== "/" && ![
           "/billing",
           "/settings",
           "/users",
@@ -208,7 +211,14 @@ export function AppLayout() {
                 aria-selected={trackingSource === source}
                 className={trackingSource === source ? "active" : undefined}
                 key={source}
-                onClick={() => setTrackingSource(source)}
+                onClick={() => {
+                  if (source === trackingSource) return;
+                  setTrackingSource(source);
+                  const destination = trackingSourceChangeDestination(
+                    location.pathname,
+                  );
+                  if (destination) void navigate(destination, { replace: true });
+                }}
                 role="tab"
                 type="button"
               >

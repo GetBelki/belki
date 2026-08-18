@@ -1,10 +1,16 @@
-import type { JobQueueMessage, RollupQueueMessage, TrackingSource } from "../../shared/contracts";
+import type {
+  JobQueueMessage,
+  NormalizeQueueMessage,
+  RollupQueueMessage,
+  TrackingSource,
+} from "../../shared/contracts";
 import { createSignedJobTag } from "../lib/crypto";
 import { getLocaleCatalog } from "../lib/dataforseo";
 import { ApiError, nowIso } from "../lib/http";
 import { calculateNextRun, scheduleFromRow } from "../lib/schedule";
 import { getShard, SHARD_COUNT } from "../lib/shards";
 import { platformDataForSeoCredentials } from "../lib/provider-credentials";
+import { scheduledJobDelivery } from "../lib/job-delivery";
 import { releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 import {
   scheduledForTrackingSource,
@@ -59,13 +65,14 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
     const jobId = crypto.randomUUID();
     const tag = await createSignedJobTag(jobId, env.APP_CRYPTO_KEY);
     const createdAt = nowIso();
-    const captureHtml = query.tracking_source === "chatgpt" && query.html_capture_enabled === 1;
-    const deliveryMethod = captureHtml ? "standard_priority" : "standard";
-    const sku = captureHtml ? "llm_priority_html" : "llm_standard";
+    const delivery = scheduledJobDelivery(
+      query.tracking_source,
+      query.html_capture_enabled === 1,
+    );
     const reservation = {
       reservationId: jobId,
-      sku,
-      units: USAGE_UNITS[sku],
+      sku: delivery.sku,
+      units: USAGE_UNITS[delivery.sku],
       resourceType: "crawl_job",
       resourceId: jobId,
     } as const;
@@ -102,10 +109,10 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
           query.id,
           query.shard_id,
           query.tracking_source,
-          deliveryMethod,
+          delivery.deliveryMethod,
           scheduledForTrackingSource(query.next_run_at, query.tracking_source),
           tag,
-          captureHtml ? 1 : 0,
+          delivery.captureHtml ? 1 : 0,
           "dataforseo:platform:v1",
           jobId,
           reservation.units,
@@ -164,7 +171,68 @@ export async function reconcileJobs(env: Env): Promise<number> {
     const queue = job.delivery_method === "live" ? env.LIVE_QUEUE : env.STANDARD_QUEUE;
     await queue.send({ jobId: job.id } satisfies JobQueueMessage);
   }
-  return stale.results.length;
+
+  const recoverableNormalizationFailures = await env.CONTROL_DB.prepare(
+    `SELECT job.id, job.dataforseo_task_id, job.raw_r2_key
+     FROM crawl_jobs job
+     JOIN tracked_queries query ON query.id = job.tracked_query_id
+     WHERE job.status = 'failed'
+       AND job.error_code = 'normalization_failed'
+       AND job.dataforseo_task_id IS NOT NULL
+       AND job.raw_r2_key IS NOT NULL
+       AND query.deleted_at IS NULL
+       AND julianday(job.updated_at) < julianday('now', '-10 minutes')
+       AND NOT EXISTS (
+         SELECT 1 FROM prompt_purge_jobs purge
+         WHERE purge.tracked_query_id = query.id
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM ingest_events event
+         WHERE event.crawl_job_id = job.id
+           AND event.event_type = 'normalization_recovery'
+       )
+     ORDER BY job.updated_at
+     LIMIT 100`,
+  ).all<{
+    id: string;
+    dataforseo_task_id: string;
+    raw_r2_key: string;
+  }>();
+
+  if (recoverableNormalizationFailures.results.length) {
+    const now = nowIso();
+    await env.NORMALIZE_QUEUE.sendBatch(
+      recoverableNormalizationFailures.results.map((job) => ({
+        body: {
+          jobId: job.id,
+          taskId: job.dataforseo_task_id,
+          rawR2Key: job.raw_r2_key,
+          contentEncoding: job.raw_r2_key.endsWith(".gz") ? "gzip" : "identity",
+        } satisfies NormalizeQueueMessage,
+      })),
+    );
+    await env.CONTROL_DB.batch(
+      recoverableNormalizationFailures.results.flatMap((job) => [
+        env.CONTROL_DB.prepare(
+          `UPDATE crawl_jobs SET status = 'normalizing', updated_at = ?
+           WHERE id = ? AND status = 'failed' AND error_code = 'normalization_failed'`,
+        ).bind(now, job.id),
+        env.CONTROL_DB.prepare(
+          `INSERT INTO ingest_events (
+            id, crawl_job_id, dataforseo_task_id, event_type, status, r2_key, received_at
+          ) VALUES (?, ?, ?, 'normalization_recovery', 'queued', ?, ?)`,
+        ).bind(
+          crypto.randomUUID(),
+          job.id,
+          job.dataforseo_task_id,
+          job.raw_r2_key,
+          now,
+        ),
+      ]),
+    );
+  }
+
+  return stale.results.length + recoverableNormalizationFailures.results.length;
 }
 
 function flattenCatalogResults(payload: unknown): Array<Record<string, unknown>> {

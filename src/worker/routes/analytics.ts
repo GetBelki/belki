@@ -22,6 +22,7 @@ import { getShard } from "../lib/shards";
 import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
 import {
   billingDateRange,
+  aggregateBrandMentionDays,
   buildBillingReport,
   buildBrandComparison,
   buildPromptSetEvents,
@@ -35,10 +36,11 @@ import {
   relatedQueryKey,
   summarizeProductPrices,
   type BillingDailyRow,
-  type BrandMentionDailyRow,
+  type SourceBrandMentionDailyRow,
   type PromptSetAuditRow,
   type TrackedBrandReportRow,
 } from "../lib/reporting";
+import { projectTrackingSources } from "../lib/tracking-sources";
 import {
   googleProductIdentifiers,
   summarizeMarketPrices,
@@ -59,6 +61,9 @@ const DateRangeSchema = z.object({
   source: TrackingSourceSchema.default("chatgpt"),
   from: z.string().date().optional(),
   to: z.string().date().optional(),
+});
+const OverviewDateRangeSchema = DateRangeSchema.extend({
+  source: z.union([TrackingSourceSchema, z.literal("all")]).default("chatgpt"),
 });
 const PaginatedDateRangeSchema = DateRangeSchema.extend({
   cursor: z.string().max(4096).optional(),
@@ -156,6 +161,34 @@ interface VerifiedBrandMentions {
   byQuery: Map<string, number>;
   bySnapshot: Map<string, Set<string>>;
   total: number;
+}
+
+function mergeVerifiedBrandMentions(
+  reports: VerifiedBrandMentions[],
+): VerifiedBrandMentions {
+  const merged: VerifiedBrandMentions = {
+    byBrand: new Map(),
+    byDate: new Map(),
+    byQuery: new Map(),
+    bySnapshot: new Map(),
+    total: 0,
+  };
+  for (const report of reports) {
+    merged.total += report.total;
+    for (const [key, value] of report.byBrand) {
+      merged.byBrand.set(key, (merged.byBrand.get(key) ?? 0) + value);
+    }
+    for (const [key, value] of report.byDate) {
+      merged.byDate.set(key, (merged.byDate.get(key) ?? 0) + value);
+    }
+    for (const [key, value] of report.byQuery) {
+      merged.byQuery.set(key, (merged.byQuery.get(key) ?? 0) + value);
+    }
+    for (const [key, value] of report.bySnapshot) {
+      merged.bySnapshot.set(key, new Set(value));
+    }
+  }
+  return merged;
 }
 
 async function verifyStoredBrandMentions(
@@ -1008,9 +1041,12 @@ analyticsRoutes.get(
     const scopedProjectId = input.projectId ?? null;
     const [
       promptRows,
+      promptDetailRows,
+      promptSourceRows,
       enrichmentRows,
       entityRows,
       projectUsageRows,
+      promptDetailProjectRows,
       projectSettings,
       monthlyEnrichmentRows,
       monthlyEntityRows,
@@ -1055,6 +1091,87 @@ analyticsRoutes.get(
           dates.endExclusiveTimestamp,
         )
         .all<BillingDailyRow>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT substr(COALESCE(submitted_at, created_at), 1, 10) AS metric_date,
+          delivery_method,
+          CASE WHEN tracking_source = 'chatgpt' AND html_r2_key IS NOT NULL
+            THEN 1 ELSE 0 END AS retained_page,
+          COUNT(*) AS charged_runs,
+          COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
+         FROM crawl_jobs
+         WHERE workspace_id = ?
+           AND (? IS NULL OR project_id = ?)
+           AND request_cost_usd IS NOT NULL
+           AND request_cost_usd > 0
+           AND COALESCE(submitted_at, created_at) >= ?
+           AND COALESCE(submitted_at, created_at) < ?
+         GROUP BY metric_date, delivery_method, retained_page
+         ORDER BY metric_date, delivery_method, retained_page`,
+      )
+        .bind(
+          principal.workspaceId,
+          scopedProjectId,
+          scopedProjectId,
+          dates.startTimestamp,
+          dates.endExclusiveTimestamp,
+        )
+        .all<BillingDailyRow & {
+          delivery_method: "standard" | "standard_priority" | "live";
+          retained_page: number;
+        }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT tracking_source,
+          SUM(charged_tasks) AS charged_tasks,
+          SUM(provider_cost_usd) AS provider_cost_usd,
+          SUM(failed_charged_tasks) AS failed_charged_tasks,
+          SUM(failed_provider_cost_usd) AS failed_provider_cost_usd
+         FROM (
+           SELECT tracking_source,
+             COUNT(*) AS charged_tasks,
+             COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd,
+             SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END) AS failed_charged_tasks,
+             COALESCE(SUM(CASE WHEN status = 'failed' THEN request_cost_usd ELSE 0 END), 0)
+               AS failed_provider_cost_usd
+           FROM crawl_jobs
+           WHERE workspace_id = ?
+             AND (? IS NULL OR project_id = ?)
+             AND request_cost_usd IS NOT NULL
+             AND request_cost_usd > 0
+             AND COALESCE(submitted_at, created_at) >= ?
+             AND COALESCE(submitted_at, created_at) < ?
+           GROUP BY tracking_source
+           UNION ALL
+           SELECT 'deleted_project' AS tracking_source,
+             SUM(charged_runs), SUM(provider_cost_usd), 0, 0
+           FROM deleted_prompt_usage_daily
+           WHERE workspace_id = ? AND (? IS NULL OR project_id = ?)
+             AND usage_date >= substr(?, 1, 10)
+             AND usage_date < substr(?, 1, 10)
+             AND charged_runs > 0
+           HAVING SUM(charged_runs) > 0
+         ) usage
+         GROUP BY tracking_source
+         ORDER BY provider_cost_usd DESC`,
+      )
+        .bind(
+          principal.workspaceId,
+          scopedProjectId,
+          scopedProjectId,
+          dates.startTimestamp,
+          dates.endExclusiveTimestamp,
+          principal.workspaceId,
+          scopedProjectId,
+          scopedProjectId,
+          dates.startTimestamp,
+          dates.endExclusiveTimestamp,
+        )
+        .all<{
+          tracking_source: TrackingSource | "deleted_project";
+          charged_tasks: number;
+          provider_cost_usd: number;
+          failed_charged_tasks: number;
+          failed_provider_cost_usd: number;
+        }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT substr(COALESCE(submitted_at, created_at), 1, 10) AS metric_date,
           COUNT(*) AS charged_runs, COALESCE(SUM(request_cost_usd), 0) AS provider_cost_usd
@@ -1166,6 +1283,35 @@ analyticsRoutes.get(
           cost: number;
         }>(),
       c.env.CONTROL_DB.prepare(
+        `SELECT project_id, delivery_method,
+          CASE WHEN tracking_source = 'chatgpt' AND html_r2_key IS NOT NULL
+            THEN 1 ELSE 0 END AS retained_page,
+          COUNT(*) AS charged_tasks,
+          COALESCE(SUM(request_cost_usd), 0) AS cost
+         FROM crawl_jobs
+         WHERE workspace_id = ?
+           AND (? IS NULL OR project_id = ?)
+           AND request_cost_usd IS NOT NULL
+           AND request_cost_usd > 0
+           AND COALESCE(submitted_at, created_at) >= ?
+           AND COALESCE(submitted_at, created_at) < ?
+         GROUP BY project_id, delivery_method, retained_page`,
+      )
+        .bind(
+          principal.workspaceId,
+          scopedProjectId,
+          scopedProjectId,
+          dates.startTimestamp,
+          dates.endExclusiveTimestamp,
+        )
+        .all<{
+          project_id: string;
+          delivery_method: "standard" | "standard_priority" | "live";
+          retained_page: number;
+          charged_tasks: number;
+          cost: number;
+        }>(),
+      c.env.CONTROL_DB.prepare(
         `SELECT id, name, product_enrichment_warning_usd, entity_extraction_warning_usd
          FROM projects WHERE workspace_id = ? AND deleted_at IS NULL
            AND (? IS NULL OR id = ?)
@@ -1205,15 +1351,59 @@ analyticsRoutes.get(
         .all<{ project_id: string; charged_tasks: number; cost: number }>(),
     ]);
     const promptReport = buildBillingReport(promptRows.results, dates);
+    const highPriorityPromptReport = buildBillingReport(
+      promptDetailRows.results.filter((row) => row.delivery_method === "standard_priority"),
+      dates,
+    );
+    const livePromptReport = buildBillingReport(
+      promptDetailRows.results.filter((row) => row.delivery_method === "live"),
+      dates,
+    );
+    const retainedPromptReport = buildBillingReport(
+      promptDetailRows.results.filter((row) => row.retained_page === 1),
+      dates,
+    );
     const enrichmentReport = buildBillingReport(enrichmentRows.results, dates);
     const entityReport = buildBillingReport(entityRows.results, dates);
-    const mergedReport = mergeBillingReports(promptReport, enrichmentReport, entityReport);
+    const mergedReport = mergeBillingReports(
+      promptReport,
+      enrichmentReport,
+      entityReport,
+      {
+        highPriority: highPriorityPromptReport,
+        live: livePromptReport,
+        retainedPages: retainedPromptReport,
+      },
+    );
+    const sourceBreakdown = promptSourceRows.results.map((row) => ({
+      source: row.tracking_source,
+      chargedTasks: Number(row.charged_tasks ?? 0),
+      totalCost: Number(row.provider_cost_usd ?? 0),
+      failedChargedTasks: Number(row.failed_charged_tasks ?? 0),
+      failedCost: Number(row.failed_provider_cost_usd ?? 0),
+    }));
+    const providerChargedFailures = sourceBreakdown.reduce(
+      (total, source) => ({
+        chargedTasks: total.chargedTasks + source.failedChargedTasks,
+        totalCost: total.totalCost + source.failedCost,
+      }),
+      { chargedTasks: 0, totalCost: 0 },
+    );
     const breakdown = new Map<string, {
       projectId: string;
       projectName: string;
       totalCost: number;
       chargedTasks: number;
       promptTrackingCost: number;
+      promptTrackingTasks: number;
+      promptTrackingStandardCost: number;
+      promptTrackingHighPriorityCost: number;
+      promptTrackingLiveCost: number;
+      promptTrackingStandardTasks: number;
+      promptTrackingHighPriorityTasks: number;
+      promptTrackingLiveTasks: number;
+      retainedPageCost: number;
+      retainedPageTasks: number;
       productEnrichmentCost: number;
       entityExtractionCost: number;
     }>();
@@ -1224,6 +1414,15 @@ analyticsRoutes.get(
         totalCost: 0,
         chargedTasks: 0,
         promptTrackingCost: 0,
+        promptTrackingTasks: 0,
+        promptTrackingStandardCost: 0,
+        promptTrackingHighPriorityCost: 0,
+        promptTrackingLiveCost: 0,
+        promptTrackingStandardTasks: 0,
+        promptTrackingHighPriorityTasks: 0,
+        promptTrackingLiveTasks: 0,
+        retainedPageCost: 0,
+        retainedPageTasks: 0,
         productEnrichmentCost: 0,
         entityExtractionCost: 0,
       };
@@ -1231,7 +1430,39 @@ analyticsRoutes.get(
       current.totalCost += cost;
       current.chargedTasks += Number(row.charged_tasks ?? 0);
       current[`${row.category}Cost`] = cost;
+      if (row.category === "promptTracking") {
+        current.promptTrackingTasks = Number(row.charged_tasks ?? 0);
+      }
       breakdown.set(row.project_id, current);
+    }
+    for (const row of promptDetailProjectRows.results) {
+      const current = breakdown.get(row.project_id);
+      if (!current) continue;
+      const cost = Number(row.cost ?? 0);
+      const tasks = Number(row.charged_tasks ?? 0);
+      if (row.delivery_method === "standard_priority") {
+        current.promptTrackingHighPriorityCost += cost;
+        current.promptTrackingHighPriorityTasks += tasks;
+      } else if (row.delivery_method === "live") {
+        current.promptTrackingLiveCost += cost;
+        current.promptTrackingLiveTasks += tasks;
+      }
+      if (row.retained_page === 1) {
+        current.retainedPageCost += cost;
+        current.retainedPageTasks += tasks;
+      }
+    }
+    for (const current of breakdown.values()) {
+      current.promptTrackingStandardCost = Math.max(
+        0,
+        current.promptTrackingCost - current.promptTrackingHighPriorityCost -
+          current.promptTrackingLiveCost,
+      );
+      current.promptTrackingStandardTasks = Math.max(
+        0,
+        current.promptTrackingTasks - current.promptTrackingHighPriorityTasks -
+          current.promptTrackingLiveTasks,
+      );
     }
     const enrichmentByProject = new Map(monthlyEnrichmentRows.results.map((row) => [row.project_id, row]));
     const entityByProject = new Map(monthlyEntityRows.results.map((row) => [row.project_id, row]));
@@ -1271,7 +1502,14 @@ analyticsRoutes.get(
         projectId: scopedProjectId,
         currency: "USD",
         range: mergedReport.range,
-        summary: mergedReport.summary,
+        summary: {
+          ...mergedReport.summary,
+          promptTrackingBreakdown: {
+            ...mergedReport.summary.promptTrackingBreakdown,
+            bySource: sourceBreakdown,
+            providerChargedFailures,
+          },
+        },
         series: mergedReport.series,
         projectBreakdown: [...breakdown.values()].sort((left, right) => right.totalCost - left.totalCost),
         projectAlerts,
@@ -1282,7 +1520,7 @@ analyticsRoutes.get(
 
 analyticsRoutes.get(
   "/analytics/overview",
-  zValidator("query", DateRangeSchema),
+  zValidator("query", OverviewDateRangeSchema),
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
@@ -1293,7 +1531,13 @@ analyticsRoutes.get(
       c.get("timing"),
     );
     const dates = range(input);
-    const readModelReady = input.source === "chatgpt" && await analyticsReadModelReady(
+    const allSources = input.source === "all";
+    const includedSources: TrackingSource[] = allSources
+      ? await projectTrackingSources(c.env, input.projectId)
+      : [input.source as TrackingSource];
+    const singleSource = includedSources[0]!;
+    const sourcePlaceholders = includedSources.map(() => "?").join(",");
+    const readModelReady = !allSources && input.source === "chatgpt" && await analyticsReadModelReady(
       c.env,
       input.projectId,
       c.get("timing"),
@@ -1305,10 +1549,11 @@ analyticsRoutes.get(
       productIndexes,
       topCitationSources,
       project,
-      verifiedBrandMentions,
+      verifiedBrandMentionReports,
       trackedBrands,
       brandMentionDays,
       promptSetAuditRows,
+      platformSummaryRows,
     ] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT
@@ -1319,10 +1564,10 @@ analyticsRoutes.get(
           COALESCE(SUM(product_runs), 0) AS product_runs,
           COALESCE(SUM(total_citations), 0) AS total_citations
         FROM daily_source_project_metrics
-        WHERE project_id = ? AND tracking_source = ?
+        WHERE project_id = ? AND tracking_source IN (${sourcePlaceholders})
           AND metric_date BETWEEN ? AND ?`,
       )
-        .bind(input.projectId, input.source, dates.from, dates.to)
+        .bind(input.projectId, ...includedSources, dates.from, dates.to)
         .first<{
           completed_runs: number;
           surface_present_runs: number;
@@ -1331,7 +1576,18 @@ analyticsRoutes.get(
           product_runs: number;
           total_citations: number;
         }>(),
-      c.env.CONTROL_DB.prepare(
+      allSources
+        ? c.env.CONTROL_DB.prepare(
+            `SELECT COUNT(id) AS tracked_prompt_count, 0 AS product_prompt_count
+             FROM tracked_queries
+             WHERE project_id = ? AND is_active = 1 AND deleted_at IS NULL`,
+          )
+            .bind(input.projectId)
+            .first<{
+              tracked_prompt_count: number;
+              product_prompt_count: number;
+            }>()
+        : c.env.CONTROL_DB.prepare(
         `SELECT
           COUNT(q.id) AS tracked_prompt_count,
           COALESCE(SUM(
@@ -1362,12 +1618,23 @@ analyticsRoutes.get(
           product_prompt_count: number;
         }>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT * FROM daily_source_project_metrics
-         WHERE project_id = ? AND tracking_source = ?
+        `SELECT
+           project_id,
+           metric_date,
+           SUM(completed_runs) AS completed_runs,
+           SUM(surface_present_runs) AS surface_present_runs,
+           SUM(cited_runs) AS cited_runs,
+           SUM(brand_mentioned_runs) AS brand_mentioned_runs,
+           SUM(product_runs) AS product_runs,
+           SUM(total_citations) AS total_citations,
+           MAX(updated_at) AS updated_at
+         FROM daily_source_project_metrics
+         WHERE project_id = ? AND tracking_source IN (${sourcePlaceholders})
            AND metric_date BETWEEN ? AND ?
+         GROUP BY project_id, metric_date
          ORDER BY metric_date`,
       )
-        .bind(input.projectId, input.source, dates.from, dates.to)
+        .bind(input.projectId, ...includedSources, dates.from, dates.to)
         .all<{
           project_id: string;
           metric_date: string;
@@ -1378,7 +1645,9 @@ analyticsRoutes.get(
           total_citations: number;
           updated_at: string;
         }>(),
-      readModelReady
+      allSources
+        ? Promise.resolve({ results: [] as ProductSnapshotIndex[] })
+        : readModelReady
         ? Promise.resolve({ results: [] as ProductSnapshotIndex[] })
         : c.env.CONTROL_DB.prepare(
             `SELECT id, shard_id FROM snapshot_index
@@ -1397,21 +1666,37 @@ analyticsRoutes.get(
       c.env.CONTROL_DB.prepare(
         `SELECT domain, SUM(citation_count) AS total_citations
          FROM daily_source_domain_metrics
-         WHERE project_id = ? AND tracking_source = ?
+         WHERE project_id = ? AND tracking_source IN (${sourcePlaceholders})
            AND metric_date BETWEEN ? AND ?
            AND citation_count > 0
          GROUP BY domain
          ORDER BY total_citations DESC, domain
          LIMIT 5`,
       )
-        .bind(input.projectId, input.source, dates.from, dates.to)
+        .bind(input.projectId, ...includedSources, dates.from, dates.to)
         .all<{ domain: string; total_citations: number }>(),
       c.env.CONTROL_DB.prepare(
         "SELECT primary_domain FROM projects WHERE id = ?",
       )
         .bind(input.projectId)
         .first<{ primary_domain: string | null }>(),
-      readModelReady
+      allSources
+        ? Promise.all(
+            includedSources.map((source) =>
+              c.get("timing").measure("legacy_shards", () =>
+                verifyStoredBrandMentions(
+                  c.env,
+                  input.projectId,
+                  dates.from,
+                  dates.to,
+                  [],
+                  true,
+                  source,
+                ),
+              ),
+            ),
+          )
+        : readModelReady
         ? c
             .get("timing")
             .measure("analytics_read_model", () =>
@@ -1421,9 +1706,9 @@ analyticsRoutes.get(
                 dates.from,
                 dates.to,
                 [],
-                input.source,
+                singleSource,
               ),
-            )
+            ).then((report) => [report])
         : c
             .get("timing")
             .measure("legacy_shards", () =>
@@ -1434,9 +1719,9 @@ analyticsRoutes.get(
                 dates.to,
                 [],
                 true,
-                input.source,
+                  singleSource,
               ),
-            ),
+            ).then((report) => [report]),
       c.env.CONTROL_DB.prepare(
         `SELECT id, name, kind
          FROM tracked_brands
@@ -1450,6 +1735,7 @@ analyticsRoutes.get(
           SELECT
             contribution.metric_date,
             contribution.snapshot_id,
+            contribution.tracking_source,
             CAST(brand_value.value AS TEXT) AS brand_id,
             1 AS deterministic_match,
             0 AS extracted_match
@@ -1459,7 +1745,7 @@ analyticsRoutes.get(
             ON brand.id = CAST(brand_value.value AS TEXT)
            AND brand.project_id = contribution.project_id
           WHERE contribution.project_id = ?
-            AND contribution.tracking_source = ?
+            AND contribution.tracking_source IN (${sourcePlaceholders})
             AND contribution.metric_date BETWEEN ? AND ?
 
           UNION ALL
@@ -1467,6 +1753,7 @@ analyticsRoutes.get(
           SELECT
             substr(mention.captured_at, 1, 10) AS metric_date,
             mention.snapshot_id,
+            mention_snapshot.tracking_source,
             entity.tracked_brand_id AS brand_id,
             0 AS deterministic_match,
             1 AS extracted_match
@@ -1477,7 +1764,7 @@ analyticsRoutes.get(
             ON brand.id = entity.tracked_brand_id
            AND brand.project_id = mention.project_id
           WHERE mention.project_id = ?
-            AND mention_snapshot.tracking_source = ?
+            AND mention_snapshot.tracking_source IN (${sourcePlaceholders})
             AND mention.captured_at >= ?
             AND mention.captured_at < ?
             AND entity.tracked_brand_id IS NOT NULL
@@ -1485,22 +1772,25 @@ analyticsRoutes.get(
           SELECT
             metric_date,
             snapshot_id,
+            tracking_source,
             brand_id,
             MAX(deterministic_match) AS deterministic_match,
             MAX(extracted_match) AS extracted_match
           FROM mention_candidates
-          GROUP BY metric_date, snapshot_id, brand_id
+          GROUP BY metric_date, snapshot_id, tracking_source, brand_id
         ), owned_daily AS (
           SELECT
             pair.metric_date,
+            pair.tracking_source,
             COUNT(DISTINCT pair.snapshot_id) AS owned_mentioned_responses
           FROM combined_pairs AS pair
           JOIN tracked_brands AS brand ON brand.id = pair.brand_id
           WHERE brand.kind = 'owned'
-          GROUP BY pair.metric_date
+          GROUP BY pair.metric_date, pair.tracking_source
         )
         SELECT
           pair.metric_date,
+          pair.tracking_source,
           pair.brand_id,
           SUM(pair.deterministic_match) AS deterministic_responses,
           SUM(pair.extracted_match) AS extracted_responses,
@@ -1512,21 +1802,23 @@ analyticsRoutes.get(
           ) AS overlap_responses,
           COALESCE(owned.owned_mentioned_responses, 0) AS owned_mentioned_responses
         FROM combined_pairs AS pair
-        LEFT JOIN owned_daily AS owned ON owned.metric_date = pair.metric_date
-        GROUP BY pair.metric_date, pair.brand_id
-        ORDER BY pair.metric_date, pair.brand_id`,
+        LEFT JOIN owned_daily AS owned
+          ON owned.metric_date = pair.metric_date
+         AND owned.tracking_source = pair.tracking_source
+        GROUP BY pair.metric_date, pair.tracking_source, pair.brand_id
+        ORDER BY pair.metric_date, pair.tracking_source, pair.brand_id`,
       )
         .bind(
           input.projectId,
-          input.source,
+          ...includedSources,
           dates.from,
           dates.to,
           input.projectId,
-          input.source,
+          ...includedSources,
           `${dates.from}T00:00:00.000Z`,
           exclusiveDateEnd(dates.to),
         )
-        .all<BrandMentionDailyRow>(),
+        .all<SourceBrandMentionDailyRow>(),
       c.env.CONTROL_DB.prepare(
         `SELECT action, metadata_json, created_at
          FROM audit_log
@@ -1546,7 +1838,35 @@ analyticsRoutes.get(
           exclusiveDateEnd(dates.to),
         )
         .all<PromptSetAuditRow>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT
+           tracking_source,
+           metric_date,
+           completed_runs,
+           surface_present_runs,
+           total_citations
+         FROM daily_source_project_metrics
+         WHERE project_id = ? AND tracking_source IN (${sourcePlaceholders})
+           AND metric_date BETWEEN ? AND ?`,
+      )
+        .bind(input.projectId, ...includedSources, dates.from, dates.to)
+        .all<{
+          tracking_source: TrackingSource;
+          metric_date: string;
+          completed_runs: number;
+          surface_present_runs: number;
+          total_citations: number;
+        }>(),
     ]);
+    const verifiedBySource = new Map(
+      includedSources.map((source, index) => [
+        source,
+        verifiedBrandMentionReports[index]!,
+      ]),
+    );
+    const verifiedBrandMentions = mergeVerifiedBrandMentions(
+      verifiedBrandMentionReports,
+    );
     const projectDomain = normalizeHostname(project?.primary_domain)
       .registrableDomain;
     const sourceDomains = topCitationSources.results.map((source) => source.domain);
@@ -1557,12 +1877,12 @@ analyticsRoutes.get(
       ? await c.env.CONTROL_DB.prepare(
           `SELECT domain, metric_date, cited_snapshot_count, citation_count
            FROM daily_source_domain_metrics
-           WHERE project_id = ? AND tracking_source = ?
+           WHERE project_id = ? AND tracking_source IN (${sourcePlaceholders})
              AND metric_date BETWEEN ? AND ?
              AND domain IN (${sourceDomains.map(() => "?").join(",")})
            ORDER BY metric_date, domain`,
         )
-          .bind(input.projectId, input.source, dates.from, dates.to, ...sourceDomains)
+          .bind(input.projectId, ...includedSources, dates.from, dates.to, ...sourceDomains)
           .all<{
             domain: string;
             metric_date: string;
@@ -1587,9 +1907,12 @@ analyticsRoutes.get(
       const dateMetrics =
         sourceMetricsByDate.get(metric.metric_date) ??
         new Map<string, { citedRuns: number; citations: number }>();
+      const existingDateMetric = dateMetrics.get(metric.domain);
       dateMetrics.set(metric.domain, {
-        citedRuns: metric.cited_snapshot_count,
-        citations: metric.citation_count,
+        citedRuns:
+          (existingDateMetric?.citedRuns ?? 0) + metric.cited_snapshot_count,
+        citations:
+          (existingDateMetric?.citations ?? 0) + metric.citation_count,
       });
       sourceMetricsByDate.set(metric.metric_date, dateMetrics);
       if (!rankedSourceDomains.has(metric.domain)) {
@@ -1600,7 +1923,9 @@ analyticsRoutes.get(
         );
       }
     }
-    const recentOccurrences = (
+    const recentOccurrences = allSources
+      ? []
+      : (
       readModelReady
         ? await c
             .get("timing")
@@ -1611,7 +1936,7 @@ analyticsRoutes.get(
                 `${dates.from}T00:00:00.000Z`,
                 exclusiveDateEnd(dates.to),
                 undefined,
-                input.source,
+                singleSource,
               ),
             )
         : await c
@@ -1637,14 +1962,67 @@ analyticsRoutes.get(
     }
     const completed = summary?.completed_runs ?? 0;
     const trackedPrompts = productCoverage?.tracked_prompt_count ?? 0;
+    const consolidatedBrandMentionDays = aggregateBrandMentionDays(
+      brandMentionDays.results,
+    );
     const brandComparison = buildBrandComparison(
       trackedBrands.results,
       series.results,
-      brandMentionDays.results,
+      consolidatedBrandMentionDays,
     );
+    const platformSummaries = new Map<TrackingSource, {
+      completedRuns: number;
+      surfacePresentRuns: number;
+      totalCitations: number;
+    }>();
+    for (const row of platformSummaryRows.results) {
+      const current = platformSummaries.get(row.tracking_source) ?? {
+        completedRuns: 0,
+        surfacePresentRuns: 0,
+        totalCitations: 0,
+      };
+      current.completedRuns += Number(row.completed_runs);
+      current.surfacePresentRuns += Number(row.surface_present_runs);
+      current.totalCitations += Number(row.total_citations);
+      platformSummaries.set(row.tracking_source, current);
+    }
+    const platformBreakdown = includedSources.map((source) => {
+      const sourceSummary = platformSummaries.get(source);
+      const sourceCompletedDays = platformSummaryRows.results
+        .filter((row) => row.tracking_source === source)
+        .map((row) => ({
+          metric_date: row.metric_date,
+          completed_runs: row.completed_runs,
+        }));
+      const sourceMentionDays = brandMentionDays.results.filter(
+        (row) => row.tracking_source === source,
+      );
+      const sourceCompleted = sourceSummary?.completedRuns ?? 0;
+      const sourceComparison = buildBrandComparison(
+        trackedBrands.results,
+        sourceCompletedDays,
+        sourceMentionDays,
+      );
+      const verified = verifiedBySource.get(source);
+      const ownedMentionedResponses = verified?.total ?? 0;
+      return {
+        trackingSource: source,
+        completedRuns: sourceCompleted,
+        surfacePresentRuns: sourceSummary?.surfacePresentRuns ?? 0,
+        totalCitations: sourceSummary?.totalCitations ?? 0,
+        visibility: sourceCompleted
+          ? (ownedMentionedResponses / sourceCompleted) * 100
+          : null,
+        shareOfVoice: sourceCompleted
+          ? sourceComparison.summary.ownedShareOfVoice
+          : null,
+      };
+    });
     return c.json({
       data: {
         trackingSource: input.source,
+        includedSources,
+        platformBreakdown: allSources ? platformBreakdown : [],
         summary: {
           ...summary,
           brand_mentioned_runs: verifiedBrandMentions.total,

@@ -227,8 +227,9 @@ export default function SettingsPage() {
   const featureRows = projectSettings.data ? [
     {
       key: "htmlCaptureEnabled" as const,
-      title: "Retain original response pages",
-      description: `Keep source HTML for ${projectSettings.data.htmlRetentionDays} days for future captures.`,
+      title: "Retain original ChatGPT pages",
+      description: `Store the original ChatGPT result page for ${projectSettings.data.htmlRetentionDays} days.`,
+      note: "Scheduled retention uses normal-priority collection and does not by itself increase the provider task price. Other AI platforms are unaffected.",
       checked: projectSettings.data.htmlCaptureEnabled,
       disabled: !canAdmin,
     },
@@ -236,6 +237,7 @@ export default function SettingsPage() {
       key: "productEnrichmentEnabled" as const,
       title: "Google Shopping enrichment",
       description: "Refresh product, seller, availability, and market data for eligible Shopping results.",
+      note: null,
       checked: projectSettings.data.productEnrichmentEnabled,
       disabled: !canAdmin,
     },
@@ -243,6 +245,7 @@ export default function SettingsPage() {
       key: "entityExtractionEnabled" as const,
       title: "Named entity extraction",
       description: "Discover brands, companies, people, and places in captured responses.",
+      note: null,
       checked: projectSettings.data.entityExtractionEnabled,
       disabled: !canAdmin,
     },
@@ -250,6 +253,7 @@ export default function SettingsPage() {
       key: "entityAutoTrackEnabled" as const,
       title: "Auto-track high-confidence competitors",
       description: "Promote repeatedly corroborated competitor brands into visibility tracking.",
+      note: null,
       checked: projectSettings.data.entityAutoTrackEnabled,
       disabled: !canAdmin || !projectSettings.data.entityExtractionEnabled,
     },
@@ -379,7 +383,11 @@ export default function SettingsPage() {
                 <div className="settings-feature-list">
                   {featureRows.map((feature) => (
                     <div className="settings-feature-row" key={feature.key}>
-                      <div><strong>{feature.title}</strong><span>{feature.description}</span></div>
+                      <div>
+                        <strong>{feature.title}</strong>
+                        <span>{feature.description}</span>
+                        {feature.note ? <span className="settings-feature-cost-note">{feature.note}</span> : null}
+                      </div>
                       <Switch
                         ariaLabel={feature.title}
                         checked={feature.checked}
@@ -399,7 +407,7 @@ export default function SettingsPage() {
                 <h2>Retention</h2>
                 <p>
                   Raw normalized results are retained for {projectSettings.data?.rawRetentionDays ?? 730} days.
-                  Original page HTML is retained for {projectSettings.data?.htmlRetentionDays ?? 90} days when capture is enabled.
+                  Original ChatGPT page HTML is retained for {projectSettings.data?.htmlRetentionDays ?? 90} days when enabled. Scheduled retention remains on normal-priority collection.
                 </p>
               </div>
             </section>

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  aggregateBrandMentionDays,
   billingDateRange,
   buildBillingReport,
   buildBrandComparison,
@@ -265,6 +266,79 @@ describe("billing reporting", () => {
       ],
     });
   });
+
+  it("attributes prompt costs by delivery tier without changing prompt totals", () => {
+    const dates = {
+      from: "2026-08-16",
+      to: "2026-08-17",
+      startTimestamp: "2026-08-16T00:00:00.000Z",
+      endExclusiveTimestamp: "2026-08-18T00:00:00.000Z",
+    };
+    const prompts = buildBillingReport([
+      { metric_date: "2026-08-16", charged_runs: 115, provider_cost_usd: 0.276 },
+      { metric_date: "2026-08-17", charged_runs: 115, provider_cost_usd: 0.138 },
+    ], dates);
+    const highPriority = buildBillingReport([
+      { metric_date: "2026-08-16", charged_runs: 115, provider_cost_usd: 0.276 },
+    ], dates);
+    const retainedPages = buildBillingReport([
+      { metric_date: "2026-08-16", charged_runs: 115, provider_cost_usd: 0.276 },
+      { metric_date: "2026-08-17", charged_runs: 115, provider_cost_usd: 0.138 },
+    ], dates);
+    const empty = buildBillingReport([], dates);
+
+    expect(mergeBillingReports(prompts, empty, empty, {
+      highPriority,
+      retainedPages,
+    })).toMatchObject({
+      summary: {
+        totalCost: 0.414,
+        chargedTasks: 230,
+        byCategory: {
+          promptTracking: { totalCost: 0.414, chargedTasks: 230 },
+        },
+        promptTrackingBreakdown: {
+          standard: { totalCost: 0.138, chargedTasks: 115 },
+          highPriority: { totalCost: 0.276, chargedTasks: 115 },
+          live: { totalCost: 0, chargedTasks: 0 },
+          retainedPages: { totalCost: 0.414, chargedTasks: 230 },
+        },
+      },
+      series: [
+        {
+          date: "2026-08-16",
+          promptTrackingCost: 0.276,
+          promptTrackingStandardCost: 0,
+          promptTrackingHighPriorityCost: 0.276,
+          promptTrackingLiveCost: 0,
+        },
+        {
+          date: "2026-08-17",
+          promptTrackingCost: 0.138,
+          promptTrackingStandardCost: 0.138,
+          promptTrackingHighPriorityCost: 0,
+          promptTrackingLiveCost: 0,
+        },
+      ],
+    });
+  });
+
+  it("sums multiple billing detail rows for the same day", () => {
+    const dates = {
+      from: "2026-08-17",
+      to: "2026-08-17",
+      startTimestamp: "2026-08-17T00:00:00.000Z",
+      endExclusiveTimestamp: "2026-08-18T00:00:00.000Z",
+    };
+
+    expect(buildBillingReport([
+      { metric_date: "2026-08-17", charged_runs: 100, provider_cost_usd: 0.12 },
+      { metric_date: "2026-08-17", charged_runs: 15, provider_cost_usd: 0.018 },
+    ], dates).summary).toMatchObject({
+      totalCost: 0.138,
+      chargedRuns: 115,
+    });
+  });
 });
 
 describe("competitive brand reporting", () => {
@@ -275,6 +349,69 @@ describe("competitive brand reporting", () => {
     kind: "competitor" as const,
   };
   const day = [{ metric_date: "2026-08-10", completed_runs: 10 }];
+
+  it("sums platform counts while counting each platform's owned response union once", () => {
+    const rows = aggregateBrandMentionDays([
+      {
+        tracking_source: "chatgpt",
+        metric_date: "2026-08-10",
+        brand_id: owned.id,
+        deterministic_responses: 3,
+        extracted_responses: 1,
+        overlap_responses: 1,
+        owned_mentioned_responses: 3,
+      },
+      {
+        tracking_source: "chatgpt",
+        metric_date: "2026-08-10",
+        brand_id: competitor.id,
+        deterministic_responses: 2,
+        extracted_responses: 0,
+        overlap_responses: 0,
+        owned_mentioned_responses: 3,
+      },
+      {
+        tracking_source: "gemini",
+        metric_date: "2026-08-10",
+        brand_id: owned.id,
+        deterministic_responses: 2,
+        extracted_responses: 1,
+        overlap_responses: 0,
+        owned_mentioned_responses: 3,
+      },
+    ]);
+
+    expect(rows).toEqual([
+      {
+        metric_date: "2026-08-10",
+        brand_id: competitor.id,
+        deterministic_responses: 2,
+        extracted_responses: 0,
+        overlap_responses: 0,
+        owned_mentioned_responses: 6,
+      },
+      {
+        metric_date: "2026-08-10",
+        brand_id: owned.id,
+        deterministic_responses: 5,
+        extracted_responses: 2,
+        overlap_responses: 1,
+        owned_mentioned_responses: 6,
+      },
+    ]);
+    const report = buildBrandComparison(
+      [owned, competitor],
+      [{ metric_date: "2026-08-10", completed_runs: 20 }],
+      rows,
+    );
+    expect(report.summary).toMatchObject({
+      ownedMentionedResponses: 6,
+      ownedVisibility: 30,
+      ownedAppearances: 6,
+      totalBrandAppearances: 8,
+      ownedShareOfVoice: 75,
+    });
+  });
 
   it("deduplicates deterministic and extracted mentions of the same brand", () => {
     const report = buildBrandComparison(
