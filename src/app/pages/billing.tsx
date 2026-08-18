@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   CalendarDays,
   Check,
-  CircleDollarSign,
   Gauge,
   ReceiptText,
 } from "lucide-react";
@@ -45,15 +44,38 @@ interface BillingReport {
       productEnrichment: BillingCategory;
       entityExtraction: BillingCategory;
     };
+    promptTrackingBreakdown: {
+      standard: BillingCategory;
+      highPriority: BillingCategory;
+      live: BillingCategory;
+      retainedPages: BillingCategory;
+      bySource: Array<{
+        source: TrackingSource | "deleted_project";
+        chargedTasks: number;
+        totalCost: number;
+        failedChargedTasks: number;
+        failedCost: number;
+      }>;
+      providerChargedFailures: {
+        chargedTasks: number;
+        totalCost: number;
+      };
+    };
   };
   series: Array<{
     date: string;
     totalCost: number;
     promptTrackingCost: number;
+    promptTrackingStandardCost: number;
+    promptTrackingHighPriorityCost: number;
+    promptTrackingLiveCost: number;
     productEnrichmentCost: number;
     entityExtractionCost: number;
     totalTasks: number;
     promptTrackingTasks: number;
+    promptTrackingStandardTasks: number;
+    promptTrackingHighPriorityTasks: number;
+    promptTrackingLiveTasks: number;
     productEnrichmentTasks: number;
     entityExtractionTasks: number;
   }>;
@@ -63,6 +85,14 @@ interface BillingReport {
     totalCost: number;
     chargedTasks: number;
     promptTrackingCost: number;
+    promptTrackingStandardCost: number;
+    promptTrackingHighPriorityCost: number;
+    promptTrackingLiveCost: number;
+    promptTrackingStandardTasks: number;
+    promptTrackingHighPriorityTasks: number;
+    promptTrackingLiveTasks: number;
+    retainedPageCost: number;
+    retainedPageTasks: number;
     productEnrichmentCost: number;
     entityExtractionCost: number;
   }>;
@@ -262,7 +292,9 @@ function ManagedBillingPanel({
   );
   const pendingPayment = value.subscriptionStatus === "pending";
   return (
-    <section className={pendingPayment ? "pricing-shell" : "subscription-panel"}>
+    <section className={pendingPayment
+      ? "pricing-shell"
+      : managed ? "subscription-panel" : "subscription-panel billing-limits-panel"}>
       {pendingPayment ? (
         <div className="pricing-intro">
           <span className="eyebrow">Choose your plan</span>
@@ -278,8 +310,8 @@ function ManagedBillingPanel({
           : undefined}
       /> : null}
       {!pendingPayment ? <div className="billing-summary-grid subscription-summary-grid">
-        <BillingMetric label="Active prompts" value={`${value.usage.promptCount} / ${value.usage.promptLimit}`} detail="Across this workspace" icon={<Gauge size={18}/>} />
-        <BillingMetric label="Projects" value={`${value.usage.projectCount} / ${value.usage.projectLimit}`} detail="Seats are unlimited" icon={<ReceiptText size={18}/>} />
+        <BillingMetric label="Active prompts" value={`${compact(value.usage.promptCount)} / ${compact(value.usage.promptLimit)}`} detail={`${value.usage.promptLimit.toLocaleString()} prompt limit`} icon={<Gauge size={18}/>} />
+        <BillingMetric label="Projects" value={`${compact(value.usage.projectCount)} / ${compact(value.usage.projectLimit)}`} detail={`${value.usage.projectLimit.toLocaleString()} project limit · unlimited seats`} icon={<ReceiptText size={18}/>} />
       </div> : null}
       {value.stripeEnvironment === "test" ? (
         <div className="billing-warning" role="status">
@@ -453,6 +485,16 @@ function axisCost(value: number): string {
   return `$${value.toFixed(4)}`;
 }
 
+function metricCost(value: number): string {
+  const maximumFractionDigits = value >= 1 ? 2 : value >= 0.01 ? 4 : 6;
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    minimumFractionDigits: value === 0 ? 0 : Math.min(2, maximumFractionDigits),
+    maximumFractionDigits,
+  }).format(value);
+}
+
 function BillingMetric({
   label,
   value,
@@ -462,17 +504,17 @@ function BillingMetric({
   label: string;
   value: string;
   detail: string;
-  icon: React.ReactNode;
+  icon?: React.ReactNode;
 }) {
   return (
-    <Card className="billing-metric">
-      <span className="billing-metric-icon">{icon}</span>
+    <div className="billing-metric" title={`${label}: ${value}`}>
+      {icon ? <span className="billing-metric-icon">{icon}</span> : null}
       <span className="billing-metric-copy">
         <small>{label}</small>
         <strong>{value}</strong>
         <span>{detail}</span>
       </span>
-    </Card>
+    </div>
   );
 }
 
@@ -613,6 +655,9 @@ export default function BillingPage() {
           <button aria-pressed={period === "month"} className={period === "month" ? "active" : undefined} onClick={() => setPeriod("month")} type="button">Current month</button>
         </div>
       </div>
+      <p className="billing-usage-explainer">
+        Each enabled AI platform creates a separate provider task for every prompt. Costs are grouped by delivery tier. Scheduled ChatGPT page retention stays on the standard tier and does not by itself increase the provider task price.
+      </p>
 
       {exceededAlerts.length ? (
         <div className="billing-warning" role="status">
@@ -634,67 +679,93 @@ export default function BillingPage() {
         <div className="billing-summary-grid">
           <BillingMetric
             label="Total tracked cost"
-            value={formatProviderCost(summary?.totalCost ?? 0)}
+            value={metricCost(summary?.totalCost ?? 0)}
             detail={periodLabel}
-            icon={<CircleDollarSign size={18} />}
           />
           <BillingMetric
             label="Charged tasks"
             value={compact(summary?.chargedTasks ?? 0)}
             detail="All provider and inference workloads"
-            icon={<ReceiptText size={18} />}
           />
           <BillingMetric
             label="Average per task"
-            value={formatProviderCost(summary?.averageCost ?? 0)}
+            value={metricCost(summary?.averageCost ?? 0)}
             detail="Across provider tasks and AI calls"
-            icon={<Gauge size={18} />}
           />
           <BillingMetric
             label="Highest daily cost"
-            value={formatProviderCost(summary?.highestDailyCost ?? 0)}
+            value={metricCost(summary?.highestDailyCost ?? 0)}
             detail="Peak spend within this period"
-            icon={<CalendarDays size={18} />}
           />
         </div>
       )}
 
       {summary ? (
-        <div className="billing-breakdown-grid">
-          <Card className="billing-breakdown-card">
-            <span className="billing-category-swatch prompt" />
+        <section className="billing-breakdown-section" aria-labelledby="cost-breakdown-heading">
+          <header>
             <div>
-              <strong>Prompt tracking</strong>
-              <span>{compact(summary.byCategory.promptTracking.chargedTasks)} charged tasks</span>
+              <h2 id="cost-breakdown-heading">Cost breakdown</h2>
+              <p>Where provider spend went in this period.</p>
             </div>
-            <div>
-              <strong>{formatProviderCost(summary.byCategory.promptTracking.totalCost)}</strong>
-              <span>{summary.byCategory.promptTracking.sharePercent.toFixed(1)}% of total · {formatProviderCost(summary.byCategory.promptTracking.averageCost)} avg.</span>
+          </header>
+          <div className="billing-breakdown-list">
+            <div className="billing-breakdown-row">
+              <div className="billing-breakdown-identity">
+                <strong>Prompt tracking</strong>
+                <span>{compact(summary.byCategory.promptTracking.chargedTasks)} provider tasks</span>
+              </div>
+              <div className="billing-breakdown-detail">
+                <span>{compact(summary.promptTrackingBreakdown.standard.chargedTasks)} standard · {formatProviderCost(summary.promptTrackingBreakdown.standard.totalCost)}</span>
+                {summary.promptTrackingBreakdown.highPriority.chargedTasks ? <span className="billing-retention-detail">{compact(summary.promptTrackingBreakdown.highPriority.chargedTasks)} high priority · {formatProviderCost(summary.promptTrackingBreakdown.highPriority.totalCost)}</span> : null}
+                {summary.promptTrackingBreakdown.live.chargedTasks ? <span>{compact(summary.promptTrackingBreakdown.live.chargedTasks)} live/manual · {formatProviderCost(summary.promptTrackingBreakdown.live.totalCost)}</span> : null}
+                <span>{compact(summary.promptTrackingBreakdown.retainedPages.chargedTasks)} ChatGPT pages retained</span>
+                {summary.promptTrackingBreakdown.bySource.map((source) => (
+                  <span key={source.source}>
+                    {source.source === "deleted_project" ? "Deleted projects" : TRACKING_SOURCE_LABELS[source.source]} · {compact(source.chargedTasks)} · {formatProviderCost(source.totalCost)}
+                  </span>
+                ))}
+                {summary.promptTrackingBreakdown.providerChargedFailures.chargedTasks ? (
+                  <span className="billing-provider-failure-detail">
+                    {compact(summary.promptTrackingBreakdown.providerChargedFailures.chargedTasks)} provider-charged {summary.promptTrackingBreakdown.providerChargedFailures.chargedTasks === 1 ? "request failed" : "requests failed"} during processing · {formatProviderCost(summary.promptTrackingBreakdown.providerChargedFailures.totalCost)} included above
+                  </span>
+                ) : null}
+              </div>
+              <div className="billing-breakdown-total">
+                <strong>{formatProviderCost(summary.byCategory.promptTracking.totalCost)}</strong>
+                <span>{summary.byCategory.promptTracking.sharePercent.toFixed(1)}% · {formatProviderCost(summary.byCategory.promptTracking.averageCost)} avg.</span>
+              </div>
+              <progress aria-label="Prompt tracking share of total cost" className="billing-cost-share prompt" max="100" value={summary.byCategory.promptTracking.sharePercent} />
             </div>
-          </Card>
-          <Card className="billing-breakdown-card">
-            <span className="billing-category-swatch entities" />
-            <div>
-              <strong>Entity extraction <small className="estimated-label">Estimated</small></strong>
-              <span>{compact(summary.byCategory.entityExtraction.chargedTasks)} inference calls</span>
+            <div className="billing-breakdown-row">
+              <div className="billing-breakdown-identity">
+                <strong>Entity extraction <small className="estimated-label">Estimated</small></strong>
+                <span>{compact(summary.byCategory.entityExtraction.chargedTasks)} inference calls</span>
+              </div>
+              <div className="billing-breakdown-detail">
+                <span>Named entities found in captured answers</span>
+              </div>
+              <div className="billing-breakdown-total">
+                <strong>{formatProviderCost(summary.byCategory.entityExtraction.totalCost)}</strong>
+                <span>{summary.byCategory.entityExtraction.sharePercent.toFixed(1)}% · {formatProviderCost(summary.byCategory.entityExtraction.averageCost)} avg.</span>
+              </div>
+              <progress aria-label="Entity extraction share of total cost" className="billing-cost-share entities" max="100" value={summary.byCategory.entityExtraction.sharePercent} />
             </div>
-            <div>
-              <strong>{formatProviderCost(summary.byCategory.entityExtraction.totalCost)}</strong>
-              <span>{summary.byCategory.entityExtraction.sharePercent.toFixed(1)}% of total · {formatProviderCost(summary.byCategory.entityExtraction.averageCost)} avg.</span>
+            <div className="billing-breakdown-row">
+              <div className="billing-breakdown-identity">
+                <strong>Product enrichment</strong>
+                <span>{compact(summary.byCategory.productEnrichment.chargedTasks)} provider tasks</span>
+              </div>
+              <div className="billing-breakdown-detail">
+                <span>Shopping product and seller details</span>
+              </div>
+              <div className="billing-breakdown-total">
+                <strong>{formatProviderCost(summary.byCategory.productEnrichment.totalCost)}</strong>
+                <span>{summary.byCategory.productEnrichment.sharePercent.toFixed(1)}% · {formatProviderCost(summary.byCategory.productEnrichment.averageCost)} avg.</span>
+              </div>
+              <progress aria-label="Product enrichment share of total cost" className="billing-cost-share enrichment" max="100" value={summary.byCategory.productEnrichment.sharePercent} />
             </div>
-          </Card>
-          <Card className="billing-breakdown-card">
-            <span className="billing-category-swatch enrichment" />
-            <div>
-              <strong>Product enrichment</strong>
-              <span>{compact(summary.byCategory.productEnrichment.chargedTasks)} charged tasks</span>
-            </div>
-            <div>
-              <strong>{formatProviderCost(summary.byCategory.productEnrichment.totalCost)}</strong>
-              <span>{summary.byCategory.productEnrichment.sharePercent.toFixed(1)}% of total · {formatProviderCost(summary.byCategory.productEnrichment.averageCost)} avg.</span>
-            </div>
-          </Card>
-        </div>
+          </div>
+        </section>
       ) : null}
 
       <Card className="billing-chart-card">
@@ -766,12 +837,26 @@ export default function BillingPage() {
                   }}
                 />
                 <Bar
-                  dataKey="promptTrackingCost"
+                  dataKey="promptTrackingStandardCost"
                   fill="#18181b"
                   maxBarSize={30}
-                  name="Prompt tracking"
+                  name="Prompt tracking · standard scheduled"
                   stackId="provider-cost"
                   radius={[0, 0, 2, 2]}
+                />
+                <Bar
+                  dataKey="promptTrackingHighPriorityCost"
+                  fill="#d97706"
+                  maxBarSize={30}
+                  name="Prompt tracking · high priority"
+                  stackId="provider-cost"
+                />
+                <Bar
+                  dataKey="promptTrackingLiveCost"
+                  fill="#2563eb"
+                  maxBarSize={30}
+                  name="Prompt tracking · live/manual"
+                  stackId="provider-cost"
                 />
                 <Bar
                   dataKey="productEnrichmentCost"
@@ -804,7 +889,9 @@ export default function BillingPage() {
           <DataTable
             columns={[
               { key: "project", label: "Project" },
-              { key: "prompt", label: "Prompt tracking" },
+              { key: "prompt", label: "Standard scheduled" },
+              { key: "priorityPrompt", label: "High priority" },
+              { key: "livePrompt", label: "Live / manual" },
               { key: "enrichment", label: "Product enrichment" },
               { key: "entities", label: "Entity extraction" },
               { key: "tasks", label: "Tasks" },
@@ -813,7 +900,9 @@ export default function BillingPage() {
             rows={report.data.projectBreakdown.map((project) => ({
               id: project.projectId,
               project: <strong>{project.projectName}</strong>,
-              prompt: formatProviderCost(project.promptTrackingCost),
+              prompt: <span>{formatProviderCost(project.promptTrackingStandardCost)} <small>{compact(project.promptTrackingStandardTasks)} tasks</small></span>,
+              priorityPrompt: <span>{formatProviderCost(project.promptTrackingHighPriorityCost)} <small>{compact(project.promptTrackingHighPriorityTasks)} tasks</small></span>,
+              livePrompt: <span>{formatProviderCost(project.promptTrackingLiveCost)} <small>{compact(project.promptTrackingLiveTasks)} tasks</small></span>,
               enrichment: formatProviderCost(project.productEnrichmentCost),
               entities: <span>{formatProviderCost(project.entityExtractionCost)} <small className="estimated-label">Estimated</small></span>,
               tasks: compact(project.chargedTasks),

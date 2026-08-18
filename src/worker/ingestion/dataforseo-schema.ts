@@ -140,6 +140,25 @@ function walk(value: unknown, visit: (item: Record<string, unknown>) => void): v
   for (const child of Object.values(item)) walk(child, visit);
 }
 
+function normalizeTopLevelItems(items: unknown[]): Array<Record<string, unknown>> {
+  return items.flatMap((value) => {
+    const item = record(value);
+    if (!item || typeof item.type !== "string") return [];
+
+    // Google SERP surfaces can mix text fragments and structured objects in a
+    // top-level item's `items` array. Belki only persists structured children;
+    // the recursive extractor above still reads every nested value from the raw
+    // provider payload, which remains available in R2 for future replay.
+    const nestedItems = Array.isArray(item.items)
+      ? item.items.filter((child): child is Record<string, unknown> => record(child) !== null)
+      : undefined;
+    const normalized = { ...item };
+    if (nestedItems) normalized.items = nestedItems;
+    else delete normalized.items;
+    return [normalized];
+  });
+}
+
 function normalizeSerpResult(
   rawResult: Record<string, unknown>,
   source: "google_ai_mode" | "google_ai_overview",
@@ -205,7 +224,7 @@ function normalizeSerpResult(
     se_results_count: number(rawResult.se_results_count),
     item_types: Array.isArray(rawResult.item_types) ? rawResult.item_types : [],
     items_count: number(rawResult.items_count, rawItems.length),
-    items: rawItems.filter((item) => typeof record(item)?.type === "string"),
+    items: normalizeTopLevelItems(rawItems),
     surface_present: surfacePresent,
   });
 }

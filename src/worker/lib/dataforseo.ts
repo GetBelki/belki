@@ -52,8 +52,37 @@ const SOURCE_PATHS: Record<TrackingSource, string> = {
   google_ai_overview: "/v3/serp/google/organic",
 };
 
+const LANGUAGE_CODE_OVERRIDES: Record<
+  TrackingSource,
+  Readonly<Record<string, string>>
+> = {
+  chatgpt: {
+    nb: "no",
+  },
+  gemini: {
+    nb: "no",
+    pt: "pt-BR",
+    tl: "fil",
+  },
+  google_ai_mode: {
+    nb: "no",
+    pt: "pt-BR",
+    tl: "fil",
+  },
+  google_ai_overview: {
+    nb: "no",
+  },
+};
+
 function apiBase(source: TrackingSource): string {
   return `${API_ORIGIN}${SOURCE_PATHS[source]}`;
+}
+
+export function dataForSeoLanguageCode(
+  source: TrackingSource,
+  languageCode: string,
+): string {
+  return LANGUAGE_CODE_OVERRIDES[source][languageCode] ?? languageCode;
 }
 
 export function dataForSeoTask(
@@ -63,19 +92,23 @@ export function dataForSeoTask(
     expand_citations: boolean;
   },
 ): StandardTaskInput {
-  if (source === "chatgpt") return input;
+  const localizedInput = {
+    ...input,
+    language_code: dataForSeoLanguageCode(source, input.language_code),
+  };
+  if (source === "chatgpt") return localizedInput;
   if (source === "gemini") {
-    const geminiTask: StandardTaskInput = { ...input };
+    const geminiTask: StandardTaskInput = { ...localizedInput };
     delete geminiTask.force_web_search;
     return geminiTask;
   }
   const common: StandardTaskInput = {
-    keyword: input.keyword,
-    location_code: input.location_code,
-    language_code: input.language_code,
-    priority: input.priority,
-    tag: input.tag,
-    postback_url: input.postback_url,
+    keyword: localizedInput.keyword,
+    location_code: localizedInput.location_code,
+    language_code: localizedInput.language_code,
+    priority: localizedInput.priority,
+    tag: localizedInput.tag,
+    postback_url: localizedInput.postback_url,
     postback_data: "advanced",
     device: "desktop",
     os: "windows",
@@ -127,20 +160,24 @@ export async function postLiveAdvanced(
     "keyword" | "location_code" | "language_code" | "force_web_search" | "tag"
   >,
 ): Promise<{ payload: DataForSeoResponse; bytes: ArrayBuffer }> {
+  const localizedTask = {
+    ...task,
+    language_code: dataForSeoLanguageCode(source, task.language_code),
+  };
   const liveTask = source === "chatgpt"
-    ? task
+    ? localizedTask
     : source === "gemini"
       ? {
-          keyword: task.keyword,
-          location_code: task.location_code,
-          language_code: task.language_code,
-          tag: task.tag,
+          keyword: localizedTask.keyword,
+          location_code: localizedTask.location_code,
+          language_code: localizedTask.language_code,
+          tag: localizedTask.tag,
         }
     : {
-        keyword: task.keyword,
-        location_code: task.location_code,
-        language_code: task.language_code,
-        tag: task.tag,
+        keyword: localizedTask.keyword,
+        location_code: localizedTask.location_code,
+        language_code: localizedTask.language_code,
+        tag: localizedTask.tag,
         device: "desktop",
         os: "windows",
         ...(source === "google_ai_overview"

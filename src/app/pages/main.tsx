@@ -13,7 +13,7 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { useState, type FormEvent } from "react";
+import { useMemo, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
   CartesianGrid,
@@ -29,6 +29,7 @@ import {
 import { NoProject, PageHeader } from "../components/layout";
 import { CountryFlag } from "../components/country-flag";
 import { CompletedRunsIcon } from "../components/navigation-icons";
+import { TrackingSourceMark } from "../components/tracking-source-mark";
 import { PromptRowActions } from "../components/prompt-row-actions";
 import {
   TagChip,
@@ -71,7 +72,10 @@ import {
 } from "../lib/overview";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 import type { RunStatus } from "../../shared/contracts";
-import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
+import {
+  TRACKING_SOURCE_LABELS,
+  type TrackingSource,
+} from "../../shared/tracking-sources";
 
 interface OverviewProduct {
   id: string;
@@ -90,6 +94,16 @@ interface OverviewProduct {
 }
 
 interface Overview {
+  trackingSource: TrackingSource | "all";
+  includedSources: TrackingSource[];
+  platformBreakdown: Array<{
+    trackingSource: TrackingSource;
+    completedRuns: number;
+    surfacePresentRuns: number;
+    totalCitations: number;
+    visibility: number | null;
+    shareOfVoice: number | null;
+  }>;
   summary: {
     completed_runs: number;
     surface_present_runs: number;
@@ -171,24 +185,22 @@ interface Overview {
   recentProducts: OverviewProduct[];
 }
 
-function KpiCard({
+function OverviewKpi({
   label,
   value,
   detail,
   icon,
-  tone = "violet",
 }: {
   label: string;
   value: string;
   detail: string;
   icon: React.ReactNode;
-  tone?: "violet" | "blue" | "green" | "amber";
 }) {
   return (
-    <Card className="kpi-card">
-      <div className={`kpi-icon ${tone}`}>{icon}</div>
-      <div className="kpi-meta"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>
-    </Card>
+    <div className="overview-kpi">
+      <div className="overview-kpi-icon">{icon}</div>
+      <div className="overview-kpi-copy"><span>{label}</span><strong>{value}</strong><small>{detail}</small></div>
+    </div>
   );
 }
 
@@ -379,44 +391,72 @@ function OverviewChartTooltip({
 }
 
 export function OverviewPage() {
-  const { projectId, currentProject, trackingSource } = useApp();
+  const {
+    projectId,
+    currentProject,
+    trackingSources,
+    setTrackingSource,
+  } = useApp();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedSource = searchParams.get("source");
+  const overviewSource: TrackingSource | "all" =
+    requestedSource === "all" ||
+    trackingSources.includes(requestedSource as TrackingSource)
+      ? (requestedSource as TrackingSource | "all")
+      : "all";
+  const isConsolidated = overviewSource === "all";
   const [brandMetric, setBrandMetric] = useState<"visibility" | "shareOfVoice">(
     "visibility",
   );
   const overview = useQuery({
-    queryKey: ["overview", projectId, trackingSource],
-    queryFn: () => api<Overview>(`/analytics/overview?projectId=${projectId}&source=${trackingSource}`),
+    queryKey: ["overview", projectId, overviewSource],
+    queryFn: () => api<Overview>(`/analytics/overview?projectId=${projectId}&source=${overviewSource}`),
     enabled: Boolean(projectId),
   });
-  if (!projectId) return <NoProject />;
+  const selectOverviewSource = (source: TrackingSource | "all") => {
+    const next = new URLSearchParams(searchParams);
+    next.set("source", source);
+    setSearchParams(next, { replace: true });
+    if (source !== "all") setTrackingSource(source);
+  };
   const brandComparison = overview.data?.brandComparison;
   const comparisonSummary = brandComparison?.summary;
-  const comparisonBrands = brandComparison?.brands ?? [];
+  const comparisonBrands = useMemo(
+    () => brandComparison?.brands ?? [],
+    [brandComparison?.brands],
+  );
   const ownedBrandName =
     comparisonBrands.find((brand) => brand.kind === "owned")?.name ??
     currentProject?.name ??
     "Your brand";
-  const brandComparisonSeries = (brandComparison?.series ?? []).map((point) => ({
-    metric_date: point.metric_date,
-    ...Object.fromEntries(
-      comparisonBrands.map((brand) => [
-        brand.key,
-        point.metrics[brand.key]?.[brandMetric] ?? null,
-      ]),
-    ),
-  }));
-  const citationSources = overview.data?.citationSourceTrends.sources ?? [];
-  const citationSourceSeries = (
-    overview.data?.citationSourceTrends.series ?? []
-  ).map((point) => ({
-    metric_date: point.metric_date,
-    ...Object.fromEntries(
-      citationSources.map((source, index) => [
-        `source_${index}`,
-        point.rates[source.domain] ?? 0,
-      ]),
-    ),
-  }));
+  const brandComparisonSeries = useMemo(
+    () => (brandComparison?.series ?? []).map((point) => ({
+      metric_date: point.metric_date,
+      ...Object.fromEntries(
+        comparisonBrands.map((brand) => [
+          brand.key,
+          point.metrics[brand.key]?.[brandMetric] ?? null,
+        ]),
+      ),
+    })),
+    [brandComparison?.series, brandMetric, comparisonBrands],
+  );
+  const citationSources = useMemo(
+    () => overview.data?.citationSourceTrends.sources ?? [],
+    [overview.data?.citationSourceTrends.sources],
+  );
+  const citationSourceSeries = useMemo(
+    () => (overview.data?.citationSourceTrends.series ?? []).map((point) => ({
+      metric_date: point.metric_date,
+      ...Object.fromEntries(
+        citationSources.map((source, index) => [
+          `source_${index}`,
+          point.rates[source.domain] ?? 0,
+        ]),
+      ),
+    })),
+    [citationSources, overview.data?.citationSourceTrends.series],
+  );
   const chartDates = (overview.data?.series ?? []).map(
     (point) => point.metric_date,
   );
@@ -424,52 +464,77 @@ export function OverviewPage() {
     alignPromptSetEvents(overview.data?.promptSetEvents ?? [], chartDates),
     chartDates,
   );
+  if (!projectId) return <NoProject />;
   return (
-    <div className="page">
+    <div className="page overview-page">
+      <div className="overview-source-filter" aria-label="AI platform" role="tablist">
+        <button
+          aria-selected={isConsolidated}
+          className={isConsolidated ? "active" : undefined}
+          onClick={() => selectOverviewSource("all")}
+          role="tab"
+          type="button"
+        >
+          All platforms
+        </button>
+        {trackingSources.map((source) => (
+          <button
+            aria-selected={overviewSource === source}
+            className={overviewSource === source ? "active" : undefined}
+            key={source}
+            onClick={() => selectOverviewSource(source)}
+            role="tab"
+            type="button"
+          >
+            {TRACKING_SOURCE_LABELS[source]}
+          </button>
+        ))}
+      </div>
       <PageHeader
         eyebrow="Last 30 days"
         title="Visibility overview"
-        description={`How ${currentProject?.name ?? "your brand"} appears across monitored ${TRACKING_SOURCE_LABELS[trackingSource]} results.`}
+        description={isConsolidated
+          ? `A combined view of ${currentProject?.name ?? "your brand"} across every enabled AI platform.`
+          : `How ${currentProject?.name ?? "your brand"} appears across monitored ${TRACKING_SOURCE_LABELS[overviewSource]} results.`}
         action={<Button variant="secondary" onClick={() => void overview.refetch()}><RefreshCw size={15} /> Refresh</Button>}
       />
       {overview.isPending ? (
-        <div className="kpi-grid">{Array.from({ length: 4 }, (_, i) => <Skeleton className="kpi-skeleton" key={i} />)}</div>
+        <div className="overview-kpi-strip">{Array.from({ length: 4 }, (_, i) => <Skeleton className="overview-kpi-skeleton" key={i} />)}</div>
       ) : (
-        <div className="kpi-grid">
-          <KpiCard
+        <div className="overview-kpi-strip">
+          <OverviewKpi
             label="Visibility"
             value={percent(comparisonSummary?.ownedVisibility ?? 0)}
             detail={`${comparisonSummary?.ownedMentionedResponses ?? 0} of ${overview.data?.summary.completed_runs ?? 0} responses`}
             icon={<Eye size={19} />}
           />
-          <KpiCard
+          <OverviewKpi
             label="Share of Voice"
             value={comparisonSummary?.ownedShareOfVoice === null || comparisonSummary?.ownedShareOfVoice === undefined ? "—" : percent(comparisonSummary.ownedShareOfVoice)}
             detail={comparisonSummary?.trackedCompetitorCount
               ? `${comparisonSummary.ownedAppearances} of ${comparisonSummary.totalBrandAppearances} brand appearances`
               : "Track a competitor to compare"}
             icon={<ChartPie size={19} />}
-            tone="blue"
           />
-          <KpiCard
+          <OverviewKpi
             label="Visibility gap"
             value={percentagePoints(comparisonSummary?.competitiveGap?.differencePercentagePoints)}
             detail={comparisonSummary?.competitiveGap
               ? `${ownedBrandName} ${percent(comparisonSummary.ownedVisibility)} · ${comparisonSummary.competitiveGap.competitorName} ${percent(comparisonSummary.competitiveGap.competitorVisibility)}`
               : "Track a competitor to compare"}
             icon={<Scale size={19} />}
-            tone="green"
           />
-          <KpiCard
-            label={trackingSource === "google_ai_overview" ? "AI Overviews found" : "Responses captured"}
-            value={compact(trackingSource === "google_ai_overview"
+          <OverviewKpi
+            label={overviewSource === "google_ai_overview" ? "AI Overviews found" : "Responses captured"}
+            value={compact(overviewSource === "google_ai_overview"
               ? overview.data?.summary.surface_present_runs ?? 0
               : overview.data?.summary.completed_runs ?? 0)}
-            detail={trackingSource === "google_ai_overview"
+            detail={overviewSource === "google_ai_overview"
               ? `${overview.data?.summary.completed_runs ?? 0} prompts tracked`
-              : `${pluralize(overview.data?.summary.total_citations ?? 0, "citation")} captured`}
+              : isConsolidated
+                ? `${overview.data?.includedSources.length ?? trackingSources.length} enabled platforms`
+                : `${pluralize(overview.data?.summary.total_citations ?? 0, "citation")} captured`}
             icon={<CompletedRunsIcon size={19} />}
-            tone="amber"
           />
         </div>
       )}
@@ -579,11 +644,9 @@ export function OverviewPage() {
             />
             {citationSources.length > 0 && (
               <div className="source-comparison-legend">
-                {citationSources.map((source, index) => (
-                  <Link
-                    key={source.domain}
-                    to={`/citations/${encodeURIComponent(source.domain)}`}
-                  >
+                {citationSources.map((source, index) => {
+                  const label = (
+                    <>
                     <span
                       className="source-comparison-swatch"
                       style={{
@@ -597,8 +660,21 @@ export function OverviewPage() {
                     />
                     {source.domain}
                     {source.isProjectDomain && <small>Project</small>}
-                  </Link>
-                ))}
+                    </>
+                  );
+                  return isConsolidated ? (
+                    <span className="source-comparison-label" key={source.domain}>
+                      {label}
+                    </span>
+                  ) : (
+                    <Link
+                      key={source.domain}
+                      to={`/citations/${encodeURIComponent(source.domain)}`}
+                    >
+                      {label}
+                    </Link>
+                  );
+                })}
               </div>
             )}
             <div className="chart source-comparison-chart">
@@ -637,6 +713,7 @@ export function OverviewPage() {
                         connectNulls
                         dataKey={`source_${index}`}
                         dot={{ r: 2 }}
+                        isAnimationActive={false}
                         key={source.domain}
                         name={source.domain}
                         stroke={
@@ -663,7 +740,67 @@ export function OverviewPage() {
           </Card>
         </div>
 
-        {(overview.isPending || hasOverviewProducts(overview.data)) && <div className="overview-products-row">
+        {isConsolidated && (
+          <section className="platform-comparison" aria-labelledby="platform-comparison-title">
+            <header>
+              <div>
+                <h2 id="platform-comparison-title">Platform comparison</h2>
+                <p>See where your brand is strongest, then open a platform for its detailed report.</p>
+              </div>
+            </header>
+            {overview.isPending ? (
+              <Skeleton className="platform-comparison-skeleton" />
+            ) : (
+              <div className="platform-comparison-table" role="table">
+                <div className="platform-comparison-head" role="row">
+                  <span role="columnheader">Platform</span>
+                  <span role="columnheader">Visibility</span>
+                  <span role="columnheader">Share of Voice</span>
+                  <span role="columnheader">Citations</span>
+                  <span role="columnheader">Captured</span>
+                </div>
+                {overview.data?.platformBreakdown.map((platform) => {
+                  const captured = platform.trackingSource === "google_ai_overview"
+                    ? platform.surfacePresentRuns
+                    : platform.completedRuns;
+                  return (
+                    <button
+                      className="platform-comparison-row"
+                      key={platform.trackingSource}
+                      onClick={() => selectOverviewSource(platform.trackingSource)}
+                      role="row"
+                      type="button"
+                    >
+                      <span className="platform-comparison-name" role="cell">
+                        <span className="platform-comparison-mark">
+                          <TrackingSourceMark source={platform.trackingSource} />
+                        </span>
+                        <span>
+                          <strong>{TRACKING_SOURCE_LABELS[platform.trackingSource]}</strong>
+                          <small>{platform.completedRuns ? "View detailed report" : "No captures yet"}</small>
+                        </span>
+                      </span>
+                      <span data-label="Visibility" role="cell">
+                        {platform.visibility === null ? "—" : percent(platform.visibility)}
+                      </span>
+                      <span data-label="Share of Voice" role="cell">
+                        {platform.shareOfVoice === null ? "—" : percent(platform.shareOfVoice)}
+                      </span>
+                      <span data-label="Citations" role="cell">
+                        {compact(platform.totalCitations)}
+                      </span>
+                      <span data-label={platform.trackingSource === "google_ai_overview" ? "Overviews found" : "Captured"} role="cell">
+                        {compact(captured)}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        )}
+
+        {!isConsolidated && (overview.isPending || hasOverviewProducts(overview.data)) && <div className="overview-products-row">
           <Card className="recent-products-card">
             <CardHeader
               title="Top products"

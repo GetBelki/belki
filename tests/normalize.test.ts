@@ -164,4 +164,39 @@ describe("multi-source response parsing", () => {
     });
     expect(payload.tasks[0]!.result![0]!.search_results).toHaveLength(1);
   });
+
+  it("accepts Google AI Overview items with mixed scalar and structured children", () => {
+    const payload = parseTrackingPayload(serpPayload([{
+      type: "ai_overview",
+      markdown: "Overview answer",
+      items: [
+        "provider text fragment",
+        null,
+        {
+          type: "ai_overview_reference",
+          source: "Bundesregierung",
+          domain: "bundesregierung.de",
+          url: "https://www.bundesregierung.de/source",
+        },
+      ],
+    }]), "google_ai_overview");
+
+    const result = payload.tasks[0]!.result![0]!;
+    expect(result).toMatchObject({
+      markdown: "Overview answer",
+      surface_present: true,
+    });
+    expect(result.items[0]!.items).toEqual([
+      expect.objectContaining({
+        type: "ai_overview_reference",
+        domain: "bundesregierung.de",
+      }),
+    ]);
+    expect(result.sources).toEqual([
+      expect.objectContaining({
+        source_name: "Bundesregierung",
+        domain: "bundesregierung.de",
+      }),
+    ]);
+  });
 });

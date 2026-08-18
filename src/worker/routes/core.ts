@@ -32,10 +32,12 @@ import {
   resolvePromptTags,
 } from "../lib/prompt-tags";
 import { calculateNextRun } from "../lib/schedule";
+import { manualJobDelivery } from "../lib/job-delivery";
 import {
   promptTagKey,
   uniquePromptTagNames,
 } from "../../shared/prompt-tags";
+import { planAllowsManualRuns } from "../../shared/plan-access";
 import { requestPromptPurges } from "../automation/prompt-purges";
 import {
   claimProjectSlot,
@@ -1311,7 +1313,8 @@ coreRoutes.post(
     const principal = requireRole(c, "editor");
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
-    if (c.env.DEPLOYMENT_MODE !== "self_hosted") {
+    const { planKey } = await workspaceSourceEntitlement(c.env, principal.workspaceId);
+    if (!planAllowsManualRuns(planKey)) {
       throw new ApiError(403, "manual_runs_unavailable", "Managed plans use scheduled tracking.");
     }
     const query = await c.env.CONTROL_DB.prepare(
@@ -1336,13 +1339,14 @@ coreRoutes.post(
     const jobId = crypto.randomUUID();
     const tag = await createSignedJobTag(jobId, c.env.APP_CRYPTO_KEY);
     const now = nowIso();
-    const captureHtml = input.captureHtml || query.html_capture_enabled === 1;
-    const deliveryMethod = captureHtml ? "standard_priority" : "live";
-    const sku = captureHtml ? "llm_priority_html" : "llm_live";
+    const delivery = manualJobDelivery(
+      input.source,
+      input.captureHtml || query.html_capture_enabled === 1,
+    );
     const usageInput = {
       reservationId: jobId,
-      sku,
-      units: USAGE_UNITS[sku],
+      sku: delivery.sku,
+      units: USAGE_UNITS[delivery.sku],
       resourceType: "crawl_job",
       resourceId: jobId,
     } as const;
@@ -1362,10 +1366,10 @@ coreRoutes.post(
           query.id,
           query.shard_id,
           input.source,
-          deliveryMethod,
+          delivery.deliveryMethod,
           scheduledForTrackingSource(now, input.source),
           tag,
-          captureHtml ? 1 : 0,
+          delivery.captureHtml ? 1 : 0,
           "dataforseo:platform:v1",
           jobId,
           usageInput.units,
@@ -1373,7 +1377,8 @@ coreRoutes.post(
           now,
         )
         .run();
-      await (captureHtml ? c.env.STANDARD_QUEUE : c.env.LIVE_QUEUE).send({ jobId });
+      await (delivery.queue === "standard" ? c.env.STANDARD_QUEUE : c.env.LIVE_QUEUE)
+        .send({ jobId });
     } catch (error) {
       await c.env.CONTROL_DB.prepare(
         `UPDATE crawl_jobs SET status = 'failed', error_code = 'queue_failed',
@@ -1382,7 +1387,9 @@ coreRoutes.post(
       await releaseUsage(c.env, principal.workspaceId, usageInput);
       throw error;
     }
-    return c.json({ data: { jobId, status: "queued", deliveryMethod } }, 202);
+    return c.json({
+      data: { jobId, status: "queued", deliveryMethod: delivery.deliveryMethod },
+    }, 202);
   },
 );
 

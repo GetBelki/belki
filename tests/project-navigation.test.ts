@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { projectChangeDestination } from "../src/app/lib/project-navigation";
+import {
+  projectChangeDestination,
+  trackingSourceChangeDestination,
+} from "../src/app/lib/project-navigation";
 
 describe("project navigation", () => {
   it.each([
@@ -38,5 +41,32 @@ describe("project navigation", () => {
     "/settings",
   ])("preserves project-level section navigation on %s", (pathname) => {
     expect(projectChangeDestination(pathname)).toBeNull();
+  });
+});
+
+describe("tracking source navigation", () => {
+  it.each([
+    "/prompts/query-1/snapshots/snapshot-1",
+    "/queries/query-1/snapshots/snapshot-1",
+  ])("returns to the selected prompt from %s", (pathname) => {
+    expect(trackingSourceChangeDestination(pathname)).toBe(
+      "/prompts/query-1",
+    );
+  });
+
+  it("returns to response history from a standalone snapshot", () => {
+    expect(trackingSourceChangeDestination("/snapshots/snapshot-1")).toBe(
+      "/snapshots",
+    );
+  });
+
+  it.each([
+    "/",
+    "/prompts",
+    "/prompts/query-1",
+    "/related-queries/query-key",
+    "/citations/source.example",
+  ])("keeps source-aware routes mounted for %s", (pathname) => {
+    expect(trackingSourceChangeDestination(pathname)).toBeNull();
   });
 });

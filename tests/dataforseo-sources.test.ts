@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { dataForSeoTask } from "../src/worker/lib/dataforseo";
+import {
+  dataForSeoLanguageCode,
+  dataForSeoTask,
+} from "../src/worker/lib/dataforseo";
 
 const input = {
   keyword: "best dog food",
@@ -42,5 +45,22 @@ describe("DataForSEO source task mapping", () => {
       depth: 10,
       load_async_ai_overview: true,
     });
+  });
+
+  it("normalizes canonical language codes at each provider boundary", () => {
+    expect(dataForSeoLanguageCode("chatgpt", "nb")).toBe("no");
+    expect(dataForSeoLanguageCode("gemini", "pt")).toBe("pt-BR");
+    expect(dataForSeoLanguageCode("gemini", "tl")).toBe("fil");
+    expect(dataForSeoLanguageCode("google_ai_mode", "pt")).toBe("pt-BR");
+    expect(dataForSeoLanguageCode("google_ai_mode", "tl")).toBe("fil");
+    expect(dataForSeoLanguageCode("google_ai_overview", "pt")).toBe("pt");
+    expect(dataForSeoLanguageCode("google_ai_overview", "tl")).toBe("tl");
+  });
+
+  it("uses provider language codes in standard task payloads", () => {
+    expect(dataForSeoTask("gemini", { ...input, language_code: "pt" }))
+      .toHaveProperty("language_code", "pt-BR");
+    expect(dataForSeoTask("google_ai_mode", { ...input, language_code: "tl" }))
+      .toHaveProperty("language_code", "fil");
   });
 });

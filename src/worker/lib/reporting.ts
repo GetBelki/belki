@@ -227,6 +227,62 @@ export interface BrandMentionDailyRow {
   owned_mentioned_responses: number;
 }
 
+export interface SourceBrandMentionDailyRow extends BrandMentionDailyRow {
+  tracking_source: string;
+}
+
+/**
+ * Combines source-scoped brand rows without double-counting the owned-brand
+ * response union, which is repeated once for every brand on a source/day.
+ */
+export function aggregateBrandMentionDays(
+  rows: SourceBrandMentionDailyRow[],
+): BrandMentionDailyRow[] {
+  const mentions = new Map<string, BrandMentionDailyRow>();
+  const ownedBySourceDate = new Map<string, number>();
+
+  for (const row of rows) {
+    const key = `${row.metric_date}\u0000${row.brand_id}`;
+    const current = mentions.get(key) ?? {
+      metric_date: row.metric_date,
+      brand_id: row.brand_id,
+      deterministic_responses: 0,
+      extracted_responses: 0,
+      overlap_responses: 0,
+      owned_mentioned_responses: 0,
+    };
+    current.deterministic_responses += nonNegativeCount(
+      row.deterministic_responses,
+    );
+    current.extracted_responses += nonNegativeCount(row.extracted_responses);
+    current.overlap_responses += nonNegativeCount(row.overlap_responses);
+    mentions.set(key, current);
+
+    const sourceDateKey = `${row.tracking_source}\u0000${row.metric_date}`;
+    ownedBySourceDate.set(
+      sourceDateKey,
+      Math.max(
+        ownedBySourceDate.get(sourceDateKey) ?? 0,
+        nonNegativeCount(row.owned_mentioned_responses),
+      ),
+    );
+  }
+
+  const ownedByDate = new Map<string, number>();
+  for (const [sourceDateKey, count] of ownedBySourceDate) {
+    const metricDate = sourceDateKey.split("\u0000")[1]!;
+    ownedByDate.set(metricDate, (ownedByDate.get(metricDate) ?? 0) + count);
+  }
+  for (const row of mentions.values()) {
+    row.owned_mentioned_responses = ownedByDate.get(row.metric_date) ?? 0;
+  }
+  return [...mentions.values()].sort(
+    (left, right) =>
+      left.metric_date.localeCompare(right.metric_date) ||
+      left.brand_id.localeCompare(right.brand_id),
+  );
+}
+
 interface BrandMetric {
   mentionedResponses: number;
   appearances: number;
@@ -467,15 +523,14 @@ export function buildBillingReport(
   rows: BillingDailyRow[],
   dates: BillingDateRange,
 ) {
-  const valuesByDate = new Map(
-    rows.map((row) => [
-      row.metric_date,
-      {
-        runs: Number(row.charged_runs) || 0,
-        cost: roundCost(Number(row.provider_cost_usd) || 0),
-      },
-    ]),
-  );
+  const valuesByDate = new Map<string, { runs: number; cost: number }>();
+  for (const row of rows) {
+    const current = valuesByDate.get(row.metric_date) ?? { runs: 0, cost: 0 };
+    valuesByDate.set(row.metric_date, {
+      runs: current.runs + (Number(row.charged_runs) || 0),
+      cost: roundCost(current.cost + (Number(row.provider_cost_usd) || 0)),
+    });
+  }
   const series: Array<{ date: string; runs: number; cost: number }> = [];
   const cursor = new Date(`${dates.from}T00:00:00.000Z`);
   const end = new Date(`${dates.to}T00:00:00.000Z`);
@@ -511,12 +566,64 @@ export function mergeBillingReports(
   promptTracking: BillingReport,
   productEnrichment: BillingReport,
   entityExtraction?: BillingReport,
+  promptDetails?: {
+    highPriority?: BillingReport;
+    live?: BillingReport;
+    retainedPages?: BillingReport;
+  },
 ) {
-  const extraction = entityExtraction ?? {
+  const emptyReport = (): BillingReport => ({
     range: promptTracking.range,
     summary: { totalCost: 0, chargedRuns: 0, highestDailyCost: 0, averageCost: 0 },
     series: promptTracking.series.map((point) => ({ date: point.date, runs: 0, cost: 0 })),
+  });
+  const extraction = entityExtraction ?? emptyReport();
+  const highPriority = promptDetails?.highPriority ?? emptyReport();
+  const live = promptDetails?.live ?? emptyReport();
+  const retainedPages = promptDetails?.retainedPages ?? emptyReport();
+  const standard: BillingReport = {
+    range: promptTracking.range,
+    summary: {
+      totalCost: roundCost(Math.max(
+        0,
+        promptTracking.summary.totalCost - highPriority.summary.totalCost -
+          live.summary.totalCost,
+      )),
+      chargedRuns: Math.max(
+        0,
+        promptTracking.summary.chargedRuns - highPriority.summary.chargedRuns -
+          live.summary.chargedRuns,
+      ),
+      highestDailyCost: 0,
+      averageCost: 0,
+    },
+    series: promptTracking.series.map((point, index) => {
+      const priorityPoint = highPriority.series[index] ?? {
+        date: point.date,
+        runs: 0,
+        cost: 0,
+      };
+      const livePoint = live.series[index] ?? {
+        date: point.date,
+        runs: 0,
+        cost: 0,
+      };
+      return {
+        date: point.date,
+        runs: Math.max(0, point.runs - priorityPoint.runs - livePoint.runs),
+        cost: roundCost(Math.max(0, point.cost - priorityPoint.cost - livePoint.cost)),
+      };
+    }),
   };
+  standard.summary.highestDailyCost = Math.max(
+    ...standard.series.map((point) => point.cost),
+    0,
+  );
+  standard.summary.averageCost = standard.summary.chargedRuns
+    ? roundCost(
+      standard.summary.totalCost / standard.summary.chargedRuns,
+    )
+    : 0;
   const totalCost = roundCost(
     promptTracking.summary.totalCost + productEnrichment.summary.totalCost +
       extraction.summary.totalCost,
@@ -535,14 +642,35 @@ export function mergeBillingReports(
       runs: 0,
       cost: 0,
     };
+    const standardPoint = standard.series[index] ?? {
+      date: prompt.date,
+      runs: 0,
+      cost: 0,
+    };
+    const priorityPoint = highPriority.series[index] ?? {
+      date: prompt.date,
+      runs: 0,
+      cost: 0,
+    };
+    const livePoint = live.series[index] ?? {
+      date: prompt.date,
+      runs: 0,
+      cost: 0,
+    };
     return {
       date: prompt.date,
       totalCost: roundCost(prompt.cost + enrichment.cost + entity.cost),
       promptTrackingCost: prompt.cost,
+      promptTrackingStandardCost: standardPoint.cost,
+      promptTrackingHighPriorityCost: priorityPoint.cost,
+      promptTrackingLiveCost: livePoint.cost,
       productEnrichmentCost: enrichment.cost,
       entityExtractionCost: entity.cost,
       totalTasks: prompt.runs + enrichment.runs + entity.runs,
       promptTrackingTasks: prompt.runs,
+      promptTrackingStandardTasks: standardPoint.runs,
+      promptTrackingHighPriorityTasks: priorityPoint.runs,
+      promptTrackingLiveTasks: livePoint.runs,
       productEnrichmentTasks: enrichment.runs,
       entityExtractionTasks: entity.runs,
     };
@@ -570,6 +698,12 @@ export function mergeBillingReports(
         promptTracking: category(promptTracking),
         productEnrichment: category(productEnrichment),
         entityExtraction: category(extraction),
+      },
+      promptTrackingBreakdown: {
+        standard: category(standard),
+        highPriority: category(highPriority),
+        live: category(live),
+        retainedPages: category(retainedPages),
       },
     },
     series,
