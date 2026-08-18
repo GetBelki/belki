@@ -8,6 +8,7 @@ export interface ProjectSummary {
   query_count: number;
   last_snapshot_at: string | null;
   ads_count: number;
+  products_count: number;
 }
 
 export async function listProjects(
@@ -32,7 +33,12 @@ export async function listProjects(
           SELECT COALESCE(SUM(f.ads_count), 0)
           FROM analytics_snapshot_facts f
           WHERE f.project_id = p.id
-        ) AS ads_count
+        ) AS ads_count,
+        (
+          SELECT COALESCE(SUM(f.products_count), 0)
+          FROM analytics_snapshot_facts f
+          WHERE f.project_id = p.id
+        ) AS products_count
       FROM projects p
       WHERE p.workspace_id = ? AND p.deleted_at IS NULL AND p.archived_at IS NULL
       ORDER BY p.updated_at DESC`,

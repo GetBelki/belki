@@ -106,6 +106,7 @@ export interface Project {
   query_count: number;
   last_snapshot_at: string | null;
   ads_count: number;
+  products_count: number;
 }
 
 export interface Session {
