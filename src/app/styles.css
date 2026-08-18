@@ -524,13 +524,15 @@ button { border: 0; }
   align-items: center;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   justify-content: center;
   min-height: 100vh;
 }
-.loader-brand { align-items: center; display: flex; font-size: 22px; font-weight: 700; gap: 8px; line-height: 1; margin-bottom: 12px; }
-.loader-line { height: 10px; width: 240px; }
-.loader-line.short { width: 160px; }
+.loader-brand { align-items: center; display: flex; font-size: 44px; font-weight: 700; gap: 16px; line-height: 1; margin-bottom: 18px; }
+.loader-brand .brand-mark { height: 64px; width: 64px; }
+.loader-brand .brand-mark .app-icon { height: 60px; width: 60px; }
+.loader-line { height: 12px; width: min(360px, calc(100vw - 64px)); }
+.loader-line.short { width: min(240px, calc(100vw - 128px)); }
 .brand-mark {
   align-items: center;
   background: linear-gradient(145deg, #8d70ff, #5c3ee7);
