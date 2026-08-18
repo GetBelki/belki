@@ -18,6 +18,20 @@ const PROJECT_DETAIL_ROUTES = [
   { path: "/shopping/:productKey", destination: "/shopping" },
 ] as const;
 
+export function projectDataNavigationVisible(
+  destination: string,
+  pathname: string,
+  counts: { ads: number; products: number },
+): boolean {
+  if (destination === "/ads") {
+    return counts.ads > 0 || pathname.startsWith("/ads");
+  }
+  if (destination === "/shopping") {
+    return counts.products > 0 || pathname.startsWith("/shopping");
+  }
+  return true;
+}
+
 export function projectChangeDestination(pathname: string): string | null {
   if (pathname === "/prompts/library") return null;
   return (

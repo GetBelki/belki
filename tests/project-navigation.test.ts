@@ -1,8 +1,26 @@
 import { describe, expect, it } from "vitest";
 import {
+  projectDataNavigationVisible,
   projectChangeDestination,
   trackingSourceChangeDestination,
 } from "../src/app/lib/project-navigation";
+
+describe("data navigation visibility", () => {
+  it("hides Ads and Shopping until the selected project has matching data", () => {
+    expect(projectDataNavigationVisible("/ads", "/", { ads: 0, products: 0 })).toBe(false);
+    expect(projectDataNavigationVisible("/shopping", "/", { ads: 0, products: 0 })).toBe(false);
+  });
+
+  it("shows data sections after historical results have been captured", () => {
+    expect(projectDataNavigationVisible("/ads", "/", { ads: 1, products: 0 })).toBe(true);
+    expect(projectDataNavigationVisible("/shopping", "/", { ads: 0, products: 2 })).toBe(true);
+  });
+
+  it("keeps a directly opened data section visible while it is active", () => {
+    expect(projectDataNavigationVisible("/ads", "/ads", { ads: 0, products: 0 })).toBe(true);
+    expect(projectDataNavigationVisible("/shopping", "/shopping/product", { ads: 0, products: 0 })).toBe(true);
+  });
+});
 
 describe("project navigation", () => {
   it.each([

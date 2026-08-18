@@ -19,6 +19,7 @@ import { useApp } from "../context";
 import { post } from "../lib/api";
 import { APP_NAME } from "../lib/branding";
 import {
+  projectDataNavigationVisible,
   projectChangeDestination,
   trackingSourceChangeDestination,
 } from "../lib/project-navigation";
@@ -124,9 +125,14 @@ export function AppLayout() {
         <nav className="sidebar-nav">
           <p>Monitor</p>
           {NAVIGATION
-            .filter(({ to }) => to !== "/ads"
-              || Number(currentProject?.ads_count ?? 0) > 0
-              || location.pathname.startsWith("/ads"))
+            .filter(({ to }) => projectDataNavigationVisible(
+              to,
+              location.pathname,
+              {
+                ads: Number(currentProject?.ads_count ?? 0),
+                products: Number(currentProject?.products_count ?? 0),
+              },
+            ))
             .map(({ to, label, icon: Icon, ...item }) => (
             <NavLink
               key={to}

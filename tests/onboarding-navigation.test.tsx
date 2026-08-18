@@ -53,6 +53,7 @@ describe("project onboarding navigation", () => {
       query_count: 0,
       last_snapshot_at: null,
       ads_count: 0,
+      products_count: 0,
     }] }), "/")).toBe(false);
   });
 
