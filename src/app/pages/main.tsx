@@ -757,12 +757,8 @@ export function OverviewPage() {
                   <span role="columnheader">Visibility</span>
                   <span role="columnheader">Share of Voice</span>
                   <span role="columnheader">Citations</span>
-                  <span role="columnheader">Captured</span>
                 </div>
                 {overview.data?.platformBreakdown.map((platform) => {
-                  const captured = platform.trackingSource === "google_ai_overview"
-                    ? platform.surfacePresentRuns
-                    : platform.completedRuns;
                   return (
                     <button
                       className="platform-comparison-row"
@@ -777,7 +773,7 @@ export function OverviewPage() {
                         </span>
                         <span>
                           <strong>{TRACKING_SOURCE_LABELS[platform.trackingSource]}</strong>
-                          <small>{platform.completedRuns ? "View detailed report" : "No captures yet"}</small>
+                          <small>{platform.completedRuns ? "View detailed report" : "No results yet"}</small>
                         </span>
                       </span>
                       <span data-label="Visibility" role="cell">
@@ -788,9 +784,6 @@ export function OverviewPage() {
                       </span>
                       <span data-label="Citations" role="cell">
                         {compact(platform.totalCitations)}
-                      </span>
-                      <span data-label={platform.trackingSource === "google_ai_overview" ? "Overviews found" : "Captured"} role="cell">
-                        {compact(captured)}
                       </span>
                     </button>
                   );
