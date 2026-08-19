@@ -52,6 +52,8 @@ interface FanOutTrendReport {
   period: InsightPeriod;
   source: InsightSource;
   indexing: boolean;
+  remainingSnapshots: number;
+  estimatedMinutes: number;
   total: TrendPoint[];
   siteOperator: TrendPoint[];
   reviews: TrendPoint[];
@@ -549,9 +551,12 @@ export function OperatorFanOutTrendsPage() {
     queryKey: ["operator-fan-out-trends", period, source],
     queryFn: () =>
       api<FanOutTrendReport>(`/operator/insights/fan-out?${params}`),
+    refetchInterval: (query) => query.state.data?.indexing ? 15_000 : false,
   });
   const data = report.data;
   const indexing = data?.indexing ?? false;
+  const remainingSnapshots = data?.remainingSnapshots ?? 0;
+  const estimatedMinutes = data?.estimatedMinutes ?? 0;
   return (
     <div className="page operator-insights-page">
       <PageHeader
@@ -568,7 +573,7 @@ export function OperatorFanOutTrendsPage() {
         <Card className="operator-insight-card operator-indexing-card">
           <EmptyState
             title="Preparing fan-out history"
-            description="Historical responses are being classified. This report will fill in automatically."
+            description={`${remainingSnapshots.toLocaleString()} responses in this view still need classification. Estimated completion: about ${estimatedMinutes} ${estimatedMinutes === 1 ? "minute" : "minutes"}. This page refreshes automatically.`}
           />
         </Card>
       ) : (
