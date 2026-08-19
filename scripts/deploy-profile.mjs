@@ -7,6 +7,7 @@ const wrangler = resolve(root, "node_modules", ".bin", process.platform === "win
 const profileArgument = process.argv.indexOf("--profile");
 const profilePath = profileArgument >= 0 ? process.argv[profileArgument + 1] : undefined;
 const dryRun = process.argv.includes("--dry-run");
+const maxDeployAttempts = dryRun ? 1 : 3;
 
 if (!profilePath) throw new Error("Pass --profile with a managed deployment profile.");
 
@@ -79,11 +80,25 @@ try {
   writeFileSync(generatedPath, `${JSON.stringify(generated, null, 2)}\n`, { mode: 0o600 });
   const args = ["deploy", "--config", generatedPath];
   if (dryRun) args.push("--dry-run");
-  const result = spawnSync(wrangler, args, {
-    cwd: root,
-    stdio: "inherit",
-  });
-  process.exitCode = result.status ?? 1;
+  for (let attempt = 1; attempt <= maxDeployAttempts; attempt += 1) {
+    const result = spawnSync(wrangler, args, {
+      cwd: root,
+      stdio: "inherit",
+    });
+    if (result.status === 0) {
+      process.exitCode = 0;
+      break;
+    }
+    process.exitCode = result.status ?? 1;
+    if (attempt === maxDeployAttempts) break;
+    const delaySeconds = attempt * 10;
+    console.warn(
+      `Cloudflare deployment failed; retrying in ${delaySeconds} seconds (${attempt}/${maxDeployAttempts}).`,
+    );
+    await new Promise((resolveDelay) => {
+      setTimeout(resolveDelay, delaySeconds * 1_000);
+    });
+  }
 } finally {
   try {
     unlinkSync(generatedPath);
