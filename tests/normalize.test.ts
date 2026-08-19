@@ -25,6 +25,37 @@ function payloadWithBrandEntities(brandEntities: unknown) {
 }
 
 describe("DataForSEO Advanced response parsing", () => {
+  it("normalizes nullable provider collections to empty arrays", () => {
+    const payload = parseTrackingPayload({
+      tasks: [{
+        id: "provider-task-id",
+        status_code: 20_000,
+        status_message: "Ok.",
+        result: [{
+          keyword: "best barcode printers",
+          location_code: 2_724,
+          language_code: "es",
+          markdown: "Zebra ZD421 is one option.",
+          search_results: null,
+          sources: null,
+          fan_out_queries: null,
+          brand_entities: null,
+          item_types: null,
+          items: null,
+        }],
+      }],
+    }, "chatgpt");
+
+    expect(payload.tasks[0]!.result![0]).toMatchObject({
+      search_results: [],
+      sources: [],
+      fan_out_queries: [],
+      brand_entities: [],
+      item_types: [],
+      items: [],
+    });
+  });
+
   it("normalizes null brand entities to an empty array", () => {
     const payload = parseAdvancedPayload(payloadWithBrandEntities(null));
 

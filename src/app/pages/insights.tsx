@@ -1543,7 +1543,7 @@ export function ProductMetricCard({
   deltaTone?: "positive" | "negative" | "neutral";
 }) {
   return (
-    <Card className="product-metric-card">
+    <article className="product-metric-card">
       <div className="product-metric-label">
         <span>{icon}{label}</span>
         <span aria-label={help} className="product-metric-help" title={help}>
@@ -1553,7 +1553,7 @@ export function ProductMetricCard({
       <strong>{value}</strong>
       <span className={`product-metric-delta is-${deltaTone}`}>{delta}</span>
       <small>{description}</small>
-    </Card>
+    </article>
   );
 }
 

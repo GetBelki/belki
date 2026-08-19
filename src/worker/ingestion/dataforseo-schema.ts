@@ -43,6 +43,13 @@ const BrandEntitySchema = z
   })
   .passthrough();
 
+function providerArray<T extends z.ZodType>(item: T) {
+  return z
+    .array(item)
+    .nullish()
+    .transform((items) => items ?? []);
+}
+
 const AdvertiserSchema = z
   .object({
     name: z.string().nullable().optional(),
@@ -58,7 +65,7 @@ const ItemSchema = z
     rank_absolute: z.number().nullable().optional(),
     is_rendered: z.boolean().nullable().optional(),
     markdown: z.string().nullable().optional(),
-    items: z.array(z.record(z.string(), z.unknown())).optional(),
+    items: providerArray(z.record(z.string(), z.unknown())),
     title: z.string().nullable().optional(),
     snippet: z.string().nullable().optional(),
     url: z.string().nullable().optional(),
@@ -77,17 +84,14 @@ const AdvancedResultSchema = z
     check_url: z.string().nullable().optional(),
     datetime: z.string().nullable().optional(),
     markdown: z.string().nullable().optional(),
-    search_results: z.array(SearchResultSchema).default([]),
-    sources: z.array(SourceSchema).default([]),
-    fan_out_queries: z.array(z.unknown()).default([]),
-    brand_entities: z
-      .array(BrandEntitySchema)
-      .nullish()
-      .transform((entities) => entities ?? []),
+    search_results: providerArray(SearchResultSchema),
+    sources: providerArray(SourceSchema),
+    fan_out_queries: providerArray(z.unknown()),
+    brand_entities: providerArray(BrandEntitySchema),
     se_results_count: z.number().nullable().optional(),
-    item_types: z.array(z.string()).default([]),
+    item_types: providerArray(z.string()),
     items_count: z.number().nullable().optional(),
-    items: z.array(ItemSchema).default([]),
+    items: providerArray(ItemSchema),
     surface_present: z.boolean().default(true),
   })
   .passthrough();
