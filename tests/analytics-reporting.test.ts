@@ -8,7 +8,10 @@ import {
   buildResponseShareTrend,
   classifyRelatedQueries,
   mergeBillingReports,
+  positionDistribution,
+  productAnalyticsComparisonDateRange,
   productAnalyticsDateRange,
+  productCapturePositions,
   productIdentity,
   productIdentityFromKey,
   productKey,
@@ -17,6 +20,7 @@ import {
   relatedQueryKey,
   relatedQueryLabel,
   summarizeProductPrices,
+  summarizeProductPerformance,
 } from "../src/worker/lib/reporting";
 import {
   alignPromptSetEvents,
@@ -191,6 +195,53 @@ describe("product analytics reporting", () => {
       startTimestamp: `${expectedFrom}T00:00:00.000Z`,
       endExclusiveTimestamp: "2026-07-30T00:00:00.000Z",
     });
+  });
+
+  it("builds the immediately preceding equivalent comparison range", () => {
+    expect(
+      productAnalyticsComparisonDateRange(
+        "7d",
+        new Date("2026-07-29T18:00:00.000Z"),
+      ),
+    ).toEqual({
+      from: "2026-07-16",
+      to: "2026-07-22",
+      startTimestamp: "2026-07-16T00:00:00.000Z",
+      endExclusiveTimestamp: "2026-07-23T00:00:00.000Z",
+    });
+  });
+
+  it("deduplicates captures and keeps the product's best position", () => {
+    const occurrences = [
+      { snapshot_id: "a", ordinal: 2 },
+      { snapshot_id: "a", ordinal: 0 },
+      { snapshot_id: "b", ordinal: 1 },
+    ];
+
+    expect([...productCapturePositions(occurrences)]).toEqual([
+      ["a", 1],
+      ["b", 2],
+    ]);
+    expect(summarizeProductPerformance(occurrences, 8)).toEqual({
+      appearances: 3,
+      appearingCaptures: 2,
+      winningCaptures: 1,
+      appearanceRate: 25,
+      winRate: 50,
+      averagePosition: 1.5,
+    });
+  });
+
+  it("uses interpolated quartiles for position distributions", () => {
+    expect(positionDistribution([1, 2, 4, 9])).toEqual({
+      count: 4,
+      minimum: 1,
+      firstQuartile: 1.75,
+      median: 3,
+      thirdQuartile: 5.25,
+      maximum: 9,
+    });
+    expect(positionDistribution([])).toBeNull();
   });
 
   it("keeps price changes within the latest observed currency", () => {

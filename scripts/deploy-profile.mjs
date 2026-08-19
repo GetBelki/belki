@@ -7,6 +7,7 @@ const wrangler = resolve(root, "node_modules", ".bin", process.platform === "win
 const profileArgument = process.argv.indexOf("--profile");
 const profilePath = profileArgument >= 0 ? process.argv[profileArgument + 1] : undefined;
 const dryRun = process.argv.includes("--dry-run");
+const resolveD1Catalog = process.argv.includes("--resolve-d1-catalog");
 const maxDeployAttempts = dryRun ? 1 : 3;
 
 if (!profilePath) throw new Error("Pass --profile with a managed deployment profile.");
@@ -75,6 +76,26 @@ const generated = {
   routes: profile.routes,
   vars: { ...base.vars, ...profile.vars },
 };
+
+if (resolveD1Catalog) {
+  const catalogResult = spawnSync(wrangler, ["d1", "list", "--json"], {
+    cwd: root,
+    encoding: "utf8",
+  });
+  if (catalogResult.status !== 0) {
+    process.stderr.write(catalogResult.stderr);
+    throw new Error("Could not resolve the production D1 catalog.");
+  }
+  const catalog = JSON.parse(catalogResult.stdout);
+  const databaseIds = new Map(catalog.map((database) => [database.name, database.uuid]));
+  generated.d1_databases = generated.d1_databases.map((database) => {
+    const databaseId = databaseIds.get(database.database_name);
+    if (!databaseId) {
+      throw new Error(`Production D1 database not found: ${database.database_name}`);
+    }
+    return { ...database, database_id: databaseId };
+  });
+}
 
 try {
   writeFileSync(generatedPath, `${JSON.stringify(generated, null, 2)}\n`, { mode: 0o600 });

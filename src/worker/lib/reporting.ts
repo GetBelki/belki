@@ -178,6 +178,106 @@ export function productAnalyticsDateRange(
   };
 }
 
+export function productAnalyticsComparisonDateRange(
+  period: ProductAnalyticsPeriod,
+  now = new Date(),
+): BillingDateRange {
+  const current = productAnalyticsDateRange(period, now);
+  const currentStart = new Date(current.startTimestamp);
+  const currentEnd = new Date(current.endExclusiveTimestamp);
+  const duration = currentEnd.getTime() - currentStart.getTime();
+  const previousEnd = currentStart;
+  const previousStart = new Date(previousEnd.getTime() - duration);
+  const previousTo = new Date(previousEnd.getTime() - 86_400_000);
+  return {
+    from: dateKey(previousStart),
+    to: dateKey(previousTo),
+    startTimestamp: previousStart.toISOString(),
+    endExclusiveTimestamp: previousEnd.toISOString(),
+  };
+}
+
+export interface ProductCaptureOccurrence {
+  snapshot_id: string;
+  ordinal: number;
+}
+
+export interface ProductPerformanceSummary {
+  appearances: number;
+  appearingCaptures: number;
+  winningCaptures: number;
+  appearanceRate: number;
+  winRate: number;
+  averagePosition: number | null;
+}
+
+export function productCapturePositions(
+  occurrences: ProductCaptureOccurrence[],
+): Map<string, number> {
+  const positions = new Map<string, number>();
+  for (const occurrence of occurrences) {
+    const position = occurrence.ordinal + 1;
+    const current = positions.get(occurrence.snapshot_id);
+    if (current === undefined || position < current) {
+      positions.set(occurrence.snapshot_id, position);
+    }
+  }
+  return positions;
+}
+
+export function summarizeProductPerformance(
+  occurrences: ProductCaptureOccurrence[],
+  completedRuns: number,
+): ProductPerformanceSummary {
+  const positions = [...productCapturePositions(occurrences).values()];
+  const winningCaptures = positions.filter((position) => position === 1).length;
+  return {
+    appearances: occurrences.length,
+    appearingCaptures: positions.length,
+    winningCaptures,
+    appearanceRate: completedRuns ? (positions.length / completedRuns) * 100 : 0,
+    winRate: positions.length ? (winningCaptures / positions.length) * 100 : 0,
+    averagePosition: positions.length
+      ? positions.reduce((sum, position) => sum + position, 0) / positions.length
+      : null,
+  };
+}
+
+export interface PositionDistribution {
+  count: number;
+  minimum: number;
+  firstQuartile: number;
+  median: number;
+  thirdQuartile: number;
+  maximum: number;
+}
+
+function percentile(sorted: number[], fraction: number): number {
+  if (sorted.length === 1) return sorted[0]!;
+  const position = (sorted.length - 1) * fraction;
+  const lower = Math.floor(position);
+  const upper = Math.ceil(position);
+  const weight = position - lower;
+  return sorted[lower]! * (1 - weight) + sorted[upper]! * weight;
+}
+
+export function positionDistribution(
+  positions: Iterable<number>,
+): PositionDistribution | null {
+  const sorted = [...positions]
+    .filter((position) => Number.isFinite(position) && position >= 1)
+    .sort((left, right) => left - right);
+  if (!sorted.length) return null;
+  return {
+    count: sorted.length,
+    minimum: sorted[0]!,
+    firstQuartile: percentile(sorted, 0.25),
+    median: percentile(sorted, 0.5),
+    thirdQuartile: percentile(sorted, 0.75),
+    maximum: sorted.at(-1)!,
+  };
+}
+
 export function summarizeProductPrices(
   occurrences: Array<{
     captured_at: string;
