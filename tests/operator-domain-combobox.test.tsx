@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { insightYAxisMax } from "../src/app/lib/chart-scale";
 import { CitationDomainCombobox } from "../src/app/pages/operator-insights";
 
 class ResizeObserverMock {
@@ -51,5 +52,16 @@ describe("citation domain combobox", () => {
       options[1],
       expect.any(Object),
     );
+  });
+});
+
+describe("operator insight chart scale", () => {
+  it("adds useful headroom while preserving the zero baseline", () => {
+    expect(insightYAxisMax([0.1, 0.4])).toBe(1);
+    expect(insightYAxisMax([1.2, 3.9])).toBe(5);
+    expect(insightYAxisMax([4, 9.8])).toBe(15);
+    expect(insightYAxisMax([25])).toBe(30);
+    expect(insightYAxisMax([42])).toBe(50);
+    expect(insightYAxisMax([100])).toBe(100);
   });
 });
