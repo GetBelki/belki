@@ -1,4 +1,5 @@
 import {
+  classifyRelatedQueries,
   normalizeRelatedQuery,
   productIdentity,
   productKey,
@@ -290,6 +291,9 @@ export async function syncAnalyticsReadModel(
     if (!normalizedQuery || relatedQueries.has(normalizedQuery)) continue;
     relatedQueries.set(normalizedQuery, { ordinal, queryText });
   }
+  const relatedQueryClassification = classifyRelatedQueries(
+    [...relatedQueries.values()].map((query) => query.queryText),
+  );
   const statements: D1PreparedStatement[] = [
     env.CONTROL_DB.prepare(
       `INSERT INTO analytics_snapshot_facts (
@@ -299,8 +303,10 @@ export async function syncAnalyticsReadModel(
         brand_mentioned_runs, brand_mentions_count, products_count, ads_count,
         rendered_ads_count, ads_indexed_at, ad_render_status_indexed_at,
         related_queries_count, related_queries_indexed_at,
+        related_site_query_present, related_review_query_present,
+        related_query_years_json, related_query_insights_indexed_at,
         provider_cost_usd, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(snapshot_id) DO UPDATE SET
         tracking_source = excluded.tracking_source,
         surface_present = excluded.surface_present,
@@ -316,6 +322,10 @@ export async function syncAnalyticsReadModel(
         ad_render_status_indexed_at = excluded.ad_render_status_indexed_at,
         related_queries_count = excluded.related_queries_count,
         related_queries_indexed_at = excluded.related_queries_indexed_at,
+        related_site_query_present = excluded.related_site_query_present,
+        related_review_query_present = excluded.related_review_query_present,
+        related_query_years_json = excluded.related_query_years_json,
+        related_query_insights_indexed_at = excluded.related_query_insights_indexed_at,
         provider_cost_usd = excluded.provider_cost_usd,
         updated_at = excluded.updated_at`,
     ).bind(
@@ -338,6 +348,10 @@ export async function syncAnalyticsReadModel(
       updatedAt,
       updatedAt,
       relatedQueries.size,
+      updatedAt,
+      relatedQueryClassification.sitePresent ? 1 : 0,
+      relatedQueryClassification.reviewPresent ? 1 : 0,
+      JSON.stringify(relatedQueryClassification.years),
       updatedAt,
       snapshot.provider_cost_usd,
       updatedAt,

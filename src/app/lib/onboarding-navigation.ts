@@ -14,6 +14,7 @@ export function needsProjectOnboarding(
   if (session.workspace.status === "pending_payment") return false;
   if (session.user.role === "viewer") return false;
   if (session.projects.length > 0) return false;
+  if (pathname.startsWith("/operator/")) return false;
   return !PROJECTLESS_ROUTES.has(pathname);
 }
 

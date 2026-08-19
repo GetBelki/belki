@@ -6847,6 +6847,32 @@ body .operator-section { border-top: 1px solid #e4e4e7; padding-top: 28px; }
 body .operator-section > .card-header { padding: 0 0 20px; }
 body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 12px; overflow: hidden; }
 
+.operator-nav-item { padding-left: 18px; }
+.operator-insights-page { display: grid; gap: 24px; }
+.operator-insight-filters { align-items: center; display: flex; gap: 10px; justify-content: flex-end; }
+.operator-domain-filter { display: flex; flex: 1; gap: 8px; max-width: 520px; }
+.operator-domain-filter .input { min-width: 0; }
+.operator-insight-grid { display: grid; gap: 20px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.operator-insight-card { min-width: 0; }
+.operator-insight-chart { height: 320px; padding: 0 18px 18px; }
+.operator-insight-chart-skeleton { height: 100%; }
+.operator-insight-chart .empty-state { height: 100%; justify-content: center; }
+.operator-indexing-card .empty-state { min-height: 320px; }
+.operator-chart-tooltip { background: #fff; border: 1px solid #d4d4d8; border-radius: 8px; display: grid; gap: 4px; padding: 10px 12px; }
+.operator-chart-tooltip strong { color: #18181b; font-size: 12px; }
+.operator-chart-tooltip span { color: #18181b; font-size: 16px; font-weight: 700; }
+.operator-chart-tooltip small { color: #71717a; font-size: 11px; }
+
+@media (max-width: 900px) {
+  .operator-insight-grid { grid-template-columns: 1fr; }
+}
+
+@media (max-width: 640px) {
+  .operator-insight-filters { align-items: stretch; flex-direction: column; }
+  .operator-domain-filter { max-width: none; }
+  .operator-insight-chart { height: 280px; padding-left: 8px; padding-right: 8px; }
+}
+
 @media (max-width: 640px) {
   body .page { padding: 24px 18px 42px; }
   body .page-flow,

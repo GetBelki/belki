@@ -27,22 +27,6 @@ export async function backfillAnalyticsReadModel(
   env: Env,
 ): Promise<AnalyticsBackfillResult> {
   const updatedAt = nowIso();
-  // A schema bump means existing facts must be replayed even when an older
-  // version marked them indexed. Clearing this timestamp once makes the
-  // ordinary bounded backfill loop repair every source snapshot.
-  await env.CONTROL_DB.prepare(
-    `UPDATE analytics_snapshot_facts
-     SET ad_render_status_indexed_at = NULL
-     WHERE project_id IN (
-       SELECT project.id
-       FROM projects project
-       LEFT JOIN analytics_read_model_projects state ON state.project_id = project.id
-       WHERE project.deleted_at IS NULL
-         AND (state.project_id IS NULL OR state.schema_version < ?)
-     )`,
-  )
-    .bind(ANALYTICS_READ_MODEL_SCHEMA_VERSION)
-    .run();
   await env.CONTROL_DB.prepare(
     `INSERT INTO analytics_read_model_projects (
       project_id, status, schema_version, updated_at
@@ -106,7 +90,7 @@ export async function backfillAnalyticsReadModel(
        FROM snapshot_index snapshot
        LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
        WHERE snapshot.project_id = ?
-         AND (fact.snapshot_id IS NULL OR fact.ad_render_status_indexed_at IS NULL)
+         AND (fact.snapshot_id IS NULL OR fact.related_query_insights_indexed_at IS NULL)
        ORDER BY snapshot.captured_at, snapshot.id
        LIMIT ?`,
     )
@@ -129,7 +113,7 @@ export async function backfillAnalyticsReadModel(
         FROM snapshot_index snapshot
         LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
         WHERE snapshot.project_id = ?
-          AND (fact.snapshot_id IS NULL OR fact.ad_render_status_indexed_at IS NULL)
+          AND (fact.snapshot_id IS NULL OR fact.related_query_insights_indexed_at IS NULL)
       ) AS has_more`,
     )
       .bind(project.project_id)

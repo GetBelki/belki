@@ -1,5 +1,5 @@
-// Version 5 records whether each served ad was actually rendered.
-export const ANALYTICS_READ_MODEL_SCHEMA_VERSION = 5;
+// Version 6 records response-level fan-out classifications for operator trends.
+export const ANALYTICS_READ_MODEL_SCHEMA_VERSION = 6;
 // Related-query tables and indexing were complete in version 4. Later additive
 // schema versions must remain valid for this report.
 export const RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION = 4;
