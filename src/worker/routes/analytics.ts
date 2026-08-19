@@ -19,6 +19,7 @@ import {
   type AnalyticsReadModelState,
 } from "../lib/analytics-read-model";
 import { getShard } from "../lib/shards";
+import { retryD1Read } from "../lib/d1";
 import { ApiError, exclusiveDateEnd, jsonParse } from "../lib/http";
 import {
   billingDateRange,
@@ -286,14 +287,16 @@ async function verifyStoredBrandMentions(
   const snapshots = await Promise.all(
     [...grouped.entries()].flatMap(([shardId, ids]) =>
       chunks(ids).map((snapshotChunk) =>
-        getShard(env, shardId)
-          .prepare(
-            `SELECT id, answer_markdown
-             FROM snapshots
-             WHERE id IN (${snapshotChunk.map(() => "?").join(",")})`,
-          )
-          .bind(...snapshotChunk)
-          .all<{ id: string; answer_markdown: string | null }>(),
+        retryD1Read(() =>
+          getShard(env, shardId)
+            .prepare(
+              `SELECT id, answer_markdown
+               FROM snapshots
+               WHERE id IN (${snapshotChunk.map(() => "?").join(",")})`,
+            )
+            .bind(...snapshotChunk)
+            .all<{ id: string; answer_markdown: string | null }>(),
+        ),
       ),
     ),
   );
@@ -1537,11 +1540,13 @@ analyticsRoutes.get(
       : [input.source as TrackingSource];
     const singleSource = includedSources[0]!;
     const sourcePlaceholders = includedSources.map(() => "?").join(",");
-    const readModelReady = !allSources && input.source === "chatgpt" && await analyticsReadModelReady(
-      c.env,
-      input.projectId,
-      c.get("timing"),
-    );
+    const readModelReady =
+      (allSources || input.source === "chatgpt") &&
+      (await analyticsReadModelReady(
+        c.env,
+        input.projectId,
+        c.get("timing"),
+      ));
     const [
       summary,
       productCoverage,
@@ -1681,21 +1686,36 @@ analyticsRoutes.get(
         .bind(input.projectId)
         .first<{ primary_domain: string | null }>(),
       allSources
-        ? Promise.all(
-            includedSources.map((source) =>
-              c.get("timing").measure("legacy_shards", () =>
-                verifyStoredBrandMentions(
-                  c.env,
-                  input.projectId,
-                  dates.from,
-                  dates.to,
-                  [],
-                  true,
-                  source,
+        ? readModelReady
+          ? Promise.all(
+              includedSources.map((source) =>
+                c.get("timing").measure("analytics_read_model", () =>
+                  loadReadModelBrandMentions(
+                    c.env,
+                    input.projectId,
+                    dates.from,
+                    dates.to,
+                    [],
+                    source,
+                  ),
                 ),
               ),
-            ),
-          )
+            )
+          : Promise.all(
+              includedSources.map((source) =>
+                c.get("timing").measure("legacy_shards", () =>
+                  verifyStoredBrandMentions(
+                    c.env,
+                    input.projectId,
+                    dates.from,
+                    dates.to,
+                    [],
+                    true,
+                    source,
+                  ),
+                ),
+              ),
+            )
         : readModelReady
         ? c
             .get("timing")
