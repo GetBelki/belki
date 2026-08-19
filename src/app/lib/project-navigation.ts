@@ -1,4 +1,5 @@
 import { matchPath } from "react-router-dom";
+import type { TrackingSource } from "../../shared/tracking-sources";
 
 const PROJECT_DETAIL_ROUTES = [
   { path: "/prompts/:queryId", destination: "/prompts" },
@@ -32,6 +33,22 @@ export function projectDataNavigationVisible(
   return true;
 }
 
+export function trackingSourcesForPath(
+  pathname: string,
+  enabledSources: TrackingSource[],
+  counts: Partial<Record<TrackingSource, { ads: number; products: number }>> = {},
+): TrackingSource[] {
+  const metric = pathname.startsWith("/ads")
+    ? "ads"
+    : pathname.startsWith("/shopping")
+      ? "products"
+      : null;
+  if (!metric) return enabledSources;
+  return enabledSources.filter(
+    (source) => Number(counts[source]?.[metric] ?? 0) > 0,
+  );
+}
+
 export function projectChangeDestination(pathname: string): string | null {
   if (pathname === "/prompts/library") return null;
   return (
@@ -52,6 +69,12 @@ export function trackingSourceChangeDestination(
     if (match?.params.queryId) {
       return `/prompts/${encodeURIComponent(match.params.queryId)}`;
     }
+  }
+  if (matchPath({ path: "/shopping/:productKey", end: true }, pathname)) {
+    return "/shopping";
+  }
+  if (matchPath({ path: "/ads/:advertiserKey", end: true }, pathname)) {
+    return "/ads";
   }
   return matchPath({ path: "/snapshots/:snapshotId", end: true }, pathname)
     ? "/snapshots"

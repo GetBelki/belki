@@ -13,7 +13,7 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { NavLink, Outlet, useLocation, useNavigate } from "react-router-dom";
 import { useApp } from "../context";
 import { post } from "../lib/api";
@@ -21,6 +21,7 @@ import { APP_NAME } from "../lib/branding";
 import {
   projectDataNavigationVisible,
   projectChangeDestination,
+  trackingSourcesForPath,
   trackingSourceChangeDestination,
 } from "../lib/project-navigation";
 import { AppIcon } from "./app-icon";
@@ -60,6 +61,28 @@ export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const location = useLocation();
   const navigate = useNavigate();
+  const pageTrackingSources = useMemo(
+    () => trackingSourcesForPath(
+      location.pathname,
+      trackingSources,
+      currentProject?.source_data_counts,
+    ),
+    [currentProject?.source_data_counts, location.pathname, trackingSources],
+  );
+  useEffect(() => {
+    const fallbackSource = pageTrackingSources[0];
+    if (fallbackSource && !pageTrackingSources.includes(trackingSource)) {
+      setTrackingSource(fallbackSource);
+      const destination = trackingSourceChangeDestination(location.pathname);
+      if (destination) void navigate(destination, { replace: true });
+    }
+  }, [
+    location.pathname,
+    navigate,
+    pageTrackingSources,
+    setTrackingSource,
+    trackingSource,
+  ]);
   const logout = useMutation({
     mutationFn: () => post("/auth/logout"),
     onSuccess: () => {
@@ -219,16 +242,15 @@ export function AppLayout() {
             <strong>{APP_NAME}</strong>
           </NavLink>
         </header>
-        {projectId && trackingSources.length > 1 && location.pathname !== "/" && ![
+        {projectId && pageTrackingSources.length > 1 && location.pathname !== "/" && ![
           "/billing",
           "/settings",
           "/users",
           "/operator",
           "/entities",
-          "/ads",
         ].some((path) => location.pathname.startsWith(path)) ? (
           <div className="tracking-source-tabs" aria-label="Tracking source" role="tablist">
-            {trackingSources.map((source) => (
+            {pageTrackingSources.map((source) => (
               <button
                 aria-selected={trackingSource === source}
                 className={trackingSource === source ? "active" : undefined}
