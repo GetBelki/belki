@@ -182,6 +182,7 @@ operatorInsightRoutes.get(
     await assertOperator(c);
     const input = c.req.valid("query");
     const dates = insightRange(input.period);
+    const currentYear = new Date().getUTCFullYear();
     const [selectedProgress, globalProgress] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT COUNT(*) AS remaining
@@ -275,10 +276,16 @@ operatorInsightRoutes.get(
          WHERE fact.metric_date BETWEEN ? AND ?
            AND (? = 'all' OR fact.tracking_source = ?)
            AND fact.related_query_insights_indexed_at IS NOT NULL
+           AND CAST(year.value AS INTEGER) BETWEEN 2025 AND ?
          GROUP BY fact.metric_date, year.value
          ORDER BY year, fact.metric_date`,
       )
-        .bind(dates.from, dates.to, ...sourceBindings(input.source))
+        .bind(
+          dates.from,
+          dates.to,
+          ...sourceBindings(input.source),
+          currentYear,
+        )
         .all<{
           metric_date: string;
           year: number;

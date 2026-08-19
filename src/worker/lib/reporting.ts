@@ -73,6 +73,7 @@ export function buildResponseShareTrend(
 
 export function classifyRelatedQueries(
   queries: Iterable<string>,
+  currentYear = new Date().getUTCFullYear(),
 ): RelatedQueryClassification {
   let reviewPresent = false;
   let sitePresent = false;
@@ -85,7 +86,7 @@ export function classifyRelatedQueries(
     );
     for (const match of normalized.matchAll(/(?:^|\D)(\d{4})(?=\D|$)/gu)) {
       const year = Number(match[1]);
-      if (year >= 2025) years.add(year);
+      if (year >= 2025 && year <= currentYear) years.add(year);
     }
   }
   return {
