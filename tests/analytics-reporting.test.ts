@@ -67,6 +67,26 @@ describe("related query reporting", () => {
       .toMatchObject({ reviewPresent: false, sitePresent: false });
   });
 
+  it("classifies official and government-domain fan-out queries", () => {
+    expect(classifyRelatedQueries([
+      "Canon USA warranty return policy official",
+      "Canon sostenibilidad informe oficial",
+      "site:bcb.gov.br pagamentos internacionais",
+      "site:hacienda.gob.mx impuestos",
+    ])).toMatchObject({
+      governmentPresent: true,
+      officialPresent: true,
+    });
+    expect(classifyRelatedQueries([
+      "unofficial Canon community",
+      "government camera procurement",
+      "gobstopper reviews",
+    ])).toMatchObject({
+      governmentPresent: false,
+      officialPresent: false,
+    });
+  });
+
   it("deduplicates standalone years from 2025 through the current year", () => {
     expect(classifyRelatedQueries([
       "reviews 2024 2025 2026",

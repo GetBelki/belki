@@ -58,6 +58,8 @@ interface FanOutTrendReport {
   total: TrendPoint[];
   siteOperator: TrendPoint[];
   reviews: TrendPoint[];
+  official: TrendPoint[];
+  government: TrendPoint[];
   years: Array<{ year: number; trend: TrendPoint[] }>;
 }
 
@@ -611,6 +613,18 @@ export function OperatorFanOutTrendsPage() {
             description="Share of completed responses with related queries containing review or reviews."
             pending={report.isPending}
             title="Reviews"
+          />
+          <TrendChart
+            data={data?.official ?? []}
+            description="Share of completed responses with related queries containing official or oficial."
+            pending={report.isPending}
+            title="Official"
+          />
+          <TrendChart
+            data={data?.government ?? []}
+            description="Share of completed responses with related queries containing a .gov or .gob domain."
+            pending={report.isPending}
+            title="Government domains"
           />
           <YearsChart pending={report.isPending} years={data?.years ?? []} />
         </div>
