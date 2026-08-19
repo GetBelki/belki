@@ -6922,17 +6922,16 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
   border-radius: 7px;
   color: #27272a;
   cursor: default;
-  display: grid;
+  display: flex;
   font-size: 12px;
-  gap: 8px;
-  grid-template-columns: 16px minmax(0, 1fr);
   min-height: 34px;
   outline: none;
-  padding: 7px 9px;
+  padding: 7px 9px 7px 32px;
+  position: relative;
 }
 .operator-combobox-item[data-highlighted] { background: #f4f4f5; color: #09090b; }
-.operator-combobox-item > span:last-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.operator-combobox-item-indicator { color: #18181b; display: flex; }
+.operator-combobox-item > span:last-child { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.operator-combobox-item-indicator { color: #18181b; display: flex; left: 10px; position: absolute; }
 .operator-combobox-empty { color: #71717a; font-size: 12px; padding: 24px 16px; text-align: center; }
 .operator-insight-grid { display: grid; gap: 20px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .operator-insight-card { min-width: 0; }

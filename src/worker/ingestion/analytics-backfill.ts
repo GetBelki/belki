@@ -1,5 +1,8 @@
 import { nowIso } from "../lib/http";
-import { ANALYTICS_READ_MODEL_SCHEMA_VERSION } from "../lib/analytics-read-model";
+import {
+  ANALYTICS_BACKFILL_BATCH_SIZE,
+  ANALYTICS_READ_MODEL_SCHEMA_VERSION,
+} from "../lib/analytics-read-model";
 import { syncAnalyticsReadModel } from "./analytics-read-model";
 
 interface BackfillProjectRow {
@@ -22,7 +25,6 @@ export interface AnalyticsBackfillResult {
   failed: number;
 }
 
-const BACKFILL_BATCH_SIZE = 50;
 export async function backfillAnalyticsReadModel(
   env: Env,
 ): Promise<AnalyticsBackfillResult> {
@@ -51,6 +53,26 @@ export async function backfillAnalyticsReadModel(
       END`,
   )
     .bind(ANALYTICS_READ_MODEL_SCHEMA_VERSION, updatedAt)
+    .run();
+
+  // Recover projects that were marked ready before every response-level
+  // fan-out classification had actually been persisted.
+  await env.CONTROL_DB.prepare(
+    `UPDATE analytics_read_model_projects
+     SET status = 'pending', error_message = NULL, updated_at = ?
+     WHERE status = 'ready'
+       AND EXISTS(
+         SELECT 1
+         FROM snapshot_index snapshot
+         LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
+         WHERE snapshot.project_id = analytics_read_model_projects.project_id
+           AND (
+             fact.snapshot_id IS NULL
+             OR fact.related_query_insights_indexed_at IS NULL
+           )
+       )`,
+  )
+    .bind(updatedAt)
     .run();
 
   const project = await env.CONTROL_DB.prepare(
@@ -94,7 +116,7 @@ export async function backfillAnalyticsReadModel(
        ORDER BY snapshot.captured_at, snapshot.id
        LIMIT ?`,
     )
-      .bind(project.project_id, BACKFILL_BATCH_SIZE)
+      .bind(project.project_id, ANALYTICS_BACKFILL_BATCH_SIZE)
       .all<BackfillSnapshotRow>();
 
     for (const snapshot of snapshots.results) {

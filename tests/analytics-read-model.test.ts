@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ANALYTICS_READ_MODEL_SCHEMA_VERSION,
   RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION,
+  analyticsBackfillEstimatedMinutes,
   analyticsReadModelSupports,
 } from "../src/worker/lib/analytics-read-model";
 
@@ -35,5 +36,13 @@ describe("analytics read-model compatibility", () => {
   it("accepts later compatible schema versions", () => {
     expect(analyticsReadModelSupports({ status: "ready", schema_version: 6 }))
       .toBe(true);
+  });
+
+  it("estimates minute-cron backfill time from the batch size", () => {
+    expect(analyticsBackfillEstimatedMinutes(0)).toBe(0);
+    expect(analyticsBackfillEstimatedMinutes(1)).toBe(1);
+    expect(analyticsBackfillEstimatedMinutes(50)).toBe(1);
+    expect(analyticsBackfillEstimatedMinutes(51)).toBe(2);
+    expect(analyticsBackfillEstimatedMinutes(686)).toBe(14);
   });
 });

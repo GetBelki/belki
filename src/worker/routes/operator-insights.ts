@@ -4,7 +4,7 @@ import { z } from "zod";
 import { TrackingSourceSchema } from "../../shared/contracts";
 import type { AppEnv } from "../lib/app";
 import { assertOperator } from "../lib/auth";
-import { ANALYTICS_READ_MODEL_SCHEMA_VERSION } from "../lib/analytics-read-model";
+import { analyticsBackfillEstimatedMinutes } from "../lib/analytics-read-model";
 import {
   buildResponseShareTrend,
   productAnalyticsDateRange,
@@ -182,40 +182,52 @@ operatorInsightRoutes.get(
     await assertOperator(c);
     const input = c.req.valid("query");
     const dates = insightRange(input.period);
-    const pending = await c.env.CONTROL_DB.prepare(
-      `SELECT EXISTS(
-        SELECT 1
-        FROM projects project
-        JOIN workspaces workspace
-          ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
-        LEFT JOIN analytics_read_model_projects state
-          ON state.project_id = project.id
-        WHERE project.deleted_at IS NULL
-          AND EXISTS(
-            SELECT 1 FROM snapshot_index snapshot
-            WHERE snapshot.project_id = project.id
-              AND snapshot.captured_at >= ? AND snapshot.captured_at < ?
-              AND (? = 'all' OR snapshot.tracking_source = ?)
-          )
-          AND (
-            state.project_id IS NULL OR state.status != 'ready'
-            OR state.schema_version < ?
-          )
-      ) AS pending`,
-    )
+    const [selectedProgress, globalProgress] = await Promise.all([
+      c.env.CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS remaining
+         FROM snapshot_index snapshot
+         JOIN projects project
+           ON project.id = snapshot.project_id AND project.deleted_at IS NULL
+         JOIN workspaces workspace
+           ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
+         LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
+         WHERE snapshot.captured_at >= ? AND snapshot.captured_at < ?
+           AND (? = 'all' OR snapshot.tracking_source = ?)
+           AND (
+             fact.snapshot_id IS NULL
+             OR fact.related_query_insights_indexed_at IS NULL
+           )`,
+      )
       .bind(
         dates.startTimestamp,
         dates.endExclusiveTimestamp,
         ...sourceBindings(input.source),
-        ANALYTICS_READ_MODEL_SCHEMA_VERSION,
       )
-      .first<{ pending: number }>();
-    if (Number(pending?.pending ?? 0) === 1) {
+        .first<{ remaining: number }>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT COUNT(*) AS remaining
+         FROM snapshot_index snapshot
+         JOIN projects project
+           ON project.id = snapshot.project_id AND project.deleted_at IS NULL
+         JOIN workspaces workspace
+           ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
+         LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
+         WHERE fact.snapshot_id IS NULL
+           OR fact.related_query_insights_indexed_at IS NULL`,
+      ).first<{ remaining: number }>(),
+    ]);
+    const remainingSnapshots = Number(selectedProgress?.remaining ?? 0);
+    const globalRemainingSnapshots = Number(globalProgress?.remaining ?? 0);
+    if (remainingSnapshots > 0) {
       return c.json({
         data: {
           period: input.period,
           source: input.source,
           indexing: true,
+          remainingSnapshots,
+          estimatedMinutes: analyticsBackfillEstimatedMinutes(
+            globalRemainingSnapshots,
+          ),
           total: [],
           siteOperator: [],
           reviews: [],
@@ -300,6 +312,8 @@ operatorInsightRoutes.get(
         period: input.period,
         source: input.source,
         indexing: false,
+        remainingSnapshots: 0,
+        estimatedMinutes: 0,
         total: buildResponseShareTrend(dates, completedByDate, totalByDate),
         siteOperator: buildResponseShareTrend(dates, completedByDate, siteByDate),
         reviews: buildResponseShareTrend(dates, completedByDate, reviewByDate),
