@@ -246,6 +246,7 @@ function YearsChart({
   years: FanOutTrendReport["years"];
   pending: boolean;
 }) {
+  const currentYear = new Date().getUTCFullYear();
   const data = useMemo(() => {
     const dates = years[0]?.trend.map((point) => point.date) ?? [];
     return dates.map((date, index) => ({
@@ -259,7 +260,7 @@ function YearsChart({
     <Card className="operator-insight-card">
       <CardHeader
         title="Years"
-        description="Share of completed responses with related queries containing each standalone year from 2025 onward."
+        description={`Share of completed responses with related queries containing each standalone year from 2025 through ${currentYear}.`}
       />
       <div className="operator-insight-chart">
         {pending ? (
@@ -267,7 +268,7 @@ function YearsChart({
         ) : !years.length ? (
           <EmptyState
             title="No year queries"
-            description="Related queries containing years from 2025 onward will appear here."
+            description={`Related queries containing years from 2025 through ${currentYear} will appear here.`}
           />
         ) : (
           <ResponsiveContainer height="100%" minWidth={0} width="100%">

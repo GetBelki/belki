@@ -67,12 +67,13 @@ describe("related query reporting", () => {
       .toMatchObject({ reviewPresent: false, sitePresent: false });
   });
 
-  it("deduplicates standalone years from 2025 onward", () => {
+  it("deduplicates standalone years from 2025 through the current year", () => {
     expect(classifyRelatedQueries([
       "reviews 2024 2025 2026",
       "best cameras ２０２６/2027",
+      "future cameras 2030 2050 6700",
       "model 20250",
-    ]).years).toEqual([2025, 2026, 2027]);
+    ], 2026).years).toEqual([2025, 2026]);
   });
 
   it("zero-fills response-share trends and uses completed responses as the denominator", () => {
