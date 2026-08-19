@@ -162,6 +162,12 @@ export function AppLayout() {
               </NavLink>
             </>
           ) : null}
+          <NavLink
+            to="/settings"
+            className={({ isActive }) => cn("nav-item", isActive && "active")}
+          >
+            <Settings size={17} /> <span>Settings</span>
+          </NavLink>
           {session.isPlatformOperator ? (
             <>
               <p>Operator</p>
@@ -186,12 +192,6 @@ export function AppLayout() {
               </NavLink>
             </>
           ) : null}
-          <NavLink
-            to="/settings"
-            className={({ isActive }) => cn("nav-item", isActive && "active")}
-          >
-            <Settings size={17} /> <span>Settings</span>
-          </NavLink>
         </nav>
         <div className="sidebar-user">
           <div className="avatar">{session.user.displayName.slice(0, 1).toUpperCase()}</div>
