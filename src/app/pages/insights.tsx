@@ -2,10 +2,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   AlertTriangle,
   ArrowLeft,
+  ChartNoAxesColumn,
   CheckCircle2,
   ChevronLeft,
   ChevronRight,
+  CircleHelp,
   Download,
+  Eye,
   ExternalLink,
   FileDown,
   KeyRound,
@@ -16,11 +19,22 @@ import {
   Send,
   ServerCog,
   ShoppingBag,
+  Sparkles,
+  Star,
+  Store,
+  Target,
   Trash2,
+  Trophy,
   UserPlus,
   Webhook,
 } from "lucide-react";
-import { useEffect, useState, type FormEvent } from "react";
+import {
+  useEffect,
+  useState,
+  type CSSProperties,
+  type FormEvent,
+  type ReactNode,
+} from "react";
 import {
   Link,
   useNavigate,
@@ -64,7 +78,9 @@ import {
 import { useApp } from "../context";
 import { api, apiPage, patch, post, remove, type Project } from "../lib/api";
 import { ENTITY_GROUPS, entityGroup, type EntityGroupKey } from "../lib/entity-groups";
+import { insightYAxisMax } from "../lib/chart-scale";
 import { LOCATION_OPTIONS } from "../lib/locale-catalog";
+import { productDetailRows } from "../lib/product-analytics";
 import { formatPrice, formatProviderCost, productDestination } from "../lib/snapshot-evidence";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 
@@ -1238,7 +1254,9 @@ interface ProductAnalyticsDetail {
   summary: {
     completedRuns: number;
     appearingCaptures: number;
+    winningCaptures: number;
     appearanceRate: number;
+    winRate: number;
     appearances: number;
     prompts: number;
     merchants: number;
@@ -1261,13 +1279,34 @@ interface ProductAnalyticsDetail {
       reviewChange: number | null;
       ratingChange: number | null;
     } | null;
+    comparison: {
+      range: { from: string; to: string };
+      appearanceRate: { previous: number | null; delta: number | null };
+      winRate: { previous: number | null; delta: number | null };
+      averagePosition: { previous: number | null; delta: number | null };
+      appearances: { previous: number; delta: number };
+      price: {
+        currency: string | null;
+        previous: number | null;
+        delta: number | null;
+        deltaPercent: number | null;
+      } | null;
+      rating: {
+        previousValue: number | null;
+        valueDelta: number | null;
+        previousReviews: number | null;
+        reviewsDelta: number | null;
+      } | null;
+    };
   };
   visibilityTrend: Array<{
     date: string;
     completedRuns: number;
     appearingCaptures: number;
+    winningCaptures: number;
     appearances: number;
     appearanceRate: number;
+    winRate: number | null;
     averagePosition: number | null;
   }>;
   priceTrend: Array<{
@@ -1326,6 +1365,19 @@ interface ProductAnalyticsDetail {
     ratingMaximum: number | null;
     reviews: number | null;
   }>;
+  competition: {
+    current: PositionDistribution | null;
+    coFeatured: Array<{
+      product: ShoppingRow & { ordinal: number; rating_max: number | null };
+      appearances: number;
+      coFeaturedCaptures: number;
+      coFeatureRate: number;
+      winningCaptures: number;
+      winRate: number;
+      averagePosition: number | null;
+      distribution: PositionDistribution | null;
+    }>;
+  };
   market: {
     locales: Array<{
       locationCode: number;
@@ -1415,10 +1467,13 @@ interface ProductAnalyticsDetail {
   };
 }
 
-function signedCompact(value: number | null): string {
-  if (value === null) return "No earlier value";
-  if (value === 0) return "No change";
-  return `${value > 0 ? "+" : ""}${compact(value)}`;
+interface PositionDistribution {
+  count: number;
+  minimum: number;
+  firstQuartile: number;
+  median: number;
+  thirdQuartile: number;
+  maximum: number;
 }
 
 function observedPrice(
@@ -1443,6 +1498,170 @@ function priceRangeLabel(
       return price.minimum === price.maximum ? minimum : `${minimum}–${maximum}`;
     })
     .join(" · ");
+}
+
+function ProductSectionHeading({
+  icon,
+  title,
+  description,
+  action,
+}: {
+  icon: ReactNode;
+  title: string;
+  description: string;
+  action?: ReactNode;
+}) {
+  return (
+    <div className="product-detail-section-heading">
+      <div className="product-detail-section-title">
+        <span className="product-detail-section-icon">{icon}</span>
+        <div>
+          <h2>{title}</h2>
+          <p>{description}</p>
+        </div>
+      </div>
+      {action}
+    </div>
+  );
+}
+
+export function ProductMetricCard({
+  icon,
+  label,
+  value,
+  description,
+  help,
+  delta,
+  deltaTone = "neutral",
+}: {
+  icon: ReactNode;
+  label: string;
+  value: ReactNode;
+  description: string;
+  help: string;
+  delta: string;
+  deltaTone?: "positive" | "negative" | "neutral";
+}) {
+  return (
+    <Card className="product-metric-card">
+      <div className="product-metric-label">
+        <span>{icon}{label}</span>
+        <span aria-label={help} className="product-metric-help" title={help}>
+          <CircleHelp size={13} />
+        </span>
+      </div>
+      <strong>{value}</strong>
+      <span className={`product-metric-delta is-${deltaTone}`}>{delta}</span>
+      <small>{description}</small>
+    </Card>
+  );
+}
+
+function percentagePointDelta(value: number | null): string {
+  if (value === null) return "No previous-period data";
+  if (Math.abs(value) < 0.05) return "No change vs previous period";
+  return `${value > 0 ? "+" : ""}${value.toFixed(1)} pp vs previous period`;
+}
+
+function deltaTone(
+  value: number | null,
+  invert = false,
+): "positive" | "negative" | "neutral" {
+  if (value === null || Math.abs(value) < 0.0001) return "neutral";
+  return (invert ? value < 0 : value > 0) ? "positive" : "negative";
+}
+
+function positionDelta(value: number | null): string {
+  if (value === null) return "No previous-period data";
+  if (Math.abs(value) < 0.05) return "No change vs previous period";
+  return `${Math.abs(value).toFixed(1)} ${value < 0 ? "better" : "worse"} vs previous period`;
+}
+
+export function RankComparisonChart({
+  product,
+  competition,
+}: {
+  product: ProductAnalyticsDetail["product"];
+  competition: ProductAnalyticsDetail["competition"];
+}) {
+  const items: Array<{
+    key: string;
+    title: string;
+    image: string | null;
+    current: boolean;
+    distribution: PositionDistribution;
+  }> = [];
+  if (competition.current) {
+    items.push({
+      key: product.productKey,
+      title: product.title ?? "Current product",
+      image: product.images[0] ?? null,
+      current: true,
+      distribution: competition.current,
+    });
+  }
+  for (const competitor of competition.coFeatured.slice(0, 4)) {
+    if (!competitor.distribution) continue;
+    items.push({
+      key: competitor.product.productKey,
+      title: competitor.product.title ?? "Untitled product",
+      image: competitor.product.images[0] ?? null,
+      current: false,
+      distribution: competitor.distribution,
+    });
+  }
+  if (!items.length) {
+    return <EmptyState title="No rank comparison yet" description="Rank distributions appear after this product is captured with other recommendations." />;
+  }
+  const maximum = Math.max(
+    2,
+    ...items.map((item) => item.distribution.maximum),
+  );
+  const scale = (position: number) =>
+    ((position - 1) / Math.max(1, maximum - 1)) * 100;
+  return (
+    <div className="product-rank-chart" style={{ "--rank-columns": items.length } as CSSProperties}>
+      <div className="product-rank-axis" aria-hidden="true">
+        <span>#1</span>
+        <span>#{Math.max(2, Math.ceil(maximum / 2))}</span>
+        <span>#{maximum}</span>
+      </div>
+      <div className="product-rank-series">
+        {items.map((item, index) => {
+          const distribution = item.distribution;
+          const color = item.current
+            ? "#1e73be"
+            : ["#38a169", "#e58b32", "#2f80ed", "#d45d5d"][index - 1] ?? "#71717a";
+          const title = `${item.title}: median #${distribution.median.toFixed(1)}, range #${distribution.minimum}–#${distribution.maximum}, ${pluralize(distribution.count, "capture")}`;
+          return (
+            <div className="product-rank-column" key={item.key} title={title}>
+              <div className="product-rank-track" style={{ color }}>
+                {distribution.count === 1 ? (
+                  <span className="product-rank-point" style={{ top: `${scale(distribution.median)}%` }} />
+                ) : (
+                  <>
+                    <span className="product-rank-whisker" style={{ height: `${scale(distribution.maximum) - scale(distribution.minimum)}%`, top: `${scale(distribution.minimum)}%` }} />
+                    <span className="product-rank-cap" style={{ top: `${scale(distribution.minimum)}%` }} />
+                    <span className="product-rank-cap" style={{ top: `${scale(distribution.maximum)}%` }} />
+                    <span className="product-rank-box" style={{ height: `${Math.max(1.5, scale(distribution.thirdQuartile) - scale(distribution.firstQuartile))}%`, top: `${scale(distribution.firstQuartile)}%` }} />
+                    <span className="product-rank-median" style={{ top: `${scale(distribution.median)}%` }} />
+                  </>
+                )}
+              </div>
+              <div className="product-rank-label">
+                <span className="product-rank-image">
+                  {item.image ? <img alt="" src={item.image} /> : <ShoppingBag size={14} />}
+                </span>
+                <strong>{item.title}</strong>
+                {item.current ? <Badge>This product</Badge> : null}
+                <small>Median #{distribution.median.toFixed(1)} · {pluralize(distribution.count, "capture")}</small>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 type ProductMarket = ProductAnalyticsDetail["market"];
@@ -1491,12 +1710,14 @@ function ProductMarketSection({
         market.selectedLocale.languageCode,
       )
     : "selected market";
+  const specificationRows = productDetailRows(market.profile?.specifications ?? []);
+  const variationRows = productDetailRows(market.profile?.variations ?? []);
   return (
     <>
       <Card className="product-market-control">
         <div className="product-market-control-copy">
           <div className="product-section-heading">
-            <span>Google Shopping market data</span>
+            <span>Enrichment status</span>
             <Badge
               tone={market.refresh.status === "available" ? "success" : market.refresh.status === "failed" ? "danger" : market.refresh.pending ? "warning" : "neutral"}
             >
@@ -1543,7 +1764,7 @@ function ProductMarketSection({
           ) : null}
         </div>
         {!market.policy.projectEnabled ? (
-          <div className="product-market-paused"><AlertTriangle size={14} /> Product enrichment is paused for this project in Settings.</div>
+          <div className="product-market-paused"><AlertTriangle size={14} /><span>Product enrichment is paused for this project.</span>{canEdit ? <Link to="/settings">Open settings <ChevronRight size={12} /></Link> : null}</div>
         ) : null}
         {market.policy.projectEnabled && enrichmentUnavailable ? (
           <div className="product-market-paused">
@@ -1592,8 +1813,18 @@ function ProductMarketSection({
                     {market.profile.features.length ? <ul>{market.profile.features.map((feature) => <li key={feature}>{feature}</li>)}</ul> : null}
                   </div>
                 </div>
-                {market.profile.specifications.length || market.profile.variations.length ? (
-                  <details className="product-market-details"><summary>Specifications and variations</summary><pre>{JSON.stringify({ specifications: market.profile.specifications, variations: market.profile.variations }, null, 2)}</pre></details>
+                {specificationRows.length || variationRows.length ? (
+                  <details className="product-market-details">
+                    <summary>Specifications and variations</summary>
+                    <div className="product-market-detail-groups">
+                      {specificationRows.length ? (
+                        <div><h4>Specifications</h4><dl>{specificationRows.map((row, index) => <div key={`${row.label}-${index}`}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl></div>
+                      ) : null}
+                      {variationRows.length ? (
+                        <div><h4>Variations</h4><dl>{variationRows.map((row, index) => <div key={`${row.label}-${index}`}><dt>{row.label}</dt><dd>{row.value}</dd></div>)}</dl></div>
+                      ) : null}
+                    </div>
+                  </details>
                 ) : null}
               </CardContent>
             </Card>
@@ -1651,7 +1882,6 @@ function ProductMarketSection({
         <Card className="product-market-empty"><EmptyState title={market.refresh.pending ? "Product details are being enriched" : "No Google Shopping profile yet"} description={market.refresh.pending ? "This page updates after the provider result is normalized." : "Open or refresh this product to queue its first market snapshot."} /></Card>
       )}
 
-      <div className="product-observed-heading"><strong>AI answer observations</strong><span>Visibility, prices, and reviews captured in monitored answers.</span></div>
     </>
   );
 }
@@ -1662,8 +1892,14 @@ export function ProductAnalyticsPage() {
   const { productKey: routeProductKey = "" } = useParams();
   const productKey = routeProductKey.trim();
   const [marketLocale, setMarketLocale] = useState("");
-  const [period, setPeriod] =
-    useState<"7d" | "30d" | "90d" | "365d">("7d");
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedPeriod = searchParams.get("period");
+  const period =
+    requestedPeriod === "30d" ||
+    requestedPeriod === "90d" ||
+    requestedPeriod === "365d"
+      ? requestedPeriod
+      : "7d";
   const pageSize = 10;
   const pageScope = `${projectId ?? ""}:${trackingSource}:${productKey}:${period}`;
   const [pagination, setPagination] = useState({
@@ -1770,6 +2006,9 @@ export function ProductAnalyticsPage() {
     : undefined;
   const productImage = detail?.product.images[0];
   const market = detail?.market;
+  const visibilityAxisMax = insightYAxisMax(
+    detail?.visibilityTrend.map((point) => point.appearanceRate) ?? [],
+  );
   const canEditEnrichment = session.user.role !== "viewer";
   const updateSectionOffset = (
     key: "promptOffset" | "merchantOffset",
@@ -1783,71 +2022,77 @@ export function ProductAnalyticsPage() {
       merchantOffset: current.scope === pageScope ? current.merchantOffset : 0,
       [key]: value,
     }));
+  const updatePeriod = (value: "7d" | "30d" | "90d" | "365d") => {
+    const next = new URLSearchParams(searchParams);
+    if (value === "7d") next.delete("period");
+    else next.set("period", value);
+    setSearchParams(next, { replace: true });
+  };
 
   return (
     <div className="page product-analytics-page">
       <Link className="back-link" to="/shopping">
         <ArrowLeft size={14} /> Shopping
       </Link>
-      <PageHeader
-        eyebrow={`Last ${period.replace("d", "")} days`}
-        title={
-          <span className="product-analytics-title">
-            <span className="product-analytics-title-image">
-              {productImage ? (
-                <img src={productImage} alt="" />
-              ) : (
-                <ShoppingBag size={22} />
-              )}
-            </span>
-            <span>{detail?.product.title ?? "Product analytics"}</span>
+      <header className="product-detail-hero">
+        <div className="product-detail-identity">
+          <span className="product-detail-hero-image">
+            {productImage ? <img src={productImage} alt="" /> : <ShoppingBag size={28} />}
           </span>
-        }
-        description={
-          detail
-            ? `${detail.product.merchants ?? detail.product.registrable_domain ?? "Merchant unavailable"} · First seen ${dateTime(detail.summary.firstSeen)} · Latest ${dateTime(detail.summary.latestSeen)}`
-            : "Product visibility, pricing, reviews, prompts, and merchant observations."
-        }
-        action={
-          <div className="product-analytics-header-actions">
-            <div
-              className="product-period-toggle"
-              data-period={period}
-              role="group"
-              aria-label="Report period"
-            >
-              <span className="product-period-indicator" aria-hidden="true" />
-              {(["7d", "30d", "90d", "365d"] as const).map((value) => (
-                <button
-                  aria-pressed={period === value}
-                  className={period === value ? "active" : undefined}
-                  key={value}
-                  onClick={() => setPeriod(value)}
-                  type="button"
-                >
-                  {value.replace("d", " days")}
-                </button>
-              ))}
+          <div className="product-detail-hero-copy">
+            <span className="product-detail-eyebrow"><Sparkles size={13} /> AI product performance</span>
+            <h1>{detail?.product.title ?? "Product analytics"}</h1>
+            <div className="product-detail-status-row">
+              {market?.profile ? <Badge tone="success">Enriched market data</Badge> : market?.refresh.pending ? <Badge tone="warning">Enrichment running</Badge> : <Badge>Observed product</Badge>}
+              <span>{detail?.product.merchants ?? detail?.product.registrable_domain ?? "Merchant unavailable"}</span>
             </div>
-            {productHref ? (
-              <Button asChild variant="secondary">
-                <a href={productHref} target="_blank" rel="noreferrer">
-                  Open product <ExternalLink size={13} />
-                </a>
-              </Button>
-            ) : null}
+            {detail ? (
+              <p>First seen {dateTime(detail.summary.firstSeen)} <span aria-hidden="true">·</span> Latest {dateTime(detail.summary.latestSeen)}</p>
+            ) : <p>Visibility, ranking, competitive context, and market intelligence.</p>}
           </div>
-        }
-      />
+        </div>
+        {productHref ? (
+          <Button asChild variant="secondary">
+            <a href={productHref} target="_blank" rel="noreferrer">Open product <ExternalLink size={13} /></a>
+          </Button>
+        ) : null}
+      </header>
+      <div className="product-detail-toolbar">
+        <nav aria-label="Product detail sections">
+          <a href="#overview">Overview</a>
+          <a href="#competition">Competition</a>
+          <a href="#market-data">Market data</a>
+          <a href="#observations">Observations</a>
+        </nav>
+        <div
+          className="product-period-toggle"
+          data-period={period}
+          role="group"
+          aria-label="Report period"
+        >
+          <span className="product-period-indicator" aria-hidden="true" />
+          {(["7d", "30d", "90d", "365d"] as const).map((value) => (
+            <button
+              aria-pressed={period === value}
+              className={period === value ? "active" : undefined}
+              key={value}
+              onClick={() => updatePeriod(value)}
+              type="button"
+            >
+              {value.replace("d", " days")}
+            </button>
+          ))}
+        </div>
+      </div>
       {query.isPending ? (
         <>
-          <div className="source-summary-grid">
-            {Array.from({ length: 4 }, (_, index) => (
+          <div className="product-metric-grid">
+            {Array.from({ length: 6 }, (_, index) => (
               <Skeleton className="source-summary-skeleton" key={index} />
             ))}
           </div>
-          <div className="product-analytics-charts">
-            {Array.from({ length: 3 }, (_, index) => (
+          <div className="product-performance-grid">
+            {Array.from({ length: 2 }, (_, index) => (
               <Skeleton className="product-chart-skeleton" key={index} />
             ))}
           </div>
@@ -1855,126 +2100,121 @@ export function ProductAnalyticsPage() {
         </>
       ) : detail ? (
         <>
-          {market ? (
-            <ProductMarketSection
-              canEdit={canEditEnrichment}
-              market={market}
-              onLocaleChange={setMarketLocale}
-              onPolicyChange={(enabled) => updateMarketPolicy.mutate(enabled)}
-              onRefresh={() => {
-                if (market.selectedLocale) refreshMarket.mutate(market.selectedLocale);
-              }}
-              policyPending={updateMarketPolicy.isPending}
-              productTitle={detail.product.title}
-              refreshPending={refreshMarket.isPending}
+          <section className="product-detail-section" id="overview">
+            <ProductSectionHeading
+              icon={<Eye size={17} />}
+              title="AI performance"
+              description={`How this product performed across monitored recommendations in the last ${period.replace("d", "")} days.`}
             />
-          ) : null}
-          <div className="source-summary-grid">
-            <Card className="source-summary-card">
-              <span>Appearance rate</span>
-              <strong>{percent(detail.summary.appearanceRate)}</strong>
-              <small>
-                {compact(detail.summary.appearingCaptures)} of{" "}
-                {compact(detail.summary.completedRuns)} captures
-              </small>
-            </Card>
-            <Card className="source-summary-card">
-              <span>Appearances</span>
-              <strong>{compact(detail.summary.appearances)}</strong>
-              <small>
-                {pluralize(detail.summary.prompts, "prompt")} ·{" "}
-                {pluralize(detail.summary.merchants, "merchant label")}
-              </small>
-              <small>
-                Position #{detail.summary.latestPosition} latest ·{" "}
-                {detail.summary.averagePosition === null
-                  ? "average unavailable"
-                  : `#${detail.summary.averagePosition.toFixed(1)} average`}
-              </small>
-            </Card>
-            <Card className="source-summary-card">
-              <span>Latest price</span>
-              <strong>
-                {detail.summary.price
-                  ? observedPrice(
-                      detail.summary.price.latest,
-                      detail.summary.price.currency,
-                    )
-                  : "—"}
-              </strong>
-              <small>
-                {detail.summary.price?.change === null ||
-                detail.summary.price?.change === undefined
-                  ? "No earlier comparable price"
-                  : `${detail.summary.price.change > 0 ? "+" : ""}${observedPrice(
-                      detail.summary.price.change,
-                      detail.summary.price.currency,
-                    )}${
-                      detail.summary.price.changePercent === null
-                        ? ""
-                        : ` (${detail.summary.price.changePercent > 0 ? "+" : ""}${percent(
-                            detail.summary.price.changePercent,
-                          )})`
-                    } in this period`}
-              </small>
-              {detail.summary.price ? (
-                <small>
-                  Range{" "}
-                  {observedPrice(
-                    detail.summary.price.minimum,
-                    detail.summary.price.currency,
-                  )}
-                  –
-                  {observedPrice(
-                    detail.summary.price.maximum,
-                    detail.summary.price.currency,
-                  )}
-                </small>
-              ) : null}
-            </Card>
-            <Card className="source-summary-card">
-              <span>Rating and reviews</span>
-              <strong>
-                {detail.summary.rating?.value ?? "—"}
-                {detail.summary.rating?.maximum
-                  ? `/${detail.summary.rating.maximum}`
-                  : ""}
-              </strong>
-              <small>
-                {detail.summary.rating?.reviews === null ||
-                detail.summary.rating?.reviews === undefined
-                  ? "Review count unavailable"
-                  : `${compact(detail.summary.rating.reviews)} reviews · ${signedCompact(
-                      detail.summary.rating.reviewChange,
-                    )}`}
-              </small>
-            </Card>
-          </div>
-
-          <div className="product-analytics-charts">
-            <Card className="product-chart-card">
-              <CardHeader
-                title="Visibility trend"
-                description="Share of completed captures containing this product."
+            <div className="product-metric-grid">
+              <ProductMetricCard
+                icon={<Eye size={14} />}
+                label="Visibility"
+                value={percent(detail.summary.appearanceRate)}
+                help="The share of completed monitored captures that contained this product."
+                delta={percentagePointDelta(detail.summary.comparison.appearanceRate.delta)}
+                deltaTone={deltaTone(detail.summary.comparison.appearanceRate.delta)}
+                description={`${compact(detail.summary.appearingCaptures)} of ${compact(detail.summary.completedRuns)} captures`}
               />
-              <div className="product-chart">
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <AreaChart
-                    data={detail.visibilityTrend}
-                    margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
-                  >
-                    <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
-                    <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
-                    <YAxis axisLine={false} domain={[0, 100]} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => `${value}%`} tickLine={false} width={40} />
-                    <Tooltip formatter={(value) => [percent(Number(value)), "Appearance rate"]} />
-                    <Area dataKey="appearanceRate" dot={false} fill="#e4e4e7" stroke="#18181b" strokeWidth={2} type="monotone" />
-                  </AreaChart>
-                </ResponsiveContainer>
-              </div>
+              <ProductMetricCard
+                icon={<Trophy size={14} />}
+                label="Win rate"
+                value={percent(detail.summary.winRate)}
+                help="The share of product-containing captures where this product was recommendation #1."
+                delta={percentagePointDelta(detail.summary.comparison.winRate.delta)}
+                deltaTone={deltaTone(detail.summary.comparison.winRate.delta)}
+                description={`${compact(detail.summary.winningCaptures)} #1 wins from ${compact(detail.summary.appearingCaptures)} appearances`}
+              />
+              <ProductMetricCard
+                icon={<Target size={14} />}
+                label="Average position"
+                value={detail.summary.averagePosition === null ? "—" : `#${detail.summary.averagePosition.toFixed(1)}`}
+                help="The product's average recommendation position, counted once per captured response. Lower is better."
+                delta={positionDelta(detail.summary.comparison.averagePosition.delta)}
+                deltaTone={deltaTone(detail.summary.comparison.averagePosition.delta, true)}
+                description={`Latest position #${detail.summary.latestPosition}`}
+              />
+              <ProductMetricCard
+                icon={<ChartNoAxesColumn size={14} />}
+                label="Appearances"
+                value={compact(detail.summary.appearances)}
+                help="Every captured occurrence of this product in monitored shopping recommendations."
+                delta={`${detail.summary.comparison.appearances.delta > 0 ? "+" : ""}${compact(detail.summary.comparison.appearances.delta)} vs previous period`}
+                deltaTone={deltaTone(detail.summary.comparison.appearances.delta)}
+                description={`${pluralize(detail.summary.prompts, "prompt")} · ${pluralize(detail.summary.merchants, "merchant label")}`}
+              />
+              <ProductMetricCard
+                icon={<Store size={14} />}
+                label="Observed price"
+                value={detail.summary.price ? observedPrice(detail.summary.price.latest, detail.summary.price.currency) : "—"}
+                help="The latest price shown in a monitored AI response, which may differ from the enriched market price."
+                delta={detail.summary.comparison.price?.delta === null || detail.summary.comparison.price?.delta === undefined ? "No comparable previous price" : `${detail.summary.comparison.price.delta > 0 ? "+" : ""}${observedPrice(detail.summary.comparison.price.delta, detail.summary.comparison.price.currency)} vs previous period`}
+                deltaTone="neutral"
+                description={detail.summary.price ? `Range ${observedPrice(detail.summary.price.minimum, detail.summary.price.currency)}–${observedPrice(detail.summary.price.maximum, detail.summary.price.currency)}` : "Price was not included in captured responses"}
+              />
+              <ProductMetricCard
+                icon={<Star size={14} />}
+                label="Rating and reviews"
+                value={detail.summary.rating?.value === null || detail.summary.rating?.value === undefined ? "—" : `${detail.summary.rating.value}${detail.summary.rating.maximum ? `/${detail.summary.rating.maximum}` : ""}`}
+                help="The latest rating and review count observed in monitored AI responses."
+                delta={detail.summary.comparison.rating?.reviewsDelta === null || detail.summary.comparison.rating?.reviewsDelta === undefined ? "No previous review count" : `${detail.summary.comparison.rating.reviewsDelta > 0 ? "+" : ""}${compact(detail.summary.comparison.rating.reviewsDelta)} reviews vs previous period`}
+                deltaTone={deltaTone(detail.summary.comparison.rating?.reviewsDelta ?? null)}
+                description={detail.summary.rating?.reviews === null || detail.summary.rating?.reviews === undefined ? "Review count unavailable" : `${compact(detail.summary.rating.reviews)} reviews`}
+              />
+            </div>
+
+            <div className="product-performance-grid">
+              <Card className="product-chart-card product-visibility-card">
+                <CardHeader title="Visibility and win rate" description="Visibility measures reach; win rate measures how often the product ranked #1 when shown." />
+                <div className="product-chart-legend" aria-hidden="true"><span className="is-visibility">Visibility</span><span className="is-win">Win rate</span></div>
+                <div className="product-chart product-performance-chart">
+                  <ResponsiveContainer width="100%" height="100%" minWidth={0}>
+                    <LineChart data={detail.visibilityTrend} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+                      <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+                      <XAxis axisLine={false} dataKey="date" minTickGap={30} tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
+                      <YAxis axisLine={false} domain={[0, visibilityAxisMax]} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => `${value}%`} tickLine={false} width={40} yAxisId="visibility" />
+                      <YAxis axisLine={false} domain={[0, 100]} orientation="right" tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => `${value}%`} tickLine={false} width={40} yAxisId="winRate" />
+                      <Tooltip formatter={(value, name) => [percent(Number(value)), String(name)]} />
+                      <Line dataKey="appearanceRate" dot={false} name="Visibility" stroke="#1e73be" strokeWidth={2.5} type="monotone" yAxisId="visibility" />
+                      <Line connectNulls={false} dataKey="winRate" dot={{ r: 2 }} name="Win rate" stroke="#1f9d70" strokeWidth={2.5} type="monotone" yAxisId="winRate" />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </div>
+              </Card>
+              <Card className="product-cofeatured-card">
+                <CardHeader title="Co-featured products" description="Products appearing in the same AI responses as this product." action={<span className="table-total">{pluralize(detail.competition.coFeatured.length, "product")}</span>} />
+                {detail.competition.coFeatured.length ? (
+                  <div className="product-cofeatured-list">
+                    {detail.competition.coFeatured.map((competitor) => (
+                      <Link className="product-cofeatured-row" key={competitor.product.productKey} to={`/shopping/${competitor.product.productKey}?period=${period}`}>
+                        <span className="product-cofeatured-image">{competitor.product.images[0] ? <img alt="" src={competitor.product.images[0]} /> : <ShoppingBag size={15} />}</span>
+                        <span className="product-cofeatured-copy">
+                          <strong>{competitor.product.title ?? "Untitled product"}</strong>
+                          <span><i style={{ width: `${Math.max(3, competitor.coFeatureRate)}%` }} /></span>
+                          <small>{compact(competitor.coFeaturedCaptures)} shared captures · {competitor.averagePosition === null ? "Position unavailable" : `#${competitor.averagePosition.toFixed(1)} average`}</small>
+                        </span>
+                        <b>{percent(competitor.coFeatureRate)}</b>
+                        <ChevronRight size={15} />
+                      </Link>
+                    ))}
+                  </div>
+                ) : <EmptyState title="No co-featured products" description="No other products appeared alongside this product in the selected period." />}
+              </Card>
+            </div>
+          </section>
+
+          <section className="product-detail-section" id="competition">
+            <ProductSectionHeading icon={<Trophy size={17} />} title="Competitive position" description="How consistently this product ranks against recommendations shown in the same AI answers." />
+            <Card className="product-rank-card">
+              <CardHeader title="Position distribution" description="The box shows the middle 50% of positions; the line marks the median and whiskers show the full observed range." />
+              <RankComparisonChart competition={detail.competition} product={detail.product} />
             </Card>
+          </section>
+
+          <div className="product-supporting-trends">
             <Card className="product-chart-card">
               <CardHeader
-                title="Price history"
+                title="Observed price history"
                 description="Latest displayed price each day, separated by currency."
               />
               <div className="product-chart">
@@ -2025,6 +2265,25 @@ export function ProductAnalyticsPage() {
               </div>
             </Card>
           </div>
+
+          <section className="product-detail-section" id="market-data">
+            <ProductSectionHeading icon={<Store size={17} />} title="Google Shopping market data" description="Catalog details, sellers, availability, and market pricing from the selected Google Shopping locale." />
+            {market ? (
+              <ProductMarketSection
+                canEdit={canEditEnrichment}
+                market={market}
+                onLocaleChange={setMarketLocale}
+                onPolicyChange={(enabled) => updateMarketPolicy.mutate(enabled)}
+                onRefresh={() => { if (market.selectedLocale) refreshMarket.mutate(market.selectedLocale); }}
+                policyPending={updateMarketPolicy.isPending}
+                productTitle={detail.product.title}
+                refreshPending={refreshMarket.isPending}
+              />
+            ) : null}
+          </section>
+
+          <section className="product-detail-section" id="observations">
+            <ProductSectionHeading icon={<ChartNoAxesColumn size={17} />} title="Prompts and observations" description="The monitored prompts, merchant labels, and captured responses behind these metrics." />
 
           <Card className="product-detail-table">
             <CardHeader
@@ -2194,12 +2453,18 @@ export function ProductAnalyticsPage() {
               </div>
             ) : null}
           </Card>
+          </section>
         </>
       ) : (
         <Card>
           <EmptyState
             title="Product unavailable"
             description="This product has no observations in the selected period."
+            action={period === "365d" ? undefined : (
+              <Button onClick={() => updatePeriod(period === "7d" ? "30d" : period === "30d" ? "90d" : "365d")} variant="secondary">
+                Try a wider period
+              </Button>
+            )}
           />
         </Card>
       )}

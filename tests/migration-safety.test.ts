@@ -30,4 +30,18 @@ describe("control database migrations", () => {
     expect(sql).not.toMatch(/DROP TABLE/i);
     expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
   });
+
+  it("adds the product competition lookup index without rebuilding analytics data", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0019_product_competition_index.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/CREATE INDEX IF NOT EXISTS/i);
+    expect(sql).toMatch(
+      /analytics_product_occurrences\s*\(\s*project_id,\s*snapshot_id,\s*ordinal,\s*product_row_id/is,
+    );
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
 });

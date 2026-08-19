@@ -28,7 +28,10 @@ import {
   buildBrandComparison,
   buildPromptSetEvents,
   mergeBillingReports,
+  positionDistribution,
+  productAnalyticsComparisonDateRange,
   productAnalyticsDateRange,
+  productCapturePositions,
   productIdentity,
   productIdentityFromKey,
   productKey,
@@ -36,6 +39,7 @@ import {
   relatedQueryFromKey,
   relatedQueryKey,
   summarizeProductPrices,
+  summarizeProductPerformance,
   type BillingDailyRow,
   type SourceBrandMentionDailyRow,
   type PromptSetAuditRow,
@@ -475,6 +479,65 @@ async function loadReadModelShoppingProductOccurrences(
   return result.results;
 }
 
+async function loadReadModelCoFeaturedProductOccurrences(
+  env: Env,
+  projectId: string,
+  startTimestamp: string,
+  endExclusiveTimestamp: string,
+  identity: string,
+  source: TrackingSource = "chatgpt",
+): Promise<ShoppingProductOccurrence[]> {
+  const result = await env.CONTROL_DB.prepare(
+    `SELECT
+      product.product_row_id AS id,
+      product.snapshot_id,
+      product.tracked_query_id,
+      query.query_text AS keyword,
+      query.location_code,
+      query.language_code,
+      product.ordinal,
+      product.rank_absolute,
+      product.provider_product_id,
+      product.merchants,
+      product.title,
+      product.price,
+      product.currency,
+      product.tag,
+      product.raw_url,
+      product.canonical_url,
+      product.registrable_domain,
+      product.rating_value,
+      product.rating_votes_count,
+      product.rating_max,
+      product.images_json,
+      product.product_ids_json,
+      product.captured_at
+     FROM analytics_product_occurrences product
+     JOIN tracked_queries query ON query.id = product.tracked_query_id
+     JOIN analytics_snapshot_facts fact ON fact.snapshot_id = product.snapshot_id
+     WHERE product.project_id = ?
+       AND fact.tracking_source = ?
+       AND product.captured_at >= ?
+       AND product.captured_at < ?
+       AND EXISTS (
+         SELECT 1 FROM analytics_product_occurrences target
+         WHERE target.project_id = product.project_id
+           AND target.snapshot_id = product.snapshot_id
+           AND target.product_identity = ?
+       )
+     ORDER BY product.captured_at DESC, product.product_row_id DESC`,
+  )
+    .bind(
+      projectId,
+      source,
+      startTimestamp,
+      endExclusiveTimestamp,
+      identity,
+    )
+    .all<ShoppingProductOccurrence>();
+  return result.results;
+}
+
 type CitationSourceOccurrence = {
   snapshot_id: string;
   tracked_query_id: string;
@@ -533,6 +596,78 @@ function serializedShoppingProduct(
     images: jsonParse<string[]>(product.images_json, []),
     product_ids: jsonParse<unknown[]>(product.product_ids_json, []),
     latestSeen: product.captured_at,
+  };
+}
+
+export function buildProductCompetition(
+  identity: string,
+  targetOccurrences: ShoppingProductOccurrence[],
+  coFeaturedOccurrences: ShoppingProductOccurrence[],
+) {
+  const targetPositions = productCapturePositions(targetOccurrences);
+  const groups = new Map<string, ShoppingProductOccurrence[]>();
+  for (const occurrence of coFeaturedOccurrences) {
+    if (!targetPositions.has(occurrence.snapshot_id)) continue;
+    const occurrenceIdentity = productIdentity(occurrence);
+    if (occurrenceIdentity === identity) continue;
+    groups.set(occurrenceIdentity, [
+      ...(groups.get(occurrenceIdentity) ?? []),
+      occurrence,
+    ]);
+  }
+  const coFeatured = [...groups.entries()]
+    .map(([competitorIdentity, occurrences]) => {
+      const ordered = [...occurrences].sort(
+        (left, right) =>
+          right.captured_at.localeCompare(left.captured_at) ||
+          right.id.localeCompare(left.id),
+      );
+      const positions = [...productCapturePositions(ordered).values()];
+      const winningCaptures = positions.filter((position) => position === 1).length;
+      return {
+        identity: competitorIdentity,
+        product: serializedShoppingProduct({
+          ...ordered[0]!,
+          appearances: ordered.length,
+        }),
+        appearances: ordered.length,
+        coFeaturedCaptures: positions.length,
+        coFeatureRate: targetPositions.size
+          ? (positions.length / targetPositions.size) * 100
+          : 0,
+        winningCaptures,
+        winRate: positions.length
+          ? (winningCaptures / positions.length) * 100
+          : 0,
+        averagePosition: positions.length
+          ? positions.reduce((sum, position) => sum + position, 0) /
+            positions.length
+          : null,
+        distribution: positionDistribution(positions),
+      };
+    })
+    .sort(
+      (left, right) =>
+        right.coFeaturedCaptures - left.coFeaturedCaptures ||
+        (left.averagePosition ?? Number.POSITIVE_INFINITY) -
+          (right.averagePosition ?? Number.POSITIVE_INFINITY) ||
+        right.product.latestSeen.localeCompare(left.product.latestSeen) ||
+        left.identity.localeCompare(right.identity),
+    )
+    .slice(0, 8)
+    .map((competitor) => ({
+      product: competitor.product,
+      appearances: competitor.appearances,
+      coFeaturedCaptures: competitor.coFeaturedCaptures,
+      coFeatureRate: competitor.coFeatureRate,
+      winningCaptures: competitor.winningCaptures,
+      winRate: competitor.winRate,
+      averagePosition: competitor.averagePosition,
+      distribution: competitor.distribution,
+    }));
+  return {
+    current: positionDistribution(targetPositions.values()),
+    coFeatured,
   };
 }
 
@@ -3197,12 +3332,13 @@ analyticsRoutes.get(
       throw new ApiError(404, "product_not_found", "Product not found.");
     }
     const dates = productAnalyticsDateRange(input.period);
+    const previousDates = productAnalyticsComparisonDateRange(input.period);
     const readModelReady = await analyticsReadModelReady(
       c.env,
       input.projectId,
       c.get("timing"),
     );
-    const [indexes, projectMetrics] = await Promise.all([
+    const [indexes, projectMetrics, previousIndexes, previousProjectMetrics] = await Promise.all([
       readModelReady
         ? Promise.resolve({ results: [] as ProductSnapshotIndex[] })
         : c.env.CONTROL_DB.prepare(
@@ -3228,27 +3364,79 @@ analyticsRoutes.get(
       )
         .bind(input.projectId, input.source, dates.from, dates.to)
         .all<{ metric_date: string; completed_runs: number }>(),
-    ]);
-    const occurrences = (
       readModelReady
-        ? await c
-            .get("timing")
-            .measure("analytics_read_model", () =>
-              loadReadModelShoppingProductOccurrences(
-                c.env,
-                input.projectId,
-                dates.startTimestamp,
-                dates.endExclusiveTimestamp,
-                identity,
-                input.source,
-              ),
+        ? Promise.resolve({ results: [] as ProductSnapshotIndex[] })
+        : c.env.CONTROL_DB.prepare(
+            `SELECT id, shard_id FROM snapshot_index
+             WHERE project_id = ? AND tracking_source = ?
+               AND captured_at >= ? AND captured_at < ?
+               AND products_count > 0
+             ORDER BY captured_at DESC`,
+          )
+            .bind(
+              input.projectId,
+              input.source,
+              previousDates.startTimestamp,
+              previousDates.endExclusiveTimestamp,
             )
-        : await c
-            .get("timing")
-            .measure("legacy_shards", () =>
-              loadShoppingProductOccurrences(c.env, indexes.results, identity),
-            )
-    )
+            .all<ProductSnapshotIndex>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT metric_date, completed_runs
+         FROM daily_source_project_metrics
+         WHERE project_id = ? AND tracking_source = ?
+           AND metric_date BETWEEN ? AND ?
+         ORDER BY metric_date`,
+      )
+        .bind(
+          input.projectId,
+          input.source,
+          previousDates.from,
+          previousDates.to,
+        )
+        .all<{ metric_date: string; completed_runs: number }>(),
+    ]);
+    const [currentOccurrenceRows, previousOccurrenceRows] = await Promise.all([
+      readModelReady
+        ? c.get("timing").measure("analytics_read_model", () =>
+            loadReadModelShoppingProductOccurrences(
+              c.env,
+              input.projectId,
+              dates.startTimestamp,
+              dates.endExclusiveTimestamp,
+              identity,
+              input.source,
+            ),
+          )
+        : c.get("timing").measure("legacy_shards", () =>
+            loadShoppingProductOccurrences(c.env, indexes.results, identity),
+          ),
+      readModelReady
+        ? c.get("timing").measure("analytics_comparison_read_model", () =>
+            loadReadModelShoppingProductOccurrences(
+              c.env,
+              input.projectId,
+              previousDates.startTimestamp,
+              previousDates.endExclusiveTimestamp,
+              identity,
+              input.source,
+            ),
+          )
+        : c.get("timing").measure("legacy_comparison_shards", () =>
+            loadShoppingProductOccurrences(
+              c.env,
+              previousIndexes.results,
+              identity,
+            ),
+          ),
+    ]);
+    const occurrences = currentOccurrenceRows
+      .filter((occurrence) => productIdentity(occurrence) === identity)
+      .sort(
+        (left, right) =>
+          right.captured_at.localeCompare(left.captured_at) ||
+          right.id.localeCompare(left.id),
+      );
+    const previousOccurrences = previousOccurrenceRows
       .filter((occurrence) => productIdentity(occurrence) === identity)
       .sort(
         (left, right) =>
@@ -3273,8 +3461,14 @@ analyticsRoutes.get(
       (total, value) => total + value,
       0,
     );
-    const appearingSnapshots = new Set(
-      occurrences.map((occurrence) => occurrence.snapshot_id),
+    const previousCompletedRuns = previousProjectMetrics.results.reduce(
+      (total, metric) => total + (Number(metric.completed_runs) || 0),
+      0,
+    );
+    const performance = summarizeProductPerformance(occurrences, completedRuns);
+    const previousPerformance = summarizeProductPerformance(
+      previousOccurrences,
+      previousCompletedRuns,
     );
     const promptIds = new Set(
       occurrences.map((occurrence) => occurrence.tracked_query_id),
@@ -3287,11 +3481,9 @@ analyticsRoutes.get(
         )
         .filter((value): value is string => Boolean(value)),
     );
-    const positions = occurrences
-      .map((occurrence) => occurrence.ordinal + 1)
-      .filter((position) => Number.isFinite(position));
     const latest = occurrences[0]!;
     const priceSummary = summarizeProductPrices(occurrences);
+    const previousPriceSummary = summarizeProductPrices(previousOccurrences);
     const latestRatingOccurrence = occurrences.find(
       (occurrence) =>
         occurrence.rating_value !== null ||
@@ -3335,6 +3527,23 @@ analyticsRoutes.get(
               : null,
         }
       : null;
+    const previousRatingOccurrence = previousOccurrences.find(
+      (occurrence) =>
+        occurrence.rating_value !== null ||
+        occurrence.rating_votes_count !== null,
+    );
+    const comparablePreviousPrice =
+      priceSummary &&
+      previousPriceSummary &&
+      priceSummary.currency === previousPriceSummary.currency
+        ? previousPriceSummary.latest
+        : null;
+    const comparablePreviousRating =
+      ratingSummary &&
+      previousRatingOccurrence &&
+      ratingSummary.maximum === previousRatingOccurrence.rating_max
+        ? previousRatingOccurrence.rating_value
+        : null;
 
     const dailyOccurrences = new Map<string, ShoppingProductOccurrence[]>();
     for (const occurrence of occurrences) {
@@ -3348,8 +3557,10 @@ analyticsRoutes.get(
       date: string;
       completedRuns: number;
       appearingCaptures: number;
+      winningCaptures: number;
       appearances: number;
       appearanceRate: number;
+      winRate: number | null;
       averagePosition: number | null;
     }> = [];
     const priceTrend: Array<{
@@ -3372,23 +3583,22 @@ analyticsRoutes.get(
       const day = (dailyOccurrences.get(date) ?? []).sort((left, right) =>
         right.captured_at.localeCompare(left.captured_at),
       );
-      const dayCaptures = new Set(
-        day.map((occurrence) => occurrence.snapshot_id),
-      ).size;
-      const dayPositions = day.map((occurrence) => occurrence.ordinal + 1);
       const dayCompletedRuns = completedByDate.get(date) ?? 0;
+      const dayPerformance = summarizeProductPerformance(
+        day,
+        dayCompletedRuns,
+      );
       visibilityTrend.push({
         date,
         completedRuns: dayCompletedRuns,
-        appearingCaptures: dayCaptures,
-        appearances: day.length,
-        appearanceRate: dayCompletedRuns
-          ? (dayCaptures / dayCompletedRuns) * 100
-          : 0,
-        averagePosition: dayPositions.length
-          ? dayPositions.reduce((sum, value) => sum + value, 0) /
-            dayPositions.length
+        appearingCaptures: dayPerformance.appearingCaptures,
+        winningCaptures: dayPerformance.winningCaptures,
+        appearances: dayPerformance.appearances,
+        appearanceRate: dayPerformance.appearanceRate,
+        winRate: dayPerformance.appearingCaptures
+          ? dayPerformance.winRate
           : null,
+        averagePosition: dayPerformance.averagePosition,
       });
       const pricesByCurrency = new Map<
         string,
@@ -3591,16 +3801,43 @@ analyticsRoutes.get(
     );
     const occurrencePage = occurrenceCandidates.slice(0, input.limit);
     const lastOccurrence = occurrencePage.at(-1);
-    const market = await loadProductMarket(
-      c.env,
-      input.projectId,
+    const targetSnapshotIds = new Set(
+      occurrences.map((occurrence) => occurrence.snapshot_id),
+    );
+    const [market, coFeaturedOccurrences] = await Promise.all([
+      loadProductMarket(
+        c.env,
+        input.projectId,
+        identity,
+        dates,
+        occurrences,
+        {
+          locationCode: input.marketLocationCode,
+          languageCode: input.marketLanguageCode,
+        },
+      ),
+      readModelReady
+        ? c.get("timing").measure("analytics_product_competition", () =>
+            loadReadModelCoFeaturedProductOccurrences(
+              c.env,
+              input.projectId,
+              dates.startTimestamp,
+              dates.endExclusiveTimestamp,
+              identity,
+              input.source,
+            ),
+          )
+        : c.get("timing").measure("legacy_product_competition", () =>
+            loadShoppingProductOccurrences(
+              c.env,
+              indexes.results.filter((index) => targetSnapshotIds.has(index.id)),
+            ),
+          ),
+    ]);
+    const competition = buildProductCompetition(
       identity,
-      dates,
       occurrences,
-      {
-        locationCode: input.marketLocationCode,
-        languageCode: input.marketLanguageCode,
-      },
+      coFeaturedOccurrences,
     );
     return c.json({
       data: {
@@ -3608,28 +3845,99 @@ analyticsRoutes.get(
         range: { from: dates.from, to: dates.to, period: input.period },
         summary: {
           completedRuns,
-          appearingCaptures: appearingSnapshots.size,
-          appearanceRate: completedRuns
-            ? (appearingSnapshots.size / completedRuns) * 100
-            : 0,
-          appearances: occurrences.length,
+          appearingCaptures: performance.appearingCaptures,
+          winningCaptures: performance.winningCaptures,
+          appearanceRate: performance.appearanceRate,
+          winRate: performance.winRate,
+          appearances: performance.appearances,
           prompts: promptIds.size,
           merchants: merchantLabels.size,
           firstSeen: occurrences.at(-1)?.captured_at ?? latest.captured_at,
           latestSeen: latest.captured_at,
           latestPosition: latest.ordinal + 1,
-          averagePosition: positions.length
-            ? positions.reduce((sum, value) => sum + value, 0) /
-              positions.length
-            : null,
+          averagePosition: performance.averagePosition,
           price: priceSummary,
           rating: ratingSummary,
+          comparison: {
+            range: {
+              from: previousDates.from,
+              to: previousDates.to,
+            },
+            appearanceRate: {
+              previous: previousCompletedRuns
+                ? previousPerformance.appearanceRate
+                : null,
+              delta: previousCompletedRuns
+                ? performance.appearanceRate -
+                  previousPerformance.appearanceRate
+                : null,
+            },
+            winRate: {
+              previous: previousPerformance.appearingCaptures
+                ? previousPerformance.winRate
+                : null,
+              delta: previousPerformance.appearingCaptures
+                ? performance.winRate - previousPerformance.winRate
+                : null,
+            },
+            averagePosition: {
+              previous: previousPerformance.averagePosition,
+              delta:
+                performance.averagePosition !== null &&
+                previousPerformance.averagePosition !== null
+                  ? performance.averagePosition -
+                    previousPerformance.averagePosition
+                  : null,
+            },
+            appearances: {
+              previous: previousPerformance.appearances,
+              delta:
+                performance.appearances - previousPerformance.appearances,
+            },
+            price: priceSummary
+              ? {
+                  currency: priceSummary.currency,
+                  previous: comparablePreviousPrice,
+                  delta:
+                    comparablePreviousPrice === null ||
+                    priceSummary.latest === null
+                      ? null
+                      : priceSummary.latest - comparablePreviousPrice,
+                  deltaPercent:
+                    comparablePreviousPrice && priceSummary.latest !== null
+                      ? ((priceSummary.latest - comparablePreviousPrice) /
+                          comparablePreviousPrice) *
+                        100
+                      : null,
+                }
+              : null,
+            rating: ratingSummary
+              ? {
+                  previousValue: comparablePreviousRating,
+                  valueDelta:
+                    comparablePreviousRating === null ||
+                    ratingSummary.value === null
+                      ? null
+                      : ratingSummary.value - comparablePreviousRating,
+                  previousReviews:
+                    previousRatingOccurrence?.rating_votes_count ?? null,
+                  reviewsDelta:
+                    previousRatingOccurrence?.rating_votes_count === null ||
+                    previousRatingOccurrence?.rating_votes_count === undefined ||
+                    ratingSummary.reviews === null
+                      ? null
+                      : ratingSummary.reviews -
+                        previousRatingOccurrence.rating_votes_count,
+                }
+              : null,
+          },
         },
         visibilityTrend,
         priceTrend,
         reviewTrend,
         prompts,
         merchants,
+        competition,
         market,
         occurrences: occurrencePage.map((occurrence) => ({
           id: occurrence.id,
