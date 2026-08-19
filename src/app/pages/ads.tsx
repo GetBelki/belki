@@ -37,6 +37,7 @@ import { useApp } from "../context";
 import { api } from "../lib/api";
 import { LOCATION_OPTIONS, localeLabel } from "../lib/locale-catalog";
 import { compact, dateTime, percent } from "../lib/utils";
+import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
 
 type AdPeriod = "7d" | "30d" | "90d" | "365d";
 type AdRelationship = "owned" | "competitor" | "untracked";
@@ -272,7 +273,7 @@ function CreativeCard({ creative }: { creative: AdCreative }) {
 }
 
 export function AdsPage() {
-  const { projectId, currentProject } = useApp();
+  const { projectId, currentProject, trackingSource } = useApp();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const period = periodValue(searchParams.get("period"));
@@ -285,20 +286,26 @@ export function AdsPage() {
     queryFn: () => api<PromptTag[]>(`/projects/${projectId}/tags`),
     enabled: Boolean(projectId),
   });
-  const params = new URLSearchParams({ projectId: projectId ?? "", period });
+  const params = new URLSearchParams({
+    projectId: projectId ?? "",
+    source: trackingSource,
+    period,
+  });
   if (search) params.set("search", search);
   if (country) params.set("locationCode", country);
   if (relationship) params.set("relationship", relationship);
   if (selectedTagIds.length) params.set("tagIds", selectedTagIds.join(","));
   const query = useQuery({
-    queryKey: ["ads", projectId, period, search, country, relationship, selectedTagIds.join(",")],
+    queryKey: ["ads", projectId, trackingSource, period, search, country, relationship, selectedTagIds.join(",")],
     queryFn: () => api<AdsOverview>(`/analytics/ads?${params}`),
     enabled: Boolean(projectId),
     placeholderData: (previous) => previous,
   });
   if (!projectId) return <NoProject />;
   const data = query.data;
-  const projectHasAds = Number(currentProject?.ads_count ?? 0) > 0;
+  const projectHasAds = Number(
+    currentProject?.source_data_counts?.[trackingSource]?.ads ?? 0,
+  ) > 0;
   const hasTrendActivity = Boolean(data?.trend.some((row) => row.servedAppearances > 0));
   const noAdsDetected = !query.isPending
     && !query.isError
@@ -315,14 +322,14 @@ export function AdsPage() {
       <PageHeader
         eyebrow={PERIOD_OPTIONS.find((option) => option.value === period)?.label}
         title="Ads"
-        description="Rendered ChatGPT ads, with served-but-hidden placements retained for diagnostics."
+        description={`Rendered ${TRACKING_SOURCE_LABELS[trackingSource]} ads, with served-but-hidden placements retained for diagnostics.`}
         action={<div className="ads-period-select"><Select value={period} onValueChange={(value) => update("period", value)} options={PERIOD_OPTIONS} /></div>}
       />
       {noAdsDetected ? (
         <Card className="ads-empty-card">
           <EmptyState
             title="No ads detected yet"
-            description="This section will appear in navigation automatically after a captured ChatGPT response contains a sponsored result."
+            description={`This source will appear here automatically after a captured ${TRACKING_SOURCE_LABELS[trackingSource]} response contains a sponsored result.`}
           />
         </Card>
       ) : (
@@ -429,7 +436,7 @@ export function AdsPage() {
 }
 
 export function AdvertiserDetailPage() {
-  const { projectId } = useApp();
+  const { projectId, trackingSource } = useApp();
   const { advertiserKey } = useParams();
   const [searchParams, setSearchParams] = useSearchParams();
   const period = periodValue(searchParams.get("period"));
@@ -440,8 +447,8 @@ export function AdvertiserDetailPage() {
     setSearchParams(next, { replace: true });
   };
   const query = useQuery({
-    queryKey: ["advertiser-ads", projectId, advertiserKey, period],
-    queryFn: () => api<AdvertiserDetail>(`/analytics/ads/${advertiserKey}?projectId=${projectId}&period=${period}`),
+    queryKey: ["advertiser-ads", projectId, advertiserKey, trackingSource, period],
+    queryFn: () => api<AdvertiserDetail>(`/analytics/ads/${advertiserKey}?projectId=${projectId}&source=${trackingSource}&period=${period}`),
     enabled: Boolean(projectId && advertiserKey),
   });
   if (!projectId) return <NoProject />;

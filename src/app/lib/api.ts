@@ -1,3 +1,5 @@
+import type { TrackingSource } from "../../shared/tracking-sources";
+
 export class ApiClientError extends Error {
   constructor(
     message: string,
@@ -107,6 +109,10 @@ export interface Project {
   last_snapshot_at: string | null;
   ads_count: number;
   products_count: number;
+  source_data_counts?: Partial<Record<TrackingSource, {
+    ads: number;
+    products: number;
+  }>>;
 }
 
 export interface Session {

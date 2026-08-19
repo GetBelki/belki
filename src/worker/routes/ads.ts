@@ -8,6 +8,7 @@ import {
   type AnalyticsReadModelState,
 } from "../lib/analytics-read-model";
 import { ApiError, exclusiveDateEnd } from "../lib/http";
+import { TrackingSourceSchema } from "../../shared/contracts";
 
 const PeriodSchema = z.enum(["7d", "30d", "90d", "365d"]);
 const TagIdsSchema = z
@@ -22,6 +23,7 @@ const TagIdsSchema = z
   );
 const AdsQuerySchema = z.object({
   projectId: z.string().uuid(),
+  source: TrackingSourceSchema.default("chatgpt"),
   period: PeriodSchema.default("30d"),
   search: z.string().trim().max(200).optional(),
   locationCode: z.coerce.number().int().optional(),
@@ -65,10 +67,16 @@ function filters(input: AdsQuery, advertiserIdentity?: string) {
   const range = dateRange(input.period);
   const clauses = [
     "ad.project_id = ?",
+    "fact.tracking_source = ?",
     "ad.captured_at >= ?",
     "ad.captured_at < ?",
   ];
-  const bindings: SqlBinding[] = [input.projectId, range.start, range.end];
+  const bindings: SqlBinding[] = [
+    input.projectId,
+    input.source,
+    range.start,
+    range.end,
+  ];
   if (input.locationCode !== undefined) {
     clauses.push("query.location_code = ?");
     bindings.push(input.locationCode);
@@ -108,10 +116,16 @@ function completedFilters(input: AdsQuery) {
   const range = dateRange(input.period);
   const clauses = [
     "fact.project_id = ?",
+    "fact.tracking_source = ?",
     "fact.captured_at >= ?",
     "fact.captured_at < ?",
   ];
-  const bindings: SqlBinding[] = [input.projectId, range.start, range.end];
+  const bindings: SqlBinding[] = [
+    input.projectId,
+    input.source,
+    range.start,
+    range.end,
+  ];
   if (input.locationCode !== undefined) {
     clauses.push("query.location_code = ?");
     bindings.push(input.locationCode);
@@ -211,6 +225,7 @@ adsRoutes.get(
     const completed = completedFilters(input);
     const fromSql = `
       FROM analytics_ad_occurrences ad
+      JOIN analytics_snapshot_facts fact ON fact.snapshot_id = ad.snapshot_id
       JOIN tracked_queries query ON query.id = ad.tracked_query_id
       LEFT JOIN ad_assets image ON image.source_url = ad.image_source_url
       LEFT JOIN ad_assets favicon ON favicon.source_url = ad.favicon_source_url
@@ -449,6 +464,7 @@ adsRoutes.get(
     const filtered = filters(input, identity);
     const fromSql = `
       FROM analytics_ad_occurrences ad
+      JOIN analytics_snapshot_facts fact ON fact.snapshot_id = ad.snapshot_id
       JOIN tracked_queries query ON query.id = ad.tracked_query_id
       LEFT JOIN ad_assets image ON image.source_url = ad.image_source_url
       LEFT JOIN ad_assets favicon ON favicon.source_url = ad.favicon_source_url
@@ -514,9 +530,12 @@ adsRoutes.get(
           MAX(CASE WHEN ad.is_rendered = 1 THEN ad.captured_at END) AS latest_rendered,
           MAX(ad.captured_at) AS latest_served,
           (SELECT latest.snapshot_id FROM analytics_ad_occurrences latest
+           JOIN analytics_snapshot_facts latest_fact
+             ON latest_fact.snapshot_id = latest.snapshot_id
            WHERE latest.project_id = ad.project_id
              AND latest.tracked_query_id = ad.tracked_query_id
              AND latest.advertiser_identity = ad.advertiser_identity
+             AND latest_fact.tracking_source = fact.tracking_source
            ORDER BY latest.is_rendered DESC, latest.captured_at DESC LIMIT 1) AS latest_snapshot_id
          ${fromSql}
          GROUP BY ad.tracked_query_id, ad.project_id, ad.advertiser_identity

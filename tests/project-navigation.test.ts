@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   projectDataNavigationVisible,
   projectChangeDestination,
+  trackingSourcesForPath,
   trackingSourceChangeDestination,
 } from "../src/app/lib/project-navigation";
 
@@ -63,6 +64,38 @@ describe("project navigation", () => {
 });
 
 describe("tracking source navigation", () => {
+  it("shows only sources with Shopping data on Shopping routes", () => {
+    expect(trackingSourcesForPath(
+      "/shopping",
+      ["chatgpt", "gemini", "google_ai_mode", "google_ai_overview"],
+      {
+        chatgpt: { ads: 2, products: 8 },
+        gemini: { ads: 0, products: 0 },
+        google_ai_mode: { ads: 0, products: 3 },
+      },
+    )).toEqual(["chatgpt", "google_ai_mode"]);
+  });
+
+  it("shows only sources with Ads data on Ads routes", () => {
+    expect(trackingSourcesForPath(
+      "/ads/advertiser-key",
+      ["chatgpt", "gemini", "google_ai_mode"],
+      {
+        chatgpt: { ads: 4, products: 2 },
+        gemini: { ads: 0, products: 7 },
+        google_ai_mode: { ads: 1, products: 0 },
+      },
+    )).toEqual(["chatgpt", "google_ai_mode"]);
+  });
+
+  it("keeps every enabled source on non-commerce routes", () => {
+    expect(trackingSourcesForPath(
+      "/prompts",
+      ["chatgpt", "gemini"],
+      {},
+    )).toEqual(["chatgpt", "gemini"]);
+  });
+
   it.each([
     "/prompts/query-1/snapshots/snapshot-1",
     "/queries/query-1/snapshots/snapshot-1",
@@ -76,6 +109,13 @@ describe("tracking source navigation", () => {
     expect(trackingSourceChangeDestination("/snapshots/snapshot-1")).toBe(
       "/snapshots",
     );
+  });
+
+  it.each([
+    ["/shopping/product-key", "/shopping"],
+    ["/ads/advertiser-key", "/ads"],
+  ])("returns to the list when changing source from %s", (pathname, destination) => {
+    expect(trackingSourceChangeDestination(pathname)).toBe(destination);
   });
 
   it.each([
