@@ -232,6 +232,8 @@ operatorInsightRoutes.get(
           total: [],
           siteOperator: [],
           reviews: [],
+          official: [],
+          government: [],
           years: [],
         },
       });
@@ -244,7 +246,29 @@ operatorInsightRoutes.get(
           SUM(CASE WHEN fact.related_queries_count > 0 THEN 1 ELSE 0 END)
             AS total_responses,
           SUM(fact.related_site_query_present) AS site_responses,
-          SUM(fact.related_review_query_present) AS review_responses
+          SUM(fact.related_review_query_present) AS review_responses,
+          SUM(CASE WHEN EXISTS(
+            SELECT 1
+            FROM analytics_related_query_occurrences occurrence
+            WHERE occurrence.snapshot_id = fact.snapshot_id
+              AND (
+                (' ' || occurrence.normalized_query || ' ')
+                  GLOB '*[^a-z0-9_]official[^a-z0-9_]*'
+                OR (' ' || occurrence.normalized_query || ' ')
+                  GLOB '*[^a-z0-9_]oficial[^a-z0-9_]*'
+              )
+          ) THEN 1 ELSE 0 END) AS official_responses,
+          SUM(CASE WHEN EXISTS(
+            SELECT 1
+            FROM analytics_related_query_occurrences occurrence
+            WHERE occurrence.snapshot_id = fact.snapshot_id
+              AND (
+                (occurrence.normalized_query || ' ')
+                  GLOB '*.gov[^a-z0-9_]*'
+                OR (occurrence.normalized_query || ' ')
+                  GLOB '*.gob[^a-z0-9_]*'
+              )
+          ) THEN 1 ELSE 0 END) AS government_responses
          FROM analytics_snapshot_facts fact
          JOIN projects project
            ON project.id = fact.project_id AND project.deleted_at IS NULL
@@ -263,6 +287,8 @@ operatorInsightRoutes.get(
           total_responses: number;
           site_responses: number;
           review_responses: number;
+          official_responses: number;
+          government_responses: number;
         }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT fact.metric_date, CAST(year.value AS INTEGER) AS year,
@@ -307,6 +333,12 @@ operatorInsightRoutes.get(
     const reviewByDate = new Map(
       daily.results.map((row) => [row.metric_date, Number(row.review_responses)]),
     );
+    const officialByDate = new Map(
+      daily.results.map((row) => [row.metric_date, Number(row.official_responses)]),
+    );
+    const governmentByDate = new Map(
+      daily.results.map((row) => [row.metric_date, Number(row.government_responses)]),
+    );
     const matchingByYear = new Map<number, Map<string, number>>();
     for (const row of yearly.results) {
       const year = Number(row.year);
@@ -324,6 +356,16 @@ operatorInsightRoutes.get(
         total: buildResponseShareTrend(dates, completedByDate, totalByDate),
         siteOperator: buildResponseShareTrend(dates, completedByDate, siteByDate),
         reviews: buildResponseShareTrend(dates, completedByDate, reviewByDate),
+        official: buildResponseShareTrend(
+          dates,
+          completedByDate,
+          officialByDate,
+        ),
+        government: buildResponseShareTrend(
+          dates,
+          completedByDate,
+          governmentByDate,
+        ),
         years: [...matchingByYear.entries()]
           .sort(([left], [right]) => left - right)
           .map(([year, values]) => ({

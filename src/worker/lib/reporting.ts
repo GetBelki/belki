@@ -34,6 +34,8 @@ export function normalizeRelatedQuery(value: string): string {
 }
 
 export interface RelatedQueryClassification {
+  governmentPresent: boolean;
+  officialPresent: boolean;
   reviewPresent: boolean;
   sitePresent: boolean;
   years: number[];
@@ -75,12 +77,20 @@ export function classifyRelatedQueries(
   queries: Iterable<string>,
   currentYear = new Date().getUTCFullYear(),
 ): RelatedQueryClassification {
+  let governmentPresent = false;
+  let officialPresent = false;
   let reviewPresent = false;
   let sitePresent = false;
   const years = new Set<number>();
   for (const query of queries) {
     const normalized = query.normalize("NFKC").toLowerCase();
     sitePresent ||= /(?:^|[^\p{L}\p{N}_])site:/iu.test(normalized);
+    officialPresent ||= /(?:^|[^\p{L}\p{N}_])(?:official|oficial)(?=$|[^\p{L}\p{N}_])/iu.test(
+      normalized,
+    );
+    governmentPresent ||= /\.(?:gov|gob)(?=$|[^\p{L}\p{N}_])/iu.test(
+      normalized,
+    );
     reviewPresent ||= /(?:^|[^\p{L}\p{N}_])reviews?(?=$|[^\p{L}\p{N}_])/iu.test(
       normalized,
     );
@@ -90,6 +100,8 @@ export function classifyRelatedQueries(
     }
   }
   return {
+    governmentPresent,
+    officialPresent,
     reviewPresent,
     sitePresent,
     years: [...years].sort((left, right) => left - right),
