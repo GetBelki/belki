@@ -15,4 +15,19 @@ describe("control database migrations", () => {
     expect(sql).not.toMatch(/DROP TABLE crawl_jobs/i);
     expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
   });
+
+  it("adds operator insight facts additively and schedules a version 6 backfill", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0018_operator_insights.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/ADD COLUMN related_site_query_present/i);
+    expect(sql).toMatch(/ADD COLUMN related_review_query_present/i);
+    expect(sql).toMatch(/ADD COLUMN related_query_years_json/i);
+    expect(sql).toMatch(/ADD COLUMN related_query_insights_indexed_at/i);
+    expect(sql).toMatch(/schema_version\s*=\s*6/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
 });

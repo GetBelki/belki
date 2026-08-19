@@ -38,6 +38,14 @@ describe("project onboarding navigation", () => {
     expect(needsProjectOnboarding(session(), "/onboarding/prompts")).toBe(false);
     expect(needsProjectOnboarding(session(), "/billing")).toBe(false);
     expect(needsProjectOnboarding(session({ isPlatformOperator: true }), "/operator")).toBe(false);
+    expect(needsProjectOnboarding(
+      session({ isPlatformOperator: true }),
+      "/operator/insights/citations",
+    )).toBe(false);
+    expect(needsProjectOnboarding(
+      session({ isPlatformOperator: true }),
+      "/operator/insights/fan-out",
+    )).toBe(false);
     expect(needsProjectOnboarding(session({
       workspace: { id: "workspace-1", name: "Workspace", status: "pending_payment", plan_key: "starter" },
     }), "/billing")).toBe(false);

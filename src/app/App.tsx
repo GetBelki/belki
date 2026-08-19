@@ -79,6 +79,16 @@ const UsersPage = lazy(() =>
 const BillingPage = lazy(() => import("./pages/billing"));
 const SettingsPage = lazy(() => import("./pages/settings"));
 const OperatorPage = lazy(() => import("./pages/operator"));
+const OperatorCitationTrendsPage = lazy(() =>
+  import("./pages/operator-insights").then((module) => ({
+    default: module.OperatorCitationTrendsPage,
+  })),
+);
+const OperatorFanOutTrendsPage = lazy(() =>
+  import("./pages/operator-insights").then((module) => ({
+    default: module.OperatorFanOutTrendsPage,
+  })),
+);
 const ProjectOnboardingPage = lazy(() =>
   import("./pages/onboarding").then((module) => ({ default: module.ProjectOnboardingPage })),
 );
@@ -165,6 +175,8 @@ export function App() {
             <Route path="/billing" element={<BillingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/operator" element={session.data.isPlatformOperator ? <OperatorPage /> : <Navigate to="/" replace />} />
+            <Route path="/operator/insights/citations" element={session.data.isPlatformOperator ? <OperatorCitationTrendsPage /> : <Navigate to="/" replace />} />
+            <Route path="/operator/insights/fan-out" element={session.data.isPlatformOperator ? <OperatorFanOutTrendsPage /> : <Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

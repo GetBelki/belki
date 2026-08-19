@@ -33,6 +33,68 @@ export function normalizeRelatedQuery(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 }
 
+export interface RelatedQueryClassification {
+  reviewPresent: boolean;
+  sitePresent: boolean;
+  years: number[];
+}
+
+export interface ResponseShareTrendPoint {
+  date: string;
+  matchingResponses: number;
+  completedResponses: number;
+  share: number;
+}
+
+export function buildResponseShareTrend(
+  dates: { from: string; to: string },
+  completedByDate: ReadonlyMap<string, number>,
+  matchingByDate: ReadonlyMap<string, number>,
+): ResponseShareTrendPoint[] {
+  const values: ResponseShareTrendPoint[] = [];
+  const cursor = new Date(`${dates.from}T00:00:00.000Z`);
+  const end = Date.parse(`${dates.to}T00:00:00.000Z`);
+  while (cursor.getTime() <= end) {
+    const date = cursor.toISOString().slice(0, 10);
+    const completedResponses = completedByDate.get(date) ?? 0;
+    const matchingResponses = matchingByDate.get(date) ?? 0;
+    values.push({
+      date,
+      matchingResponses,
+      completedResponses,
+      share: completedResponses
+        ? (matchingResponses / completedResponses) * 100
+        : 0,
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return values;
+}
+
+export function classifyRelatedQueries(
+  queries: Iterable<string>,
+): RelatedQueryClassification {
+  let reviewPresent = false;
+  let sitePresent = false;
+  const years = new Set<number>();
+  for (const query of queries) {
+    const normalized = query.normalize("NFKC").toLowerCase();
+    sitePresent ||= /(?:^|[^\p{L}\p{N}_])site:/iu.test(normalized);
+    reviewPresent ||= /(?:^|[^\p{L}\p{N}_])reviews?(?=$|[^\p{L}\p{N}_])/iu.test(
+      normalized,
+    );
+    for (const match of normalized.matchAll(/(?:^|\D)(\d{4})(?=\D|$)/gu)) {
+      const year = Number(match[1]);
+      if (year >= 2025) years.add(year);
+    }
+  }
+  return {
+    reviewPresent,
+    sitePresent,
+    years: [...years].sort((left, right) => left - right),
+  };
+}
+
 export function relatedQueryKey(normalizedQuery: string): string {
   const bytes = new TextEncoder().encode(normalizedQuery);
   let binary = "";

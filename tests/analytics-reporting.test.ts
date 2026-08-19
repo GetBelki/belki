@@ -5,6 +5,8 @@ import {
   buildBillingReport,
   buildBrandComparison,
   buildPromptSetEvents,
+  buildResponseShareTrend,
+  classifyRelatedQueries,
   mergeBillingReports,
   productAnalyticsDateRange,
   productIdentity,
@@ -53,6 +55,57 @@ describe("related query reporting", () => {
     expect(key).toMatch(/^[A-Za-z0-9_-]+$/u);
     expect(relatedQueryFromKey(key)).toBe(normalized);
     expect(relatedQueryFromKey("not/a/key")).toBeNull();
+  });
+
+  it("classifies response-level site and review fan-out queries", () => {
+    expect(classifyRelatedQueries([
+      "Canon USA customer reviews",
+      "best offers SITE:usa.canon.com",
+      "website:canon.com preview cameras",
+    ])).toMatchObject({ reviewPresent: true, sitePresent: true });
+    expect(classifyRelatedQueries(["website:canon.com preview cameras"]))
+      .toMatchObject({ reviewPresent: false, sitePresent: false });
+  });
+
+  it("deduplicates standalone years from 2025 onward", () => {
+    expect(classifyRelatedQueries([
+      "reviews 2024 2025 2026",
+      "best cameras ２０２６/2027",
+      "model 20250",
+    ]).years).toEqual([2025, 2026, 2027]);
+  });
+
+  it("zero-fills response-share trends and uses completed responses as the denominator", () => {
+    expect(buildResponseShareTrend(
+      { from: "2026-08-17", to: "2026-08-19" },
+      new Map([
+        ["2026-08-17", 10],
+        ["2026-08-19", 4],
+      ]),
+      new Map([
+        ["2026-08-17", 3],
+        ["2026-08-19", 2],
+      ]),
+    )).toEqual([
+      {
+        date: "2026-08-17",
+        matchingResponses: 3,
+        completedResponses: 10,
+        share: 30,
+      },
+      {
+        date: "2026-08-18",
+        matchingResponses: 0,
+        completedResponses: 0,
+        share: 0,
+      },
+      {
+        date: "2026-08-19",
+        matchingResponses: 2,
+        completedResponses: 4,
+        share: 50,
+      },
+    ]);
   });
 });
 

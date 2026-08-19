@@ -163,12 +163,28 @@ export function AppLayout() {
             </>
           ) : null}
           {session.isPlatformOperator ? (
-            <NavLink
-              to="/operator"
-              className={({ isActive }) => cn("nav-item", isActive && "active")}
-            >
-              <ShieldCheck size={17} /> <span>Operator</span>
-            </NavLink>
+            <>
+              <p>Operator</p>
+              <NavLink
+                end
+                to="/operator"
+                className={({ isActive }) => cn("nav-item", "operator-nav-item", isActive && "active")}
+              >
+                <ShieldCheck size={17} /> <span>Console</span>
+              </NavLink>
+              <NavLink
+                to="/operator/insights/citations"
+                className={({ isActive }) => cn("nav-item", "operator-nav-item", isActive && "active")}
+              >
+                <SourcesIcon size={17} /> <span>Citation trends</span>
+              </NavLink>
+              <NavLink
+                to="/operator/insights/fan-out"
+                className={({ isActive }) => cn("nav-item", "operator-nav-item", isActive && "active")}
+              >
+                <RelatedQueriesIcon size={17} /> <span>Fan-out trends</span>
+              </NavLink>
+            </>
           ) : null}
           <NavLink
             to="/settings"

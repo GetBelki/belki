@@ -6,7 +6,7 @@ import {
 } from "../src/worker/lib/analytics-read-model";
 
 describe("analytics read-model compatibility", () => {
-  it("keeps version 4 related-query reports available after version 5 upgrades", () => {
+  it("keeps version 4 related-query reports available after later upgrades", () => {
     const current = {
       status: "ready",
       schema_version: ANALYTICS_READ_MODEL_SCHEMA_VERSION,
@@ -18,6 +18,10 @@ describe("analytics read-model compatibility", () => {
         RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION,
       ),
     ).toBe(true);
+  });
+
+  it("uses version 6 for response-level fan-out insight classifications", () => {
+    expect(ANALYTICS_READ_MODEL_SCHEMA_VERSION).toBe(6);
   });
 
   it("requires the requested schema capability and a completed backfill", () => {

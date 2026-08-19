@@ -174,6 +174,9 @@ Cloudflare runs `pnpm deploy:getbelki`, which applies:
   settings, additive source-aware job fields and indexes, source-aware
   reporting, archived projects, and stored downgrade previews. It deliberately
   preserves the existing `crawl_jobs` table and its foreign-key dependents.
+- `0018_operator_insights.sql`: response-level Site, Reviews, and year fan-out
+  classifications plus the bounded analytics read-model backfill used by the
+  operator-wide trend reports.
 - Snapshot migration `0005_tracking_sources.sql` on every snapshot shard:
   source identity and AI-surface presence.
 - Durable Object migration `v1`: `WorkspaceUsageGate` for atomic internal

@@ -212,6 +212,35 @@ export function requireRole(c: Context<AppEnv>, minimum: Role): Principal {
   return principal;
 }
 
+export async function assertOperator(c: Context<AppEnv>): Promise<void> {
+  const principal = c.get("principal");
+  const operator = await c.env.CONTROL_DB.prepare(
+    "SELECT email FROM platform_operators WHERE email = ? COLLATE NOCASE",
+  )
+    .bind(principal.email)
+    .first<{ email: string }>();
+  if (!operator) {
+    throw new ApiError(
+      403,
+      "operator_required",
+      "Platform operator access is required.",
+    );
+  }
+  if (String(c.env.DEPLOYMENT_MODE) === "managed") {
+    const accessEmail = c.req.header("cf-access-authenticated-user-email");
+    if (
+      !accessEmail ||
+      accessEmail.toLowerCase() !== principal.email.toLowerCase()
+    ) {
+      throw new ApiError(
+        403,
+        "cloudflare_access_required",
+        "Cloudflare Access authentication is required.",
+      );
+    }
+  }
+}
+
 export async function checkLoginRateLimit(
   db: D1Database,
   key: string,

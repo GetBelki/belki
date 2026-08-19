@@ -16,6 +16,7 @@ import { adsRoutes } from "./routes/ads";
 import { authRoutes } from "./routes/auth";
 import { coreRoutes } from "./routes/core";
 import { onboardingRoutes } from "./routes/onboarding";
+import { operatorInsightRoutes } from "./routes/operator-insights";
 import { billingRoutes, handleStripeWebhook, reconcileBillingPlanChanges } from "./routes/billing";
 import type { AppEnv } from "./lib/app";
 import { authMiddleware } from "./lib/auth";
@@ -68,7 +69,10 @@ app.use("*", async (c, next) => {
     c.header(name, value);
   }
   c.header("Server-Timing", timing.toServerTiming(), { append: true });
-  if (c.req.path.startsWith("/api/v1/analytics/")) {
+  if (
+    c.req.path.startsWith("/api/v1/analytics/") ||
+    c.req.path.startsWith("/api/v1/operator/insights/")
+  ) {
     console.log(
       JSON.stringify({
         level: "info",
@@ -203,6 +207,7 @@ app.post("/api/webhooks/stripe", handleStripeWebhook);
 app.use("/api/v1/*", authMiddleware);
 app.route("/api/v1", authRoutes);
 app.route("/api/v1", onboardingRoutes);
+app.route("/api/v1", operatorInsightRoutes);
 app.route("/api/v1", billingRoutes);
 app.route("/api/v1", coreRoutes);
 app.route("/api/v1", analyticsRoutes);

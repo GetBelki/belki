@@ -1,5 +1,5 @@
 import { zValidator } from "@hono/zod-validator";
-import { Hono, type Context } from "hono";
+import { Hono } from "hono";
 import { z } from "zod";
 import {
   PlanKeySchema,
@@ -9,7 +9,7 @@ import {
 } from "../../shared/contracts";
 import type { AppEnv } from "../lib/app";
 import { writeAudit } from "../lib/audit";
-import { createSession } from "../lib/auth";
+import { assertOperator, createSession } from "../lib/auth";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../lib/crypto";
 import { ApiError, nowIso } from "../lib/http";
 import { stripeLivemode } from "../lib/stripe";
@@ -39,20 +39,6 @@ function monthCycle(): { start: string; end: string } {
     start: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString(),
     end: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1)).toISOString(),
   };
-}
-
-async function assertOperator(c: Context<AppEnv>): Promise<void> {
-  const principal = c.get("principal");
-  const operator = await c.env.CONTROL_DB.prepare(
-    "SELECT email FROM platform_operators WHERE email = ? COLLATE NOCASE",
-  ).bind(principal.email).first<{ email: string }>();
-  if (!operator) throw new ApiError(403, "operator_required", "Platform operator access is required.");
-  if (String(c.env.DEPLOYMENT_MODE) === "managed") {
-    const accessEmail = c.req.header("cf-access-authenticated-user-email");
-    if (!accessEmail || accessEmail.toLowerCase() !== principal.email.toLowerCase()) {
-      throw new ApiError(403, "cloudflare_access_required", "Cloudflare Access authentication is required.");
-    }
-  }
 }
 
 export const onboardingRoutes = new Hono<AppEnv>();
