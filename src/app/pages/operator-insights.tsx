@@ -25,6 +25,7 @@ import {
   Skeleton,
 } from "../components/ui";
 import { api } from "../lib/api";
+import { insightYAxisMax } from "../lib/chart-scale";
 import {
   TRACKING_SOURCE_LABELS,
   TRACKING_SOURCES,
@@ -124,6 +125,16 @@ function percent(value: number): string {
   return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
 }
 
+function insightYAxisTicks(maximum: number): number[] {
+  return Array.from({ length: 5 }, (_, index) =>
+    Number(((maximum * index) / 4).toFixed(2)),
+  );
+}
+
+function axisPercent(value: number): string {
+  return `${value.toLocaleString(undefined, { maximumFractionDigits: 2 })}%`;
+}
+
 function dateLabel(value: string): string {
   return new Date(`${value}T00:00:00.000Z`).toLocaleDateString(undefined, {
     month: "short",
@@ -182,6 +193,7 @@ function TrendChart({
   emptyTitle?: string;
 }) {
   const hasResponses = data.some((point) => point.completedResponses > 0);
+  const yAxisMax = insightYAxisMax(data.map((point) => point.share));
   return (
     <Card className="operator-insight-card">
       <CardHeader title={title} description={description} />
@@ -213,11 +225,11 @@ function TrendChart({
               />
               <YAxis
                 axisLine={false}
-                domain={[0, 100]}
+                domain={[0, yAxisMax]}
                 tick={{ fill: "#71717a", fontSize: 11 }}
-                tickFormatter={(value) => `${value}%`}
+                tickFormatter={(value) => axisPercent(Number(value))}
                 tickLine={false}
-                ticks={[0, 25, 50, 75, 100]}
+                ticks={insightYAxisTicks(yAxisMax)}
                 width={42}
               />
               <Tooltip content={TrendTooltip} />
@@ -247,6 +259,9 @@ function YearsChart({
   pending: boolean;
 }) {
   const currentYear = new Date().getUTCFullYear();
+  const yAxisMax = insightYAxisMax(
+    years.flatMap(({ trend }) => trend.map((point) => point.share)),
+  );
   const data = useMemo(() => {
     const dates = years[0]?.trend.map((point) => point.date) ?? [];
     return dates.map((date, index) => ({
@@ -284,11 +299,11 @@ function YearsChart({
               />
               <YAxis
                 axisLine={false}
-                domain={[0, 100]}
+                domain={[0, yAxisMax]}
                 tick={{ fill: "#71717a", fontSize: 11 }}
-                tickFormatter={(value) => `${value}%`}
+                tickFormatter={(value) => axisPercent(Number(value))}
                 tickLine={false}
-                ticks={[0, 25, 50, 75, 100]}
+                ticks={insightYAxisTicks(yAxisMax)}
                 width={42}
               />
               <Tooltip
