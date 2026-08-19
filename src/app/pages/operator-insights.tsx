@@ -309,20 +309,26 @@ function Filters({
   children?: ReactNode;
 }) {
   return (
-    <div className="operator-insight-filters">
+    <div className={`operator-insight-filters${children ? " has-domain" : ""}`}>
       {children}
-      <Select
-        ariaLabel="Tracking source"
-        onValueChange={(value) => onSourceChange(sourceValue(value))}
-        options={SOURCE_OPTIONS}
-        value={source}
-      />
-      <Select
-        ariaLabel="Trend period"
-        onValueChange={(value) => onPeriodChange(periodValue(value))}
-        options={PERIOD_OPTIONS}
-        value={period}
-      />
+      <div className="operator-insight-filter-field">
+        <span className="operator-insight-filter-label">Source</span>
+        <Select
+          ariaLabel="Tracking source"
+          onValueChange={(value) => onSourceChange(sourceValue(value))}
+          options={SOURCE_OPTIONS}
+          value={source}
+        />
+      </div>
+      <div className="operator-insight-filter-field">
+        <span className="operator-insight-filter-label">Period</span>
+        <Select
+          ariaLabel="Trend period"
+          onValueChange={(value) => onPeriodChange(periodValue(value))}
+          options={PERIOD_OPTIONS}
+          value={period}
+        />
+      </div>
     </div>
   );
 }
@@ -387,20 +393,22 @@ export function OperatorCitationTrendsPage() {
         source={source}
       >
         <form className="operator-domain-filter" onSubmit={submitDomain}>
-          <Input
-            aria-label="Cited domain"
-            list="operator-citation-domain-options"
-            onChange={(event) => setDomainDraft(event.target.value)}
-            placeholder="All cited domains"
-            type="search"
-            value={domainDraft}
-          />
+          <label className="operator-insight-filter-field">
+            <span className="operator-insight-filter-label">Cited domain</span>
+            <Input
+              list="operator-citation-domain-options"
+              onChange={(event) => setDomainDraft(event.target.value)}
+              placeholder="All cited domains"
+              type="search"
+              value={domainDraft}
+            />
+          </label>
           <datalist id="operator-citation-domain-options">
             {(domains.data ?? []).map((option) => (
               <option key={option.domain} value={option.domain} />
             ))}
           </datalist>
-          <Button type="submit" variant="secondary">Apply</Button>
+          <Button type="submit">Apply</Button>
         </form>
       </Filters>
       <TrendChart

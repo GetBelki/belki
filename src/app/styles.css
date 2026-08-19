@@ -6849,9 +6849,27 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 
 .operator-nav-item { padding-left: 18px; }
 .operator-insights-page { display: grid; gap: 24px; }
-.operator-insight-filters { align-items: center; display: flex; gap: 10px; justify-content: flex-end; }
-.operator-domain-filter { display: flex; flex: 1; gap: 8px; max-width: 520px; }
-.operator-domain-filter .input { min-width: 0; }
+.operator-insight-filters {
+  align-items: end;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: minmax(190px, 240px) minmax(150px, 180px);
+  justify-content: end;
+}
+.operator-insight-filters.has-domain {
+  grid-template-columns: minmax(300px, 1fr) minmax(190px, 240px) minmax(150px, 180px);
+}
+.operator-insight-filter-field { display: grid; gap: 7px; min-width: 0; }
+.operator-insight-filter-label {
+  color: #52525b;
+  font-size: 11px;
+  font-weight: 650;
+  line-height: 1;
+}
+.operator-insight-filter-field .input,
+.operator-insight-filter-field .select-trigger { min-height: 40px; min-width: 0; }
+.operator-domain-filter { align-items: end; display: grid; gap: 8px; grid-template-columns: minmax(0, 1fr) auto; min-width: 0; }
+.operator-domain-filter .button { min-height: 40px; }
 .operator-insight-grid { display: grid; gap: 20px; grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .operator-insight-card { min-width: 0; }
 .operator-insight-chart { height: 320px; padding: 0 18px 18px; }
@@ -6864,12 +6882,15 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 .operator-chart-tooltip small { color: #71717a; font-size: 11px; }
 
 @media (max-width: 900px) {
+  .operator-insight-filters.has-domain { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .operator-domain-filter { grid-column: 1 / -1; }
   .operator-insight-grid { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 640px) {
-  .operator-insight-filters { align-items: stretch; flex-direction: column; }
-  .operator-domain-filter { max-width: none; }
+  .operator-insight-filters,
+  .operator-insight-filters.has-domain { grid-template-columns: 1fr; }
+  .operator-domain-filter { grid-column: auto; }
   .operator-insight-chart { height: 280px; padding-left: 8px; padding-right: 8px; }
 }
 
