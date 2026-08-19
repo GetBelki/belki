@@ -1,5 +1,7 @@
-import { useQuery } from "@tanstack/react-query";
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { Combobox } from "@base-ui/react/combobox";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
+import { Check, ChevronsUpDown, LoaderCircle, Search } from "lucide-react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Area,
@@ -16,11 +18,9 @@ import {
 } from "recharts";
 import { PageHeader } from "../components/layout";
 import {
-  Button,
   Card,
   CardHeader,
   EmptyState,
-  Input,
   Select,
   Skeleton,
 } from "../components/ui";
@@ -64,6 +64,11 @@ interface CitationDomainOption {
   citations: number;
 }
 
+interface DomainComboboxOption {
+  label: string;
+  value: string;
+}
+
 const PERIOD_OPTIONS = [
   { value: "7d", label: "Last 7 days" },
   { value: "30d", label: "Last 30 days" },
@@ -89,6 +94,11 @@ const YEAR_COLORS = [
   "#4f46e5",
 ];
 
+const ALL_DOMAINS_OPTION: DomainComboboxOption = {
+  label: "All cited domains",
+  value: "",
+};
+
 function periodValue(value: string | null): InsightPeriod {
   return value === "7d" || value === "90d" ? value : "30d";
 }
@@ -97,6 +107,15 @@ function sourceValue(value: string | null): InsightSource {
   return value && TRACKING_SOURCES.includes(value as TrackingSource)
     ? (value as TrackingSource)
     : "all";
+}
+
+function useDebouncedValue<T>(value: T, delay: number): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => setDebouncedValue(value), delay);
+    return () => window.clearTimeout(timeout);
+  }, [delay, value]);
+  return debouncedValue;
 }
 
 function percent(value: number): string {
@@ -356,10 +375,104 @@ function useInsightFilters() {
   return { period, searchParams, source, update };
 }
 
+export function CitationDomainCombobox({
+  isFetching,
+  onSearchChange,
+  onValueChange,
+  options,
+  searchValue,
+  value,
+}: {
+  isFetching: boolean;
+  onSearchChange: (value: string) => void;
+  onValueChange: (option: DomainComboboxOption | null) => void;
+  options: DomainComboboxOption[];
+  searchValue: string;
+  value: DomainComboboxOption;
+}) {
+  return (
+    <Combobox.Root
+      autoHighlight
+      inputValue={searchValue}
+      isItemEqualToValue={(item, selected) => item.value === selected.value}
+      items={options}
+      onInputValueChange={(nextValue, details) => {
+        if (details.reason !== "item-press") onSearchChange(nextValue);
+      }}
+      onOpenChange={(open) => {
+        if (!open) onSearchChange("");
+      }}
+      onValueChange={onValueChange}
+      value={value}
+    >
+      <div className="operator-domain-combobox">
+        <Combobox.Label className="operator-insight-filter-label">
+          Cited domain
+        </Combobox.Label>
+        <Combobox.Trigger className="operator-combobox-trigger">
+          <Combobox.Value />
+          <Combobox.Icon className="operator-combobox-trigger-icon">
+            <ChevronsUpDown size={15} />
+          </Combobox.Icon>
+        </Combobox.Trigger>
+      </div>
+      <Combobox.Portal>
+        <Combobox.Positioner
+          align="start"
+          className="operator-combobox-positioner"
+          sideOffset={6}
+        >
+          <Combobox.Popup
+            aria-label="Select cited domain"
+            className="operator-combobox-popup"
+          >
+            <div className="operator-combobox-search">
+              <Search aria-hidden="true" size={15} />
+              <Combobox.Input
+                aria-label="Search cited domains"
+                autoFocus
+                className="operator-combobox-search-input"
+                placeholder="Search domains..."
+              />
+              {isFetching ? (
+                <LoaderCircle
+                  aria-label="Searching domains"
+                  className="operator-combobox-spinner"
+                  size={15}
+                />
+              ) : null}
+            </div>
+            <div className="operator-combobox-viewport">
+              <Combobox.Empty className="operator-combobox-empty">
+                No domains found
+              </Combobox.Empty>
+              <Combobox.List className="operator-combobox-list">
+                {(option: DomainComboboxOption) => (
+                  <Combobox.Item
+                    className="operator-combobox-item"
+                    key={option.value || "all-domains"}
+                    value={option}
+                  >
+                    <Combobox.ItemIndicator className="operator-combobox-item-indicator">
+                      <Check size={14} />
+                    </Combobox.ItemIndicator>
+                    <span>{option.label}</span>
+                  </Combobox.Item>
+                )}
+              </Combobox.List>
+            </div>
+          </Combobox.Popup>
+        </Combobox.Positioner>
+      </Combobox.Portal>
+    </Combobox.Root>
+  );
+}
+
 export function OperatorCitationTrendsPage() {
   const { period, searchParams, source, update } = useInsightFilters();
   const domain = searchParams.get("domain")?.trim().toLowerCase() ?? "";
-  const [domainDraft, setDomainDraft] = useState(domain);
+  const [domainSearch, setDomainSearch] = useState("");
+  const debouncedDomainSearch = useDebouncedValue(domainSearch.trim(), 180);
   const params = new URLSearchParams({ period, source });
   if (domain) params.set("domain", domain);
   const report = useQuery({
@@ -368,18 +481,31 @@ export function OperatorCitationTrendsPage() {
       api<CitationTrendReport>(`/operator/insights/citations?${params}`),
   });
   const domainParams = new URLSearchParams({ period, source, limit: "50" });
-  if (domainDraft.trim()) domainParams.set("search", domainDraft.trim());
+  if (debouncedDomainSearch) domainParams.set("search", debouncedDomainSearch);
   const domains = useQuery({
-    queryKey: ["operator-citation-domains", period, source, domainDraft.trim()],
+    queryKey: ["operator-citation-domains", period, source, debouncedDomainSearch],
     queryFn: () =>
       api<CitationDomainOption[]>(
         `/operator/insights/citation-domains?${domainParams}`,
       ),
+    placeholderData: keepPreviousData,
   });
-  const submitDomain = (event: FormEvent<HTMLFormElement>) => {
-    event.preventDefault();
-    update({ domain: domainDraft.trim().toLowerCase() || null });
-  };
+  const domainOptions = useMemo(() => {
+    const options = [ALL_DOMAINS_OPTION];
+    const seen = new Set([""]);
+    if (domain) {
+      options.push({ label: domain, value: domain });
+      seen.add(domain);
+    }
+    for (const option of domains.data ?? []) {
+      if (seen.has(option.domain)) continue;
+      seen.add(option.domain);
+      options.push({ label: option.domain, value: option.domain });
+    }
+    return options;
+  }, [domain, domains.data]);
+  const selectedDomain = domainOptions.find((option) => option.value === domain)
+    ?? ALL_DOMAINS_OPTION;
   return (
     <div className="page operator-insights-page">
       <PageHeader
@@ -392,24 +518,17 @@ export function OperatorCitationTrendsPage() {
         period={period}
         source={source}
       >
-        <form className="operator-domain-filter" onSubmit={submitDomain}>
-          <label className="operator-insight-filter-field">
-            <span className="operator-insight-filter-label">Cited domain</span>
-            <Input
-              list="operator-citation-domain-options"
-              onChange={(event) => setDomainDraft(event.target.value)}
-              placeholder="All cited domains"
-              type="search"
-              value={domainDraft}
-            />
-          </label>
-          <datalist id="operator-citation-domain-options">
-            {(domains.data ?? []).map((option) => (
-              <option key={option.domain} value={option.domain} />
-            ))}
-          </datalist>
-          <Button type="submit">Apply</Button>
-        </form>
+        <CitationDomainCombobox
+          isFetching={domains.isFetching}
+          onSearchChange={setDomainSearch}
+          onValueChange={(option) => {
+            update({ domain: option?.value || null });
+            setDomainSearch("");
+          }}
+          options={domainOptions}
+          searchValue={domainSearch}
+          value={selectedDomain}
+        />
       </Filters>
       <TrendChart
         data={report.data?.trend ?? []}

@@ -53,6 +53,7 @@
     "cf-typegen": "wrangler types"
   },
   "dependencies": {
+    "@base-ui/react": "latest",
     "@hono/zod-validator": "latest",
     "@js-temporal/polyfill": "latest",
     "@radix-ui/react-dialog": "latest",
