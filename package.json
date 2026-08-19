@@ -48,7 +48,8 @@
     "stripe:check": "node scripts/stripe-configure.mjs --check",
     "deploy": "pnpm db:migrate:remote && wrangler deploy",
     "deploy:dry": "pnpm build && wrangler deploy --dry-run",
-    "deploy:getbelki": "pnpm db:migrate:remote && node scripts/deploy-profile.mjs --profile deployment/getbelki.json",
+    "deploy:getbelki": "node scripts/deploy-profile.mjs --profile deployment/getbelki.json",
+    "deploy:getbelki:with-migrations": "pnpm db:migrate:remote && pnpm deploy:getbelki",
     "deploy:getbelki:dry": "pnpm build && node scripts/deploy-profile.mjs --profile deployment/getbelki.json --dry-run",
     "cf-typegen": "wrangler types"
   },

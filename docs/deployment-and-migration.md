@@ -98,8 +98,23 @@ open or update the release PR until both conditions are visible.
 
 GitHub Actions validates pull requests but does not have deployment
 credentials. Cloudflare deploys only after a reviewed PR is merged into
-`main`. `pnpm deploy:getbelki` applies D1 migrations before uploading the
-generated managed configuration.
+`main`. `pnpm deploy:getbelki` uploads the generated managed configuration
+without contacting every D1 database, so code-only publishes do not depend on
+33 migration control-plane checks.
+
+For a release that adds D1 migrations, apply the reviewed additive migrations
+before merging the code that consumes them:
+
+```bash
+pnpm db:migrate:remote
+```
+
+For an explicitly approved direct release from a clean, merged `main`, the
+combined command remains available:
+
+```bash
+pnpm deploy:getbelki:with-migrations
+```
 
 The current managed sandbox profile is:
 
@@ -164,7 +179,7 @@ pnpm types:check
 pnpm deploy:getbelki:dry
 ```
 
-Cloudflare runs `pnpm deploy:getbelki`, which applies:
+Before merging this schema release, run `pnpm db:migrate:remote`, which applies:
 
 - `0015_managed_multi_tenant.sql`: users/workspaces/invites/operators/billing,
   usage, Stripe environment markers, and legacy backfill.
@@ -182,6 +197,8 @@ Cloudflare runs `pnpm deploy:getbelki`, which applies:
 - Durable Object migration `v1`: `WorkspaceUsageGate` for atomic internal
   workload, prompt, source, and project-limit enforcement.
 
+After the migrations succeed, merge the reviewed PR. Cloudflare then runs
+`pnpm deploy:getbelki` to upload the Worker without rechecking every database.
 If migrations succeed but upload fails, fix the build and redeploy the same Git
 SHA. The new columns have safe ChatGPT defaults, so the previous Worker remains
 compatible while you recover; it simply cannot use the new sources. Do not
@@ -619,6 +636,9 @@ Normal changes always use Git. If Cloudflare's build fails:
 3. Run `pnpm check`, `pnpm types:check`, and `pnpm build` again.
 4. With explicit production approval, run `pnpm deploy:getbelki`.
 5. Record the resulting Worker version and keep Git/Cloudflare aligned.
+
+If the exact merged release includes unapplied D1 migrations, use
+`pnpm deploy:getbelki:with-migrations` in step 4 instead.
 
 For a billing incident:
 
