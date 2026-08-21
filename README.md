@@ -372,7 +372,9 @@ pnpm deploy:dry
 ```
 
 Entity-extraction releases also have an offline gold-set gate. Keep the private
-or sanitized JSONL fixtures out of Git and run `pnpm benchmark:entities --
+or sanitized JSONL fixtures out of Git. `pnpm evaluate:entities` creates the
+private stratified sample, v1/v2 predictions, and local review page; after
+review, run `pnpm benchmark:entities --
 --gold <gold.jsonl> --prediction v2=<predictions.jsonl>`; fixture shape, metrics,
 and acceptance thresholds are documented in `evaluation/entity-extraction`.
 

@@ -82,9 +82,12 @@ export function scoreEntityPredictions(goldRecords, predictionRecords) {
     addCounts(spanCounts, spanKeys(gold), spanKeys(prediction));
     addCounts(entityCounts, keys(gold, false), keys(prediction, false));
     addCounts(competitorCounts, keys(gold, true), keys(prediction, true));
-    const expectedAuto = new Set(
-      [...keys(gold, true)].filter((key) => (gold.autoTrackEntities ?? []).map(normalize).includes(key)),
-    );
+    const goldCompetitors = keys(gold, true);
+    const expectedAuto = gold.autoTrackEntities
+      ? new Set([...goldCompetitors].filter(
+        (key) => gold.autoTrackEntities.map(normalize).includes(key),
+      ))
+      : goldCompetitors;
     const actualAuto = new Set((prediction.entities ?? [])
       .filter((entity) => entity.autoTrackEligible === true)
       .map((entity) => entityKey(entity, true))

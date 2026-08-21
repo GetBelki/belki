@@ -265,22 +265,58 @@ export function countSurface(text: string, surface: string): number {
   ))].length;
 }
 
+function structuredJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch (originalError) {
+    const withoutFence = trimmed
+      .replace(/^```(?:json)?\s*/iu, "")
+      .replace(/\s*```$/u, "")
+      .trim();
+    const firstBrace = withoutFence.indexOf("{");
+    const lastBrace = withoutFence.lastIndexOf("}");
+    if (firstBrace < 0 || lastBrace <= firstBrace) throw originalError;
+    const repairedPrefix = withoutFence
+      .slice(firstBrace, lastBrace + 1)
+      .replace(/\}\s*\{/gu, "},{");
+    const stack: string[] = [];
+    let quoted = false;
+    let escaped = false;
+    for (const character of repairedPrefix) {
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') quoted = false;
+        continue;
+      }
+      if (character === '"') quoted = true;
+      else if (character === "{" || character === "[") stack.push(character);
+      else if (character === "}" || character === "]") {
+        const expected = character === "}" ? "{" : "[";
+        if (stack.at(-1) !== expected) throw originalError;
+        stack.pop();
+      }
+    }
+    if (quoted) throw originalError;
+    const closing = stack.reverse().map((character) => character === "{" ? "}" : "]").join("");
+    const objectText = `${repairedPrefix}${closing}`
+      .replace(/,\s*([}\]])/gu, "$1");
+    return JSON.parse(objectText);
+  }
+}
+
 export function parsedSpanAiResponse(
   value: unknown,
 ): z.infer<typeof SpanExtractionResponseSchema> {
-  if (typeof value === "string") {
-    return SpanExtractionResponseSchema.parse(JSON.parse(value));
-  }
-  return SpanExtractionResponseSchema.parse(value);
+  return SpanExtractionResponseSchema.parse(structuredJson(value));
 }
 
 export function parsedRelationshipAiResponse(
   value: unknown,
 ): z.infer<typeof RelationshipResponseSchema> {
-  if (typeof value === "string") {
-    return RelationshipResponseSchema.parse(JSON.parse(value));
-  }
-  return RelationshipResponseSchema.parse(value);
+  return RelationshipResponseSchema.parse(structuredJson(value));
 }
 
 function knownBrandForSurface(

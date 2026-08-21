@@ -198,7 +198,7 @@ async function runChunk(
       },
       temperature: 0,
       seed: 731_991,
-      max_tokens: 900,
+      max_tokens: 1_400,
     });
     inferenceCompleted = true;
     const spanResult = aiCallResult(spanRaw, parsedSpanAiResponse);
@@ -231,7 +231,7 @@ async function runChunk(
         },
         temperature: 0,
         seed: 731_991,
-        max_tokens: 700,
+        max_tokens: 1_000,
       });
       const relationshipResult = aiCallResult(
         relationshipRaw,

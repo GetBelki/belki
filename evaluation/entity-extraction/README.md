@@ -5,18 +5,48 @@ extractor with encoder-based NER candidates. Retained answers and annotations
 belong in `private/`, which is gitignored. Never commit answer text, project or
 workspace identifiers, prompts, or model outputs derived from private data.
 
+## Private review workflow
+
+Run one command from the repository root:
+
+```sh
+pnpm evaluate:entities
+```
+
+It performs a read-only, stratified sample of 300 retained production answers,
+hashes database identifiers before saving anything, loads the existing v1
+results, and runs v2 through a localhost-only Worker using the remote Workers AI
+binding. It never deploys a Worker or applies a migration. Workers AI calls are
+billable even though the Worker code runs locally.
+
+Generated files live only in `evaluation/entity-extraction/private/`. Open
+`review.html`, correct the suggested entities, and click **Mark reviewed &
+next** for every answer. Progress stays in browser local storage; **Export
+backup** saves an extra copy. When all answers are reviewed, **Download
+gold.jsonl** becomes available. Move that download into the private directory,
+then run the benchmark command below.
+
+Use `pnpm evaluate:entities -- run` to resume an interrupted v2 run. Completed
+answers are checkpointed every ten records. Use `--refresh` only with the
+`prepare` or default command when you intentionally want a different sample.
+Use `pnpm evaluate:entities -- run --restart` only when extractor code changed
+and every v2 prediction must be regenerated against the same sample.
+
 ## Gold record
 
 Store one JSON object per line:
 
 ```json
-{"id":"opaque-snapshot-hash","languageCode":"en","answer":"Visible answer text","entities":[{"surface":"Contoso","canonicalName":"Contoso","entityType":"brand","relationship":"competitor"}],"autoTrackEntities":["Contoso"]}
+{"id":"opaque-snapshot-hash","languageCode":"en","answer":"Visible answer text","entities":[{"surface":"Contoso","canonicalName":"Contoso","entityType":"brand","relationship":"competitor"}]}
 ```
 
 Build a 300-answer set stratified across observed languages, tracking sources,
 projects, prompt intents, and known false-positive/false-negative patterns. Cap
 the contribution of any single project and sanitize direct personal data.
-Every competitor label and every model disagreement requires human review.
+Every answer requires human review. If `autoTrackEntities` is omitted, every
+human-labelled competitor is treated as valid for the auto-track precision
+check; the evaluator still applies the production repetition and corroboration
+thresholds to predictions.
 
 Prediction files use the same `id` and `entities` shape. Candidate-only models
 should set `relationship` to `unknown`; this keeps span quality separate from

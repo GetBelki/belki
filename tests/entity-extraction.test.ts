@@ -3,10 +3,38 @@ import {
   applyRelationshipAssessments,
   chunkEntityText,
   estimatedEntityExtractionCost,
+  parsedRelationshipAiResponse,
+  parsedSpanAiResponse,
   validateExtractedEntities,
 } from "../src/worker/automation/entity-extraction-core";
 
 describe("entity extraction validation", () => {
+  it("repairs fenced structured output and trailing commas safely", () => {
+    expect(parsedSpanAiResponse(
+      '```json\n{"entities":[{"surface":"Contoso","entity_type":"brand",}],}\n```',
+    )).toEqual({ entities: [{ surface: "Contoso", entity_type: "brand" }] });
+    expect(parsedRelationshipAiResponse(
+      '{"assessments":[{"surface":"Contoso","relationship":"competitor","reason":"explicit_rival",}],}',
+    )).toEqual({
+      assessments: [{
+        surface: "Contoso",
+        relationship: "competitor",
+        reason: "explicit_rival",
+      }],
+    });
+    expect(parsedSpanAiResponse(
+      '{"entities":[{"surface":"Contoso","entity_type":"brand"}{"surface":"Acme","entity_type":"company"}]}',
+    )).toEqual({
+      entities: [
+        { surface: "Contoso", entity_type: "brand" },
+        { surface: "Acme", entity_type: "company" },
+      ],
+    });
+    expect(parsedSpanAiResponse(
+      '{"entities":[{"surface":"Contoso","entity_type":"brand"},{"surface":"unfinished',
+    )).toEqual({ entities: [{ surface: "Contoso", entity_type: "brand" }] });
+  });
+
   it("rejects model entities whose surface text is absent", () => {
     expect(validateExtractedEntities({
       entities: [{

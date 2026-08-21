@@ -40,6 +40,7 @@
     "test:workers": "vitest run --config vitest.workers.config.ts",
     "test:watch": "vitest",
     "benchmark:entities": "node scripts/entity-extraction-benchmark.mjs",
+    "evaluate:entities": "node scripts/entity-extraction-evaluate.mjs",
     "lint": "eslint .",
     "check": "pnpm typecheck && pnpm lint --max-warnings 0 && pnpm test && pnpm test:workers && pnpm build",
     "db:migrate:local": "node scripts/migrate.mjs --local",
