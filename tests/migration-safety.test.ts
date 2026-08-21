@@ -44,4 +44,36 @@ describe("control database migrations", () => {
     expect(sql).not.toMatch(/DROP TABLE/i);
     expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
   });
+
+  it("adds fan-out signal counts additively and schedules a version 7 backfill", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0021_fanout_signal_metrics.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/ADD COLUMN related_query_signal_counts_json/i);
+    expect(sql).toMatch(/ADD COLUMN related_query_signal_counts_indexed_at/i);
+    expect(sql).toMatch(/schema_version\s*=\s*7/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
+
+  it("adds navigation read indexes without rebuilding application tables", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0020_navigation_read_indexes.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(
+      /snapshot_index\s*\(\s*tracked_query_id,\s*tracking_source,\s*captured_at DESC,\s*id DESC/is,
+    );
+    expect(sql).toMatch(
+      /crawl_jobs\s*\(\s*tracked_query_id,\s*tracking_source,\s*created_at DESC,\s*id DESC/is,
+    );
+    expect(sql).toMatch(
+      /analytics_snapshot_facts\s*\(\s*project_id,\s*tracking_source,\s*metric_date,\s*tracked_query_id/is,
+    );
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
 });

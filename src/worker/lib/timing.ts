@@ -4,6 +4,29 @@ export interface RequestTimingEntry {
   description?: string;
 }
 
+interface D1ResultLike {
+  meta: {
+    duration: number;
+    rows_read: number;
+    rows_written: number;
+    served_by_region?: string;
+    served_by_colo?: string;
+    served_by_primary?: boolean;
+    total_attempts?: number;
+  };
+}
+
+export interface D1TimingRecord {
+  calls: number;
+  durationMs: number;
+  rowsRead: number;
+  rowsWritten: number;
+  primaryCalls: number;
+  retryAttempts: number;
+  regions: string[];
+  colos: string[];
+}
+
 function timingToken(value: string): string {
   const normalized = value
     .trim()
@@ -20,6 +43,16 @@ function timingDescription(value: string): string {
 export class RequestTiming {
   readonly startedAt = performance.now();
   readonly entries: RequestTimingEntry[] = [];
+  private readonly d1 = {
+    calls: 0,
+    durationMs: 0,
+    rowsRead: 0,
+    rowsWritten: 0,
+    primaryCalls: 0,
+    retryAttempts: 0,
+    regions: new Set<string>(),
+    colos: new Set<string>(),
+  };
 
   async measure<T>(
     name: string,
@@ -31,6 +64,30 @@ export class RequestTiming {
       return await operation();
     } finally {
       this.add(name, performance.now() - startedAt, description);
+    }
+  }
+
+  async measureD1<T extends D1ResultLike | D1ResultLike[]>(
+    name: string,
+    operation: () => Promise<T>,
+    description?: string,
+  ): Promise<T> {
+    const result = await this.measure(name, operation, description);
+    this.recordD1(result);
+    return result;
+  }
+
+  recordD1(result: D1ResultLike | D1ResultLike[]): void {
+    for (const value of Array.isArray(result) ? result : [result]) {
+      const meta = value.meta;
+      this.d1.calls += 1;
+      this.d1.durationMs += Number(meta.duration) || 0;
+      this.d1.rowsRead += Number(meta.rows_read) || 0;
+      this.d1.rowsWritten += Number(meta.rows_written) || 0;
+      this.d1.primaryCalls += meta.served_by_primary ? 1 : 0;
+      this.d1.retryAttempts += Math.max(0, Number(meta.total_attempts ?? 1) - 1);
+      if (meta.served_by_region) this.d1.regions.add(meta.served_by_region);
+      if (meta.served_by_colo) this.d1.colos.add(meta.served_by_colo);
     }
   }
 
@@ -79,5 +136,18 @@ export class RequestTiming {
     }
     record.total = Number(this.totalMs().toFixed(1));
     return record;
+  }
+
+  toD1LogRecord(): D1TimingRecord {
+    return {
+      calls: this.d1.calls,
+      durationMs: Number(this.d1.durationMs.toFixed(1)),
+      rowsRead: this.d1.rowsRead,
+      rowsWritten: this.d1.rowsWritten,
+      primaryCalls: this.d1.primaryCalls,
+      retryAttempts: this.d1.retryAttempts,
+      regions: [...this.d1.regions].sort(),
+      colos: [...this.d1.colos].sort(),
+    };
   }
 }

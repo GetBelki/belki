@@ -51,7 +51,7 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
   if (!sessionToken) throw new ApiError(401, "authentication_required", "Sign in is required.");
   const timing = c.get("timing");
   const tokenHash = await timing.measure("auth_crypto", () => sha256(sessionToken));
-  const row = await timing.measure("auth_db", () =>
+  const sessionResult = await timing.measureD1("auth_db", () =>
     c.env.CONTROL_DB.prepare(
       `SELECT
         s.id AS session_id, s.user_id, m.workspace_id, u.email, u.display_name,
@@ -68,8 +68,9 @@ export const authMiddleware = createMiddleware<AppEnv>(async (c, next) => {
       LIMIT 1`,
     )
       .bind(tokenHash)
-      .first<SessionRow>(),
+      .all<SessionRow>(),
   );
+  const row = sessionResult.results[0];
 
   if (!row || row.status !== "active" || Date.parse(row.expires_at) <= Date.now()) {
     deleteAuthCookies(c);

@@ -7467,6 +7467,9 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 .operator-insight-filters.has-domain {
   grid-template-columns: minmax(240px, 300px) minmax(190px, 220px) minmax(150px, 180px);
 }
+.operator-fanout-filters {
+  grid-template-columns: minmax(190px, 220px) minmax(150px, 180px) minmax(190px, 220px);
+}
 .operator-insight-filter-field { display: grid; gap: 7px; min-width: 0; }
 .operator-insight-filter-label {
   color: #52525b;
@@ -7551,11 +7554,30 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 .operator-chart-tooltip strong { color: #18181b; font-size: 12px; }
 .operator-chart-tooltip span { color: #18181b; font-size: 16px; font-weight: 700; }
 .operator-chart-tooltip small { color: #71717a; font-size: 11px; }
+.operator-signal-card > .card-header { align-items: end; }
+.operator-signal-group-control { display: grid; flex: 0 0 190px; gap: 7px; min-width: 0; }
+.operator-signal-group-control .select-trigger { min-height: 40px; min-width: 190px; }
+.operator-signal-chart { height: 380px; }
+.operator-signal-note { color: #71717a; font-size: 11px; line-height: 1.5; margin: -4px 22px 18px; }
+.operator-signal-tooltip { gap: 8px; min-width: 260px; }
+.operator-signal-tooltip-row {
+  align-items: center;
+  display: grid;
+  gap: 2px 7px;
+  grid-template-columns: 8px minmax(80px, 1fr) auto;
+}
+.operator-signal-tooltip-row i { border-radius: 999px; height: 8px; width: 8px; }
+.operator-signal-tooltip-row > span { color: #3f3f46; font-size: 11px; }
+.operator-signal-tooltip-row b { color: #18181b; font-size: 12px; text-align: right; }
+.operator-signal-tooltip-row small { grid-column: 2 / -1; }
 
 @media (max-width: 900px) {
   .operator-insight-filters.has-domain { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .operator-domain-combobox { grid-column: 1 / -1; }
   .operator-insight-grid { grid-template-columns: 1fr; }
+  .operator-signal-card > .card-header { align-items: stretch; flex-direction: column; }
+  .operator-signal-group-control { flex-basis: auto; width: 100%; }
+  .operator-signal-group-control .select-trigger { min-width: 0; width: 100%; }
 }
 
 @media (max-width: 640px) {
@@ -7563,6 +7585,8 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
   .operator-insight-filters.has-domain { grid-template-columns: 1fr; }
   .operator-domain-combobox { grid-column: auto; }
   .operator-insight-chart { height: 280px; padding-left: 8px; padding-right: 8px; }
+  .operator-signal-chart { height: 320px; }
+  .operator-signal-note { margin-left: 14px; margin-right: 14px; }
 }
 
 @media (max-width: 640px) {

@@ -6,8 +6,12 @@ import type { AppEnv } from "../lib/app";
 import { assertOperator } from "../lib/auth";
 import { analyticsBackfillEstimatedMinutes } from "../lib/analytics-read-model";
 import {
+  RELATED_QUERY_SIGNAL_KEYS,
+  buildFanOutActivityTrend,
+  buildFanOutSignalTrend,
   buildResponseShareTrend,
   productAnalyticsDateRange,
+  type RelatedQuerySignalKey,
 } from "../lib/reporting";
 
 const OperatorInsightPeriodSchema = z.enum(["7d", "30d", "90d"]);
@@ -18,6 +22,11 @@ const OperatorInsightSourceSchema = z.union([
 const OperatorInsightQuerySchema = z.object({
   period: OperatorInsightPeriodSchema.default("30d"),
   source: OperatorInsightSourceSchema.default("all"),
+});
+const OperatorFanOutSourceSchema = z.enum(["all", "chatgpt", "gemini"]);
+const OperatorFanOutQuerySchema = z.object({
+  period: OperatorInsightPeriodSchema.default("30d"),
+  source: OperatorFanOutSourceSchema.default("chatgpt"),
 });
 const OperatorCitationQuerySchema = OperatorInsightQuerySchema.extend({
   domain: z
@@ -40,10 +49,26 @@ const OperatorCitationDomainsQuerySchema = OperatorInsightQuerySchema.extend({
 
 type OperatorInsightPeriod = z.infer<typeof OperatorInsightPeriodSchema>;
 type OperatorInsightSource = z.infer<typeof OperatorInsightSourceSchema>;
+type OperatorFanOutSource = z.infer<typeof OperatorFanOutSourceSchema>;
 
 interface DailyResponseRow {
   metric_date: string;
   completed_responses: number;
+  matching_responses: number;
+}
+
+type DailyFanOutRow = {
+  metric_date: string;
+  completed_responses: number;
+  responses_with_fan_out: number;
+  total_fan_outs: number;
+} & Record<`${RelatedQuerySignalKey}_fanouts`, number>
+  & Record<`${RelatedQuerySignalKey}_responses`, number>;
+
+interface YearFanOutRow {
+  metric_date: string;
+  year: number;
+  matching_fan_outs: number;
   matching_responses: number;
 }
 
@@ -54,6 +79,16 @@ function insightRange(period: OperatorInsightPeriod) {
 function sourceBindings(source: OperatorInsightSource): [string, string] {
   return [source, source];
 }
+
+function fanOutSourceBindings(source: OperatorFanOutSource): [string, string] {
+  return [source, source];
+}
+
+const fanOutSignalSelectSql = RELATED_QUERY_SIGNAL_KEYS.map((key) => {
+  const count = `COALESCE(CAST(json_extract(fact.related_query_signal_counts_json, '$.${key}') AS INTEGER), 0)`;
+  return `SUM(${count}) AS ${key}_fanouts,
+          SUM(CASE WHEN ${count} > 0 THEN 1 ELSE 0 END) AS ${key}_responses`;
+}).join(",\n          ");
 
 export const operatorInsightRoutes = new Hono<AppEnv>();
 
@@ -177,7 +212,7 @@ operatorInsightRoutes.get(
 
 operatorInsightRoutes.get(
   "/operator/insights/fan-out",
-  zValidator("query", OperatorInsightQuerySchema),
+  zValidator("query", OperatorFanOutQuerySchema),
   async (c) => {
     await assertOperator(c);
     const input = c.req.valid("query");
@@ -193,16 +228,19 @@ operatorInsightRoutes.get(
            ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
          LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
          WHERE snapshot.captured_at >= ? AND snapshot.captured_at < ?
-           AND (? = 'all' OR snapshot.tracking_source = ?)
+           AND (
+             (? = 'all' AND snapshot.tracking_source IN ('chatgpt', 'gemini'))
+             OR snapshot.tracking_source = ?
+           )
            AND (
              fact.snapshot_id IS NULL
-             OR fact.related_query_insights_indexed_at IS NULL
+             OR fact.related_query_signal_counts_indexed_at IS NULL
            )`,
       )
       .bind(
         dates.startTimestamp,
         dates.endExclusiveTimestamp,
-        ...sourceBindings(input.source),
+        ...fanOutSourceBindings(input.source),
       )
         .first<{ remaining: number }>(),
       c.env.CONTROL_DB.prepare(
@@ -214,7 +252,7 @@ operatorInsightRoutes.get(
            ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
          LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
          WHERE fact.snapshot_id IS NULL
-           OR fact.related_query_insights_indexed_at IS NULL`,
+           OR fact.related_query_signal_counts_indexed_at IS NULL`,
       ).first<{ remaining: number }>(),
     ]);
     const remainingSnapshots = Number(selectedProgress?.remaining ?? 0);
@@ -229,6 +267,11 @@ operatorInsightRoutes.get(
           estimatedMinutes: analyticsBackfillEstimatedMinutes(
             globalRemainingSnapshots,
           ),
+          activity: [],
+          signals: Object.fromEntries(
+            RELATED_QUERY_SIGNAL_KEYS.map((key) => [key, []]),
+          ),
+          yearSignals: [],
           total: [],
           siteOperator: [],
           reviews: [],
@@ -244,79 +287,55 @@ operatorInsightRoutes.get(
         `SELECT fact.metric_date,
           COUNT(*) AS completed_responses,
           SUM(CASE WHEN fact.related_queries_count > 0 THEN 1 ELSE 0 END)
-            AS total_responses,
-          SUM(fact.related_site_query_present) AS site_responses,
-          SUM(fact.related_review_query_present) AS review_responses,
-          SUM(CASE WHEN EXISTS(
-            SELECT 1
-            FROM analytics_related_query_occurrences occurrence
-            WHERE occurrence.snapshot_id = fact.snapshot_id
-              AND (
-                (' ' || occurrence.normalized_query || ' ')
-                  GLOB '*[^a-z0-9_]official[^a-z0-9_]*'
-                OR (' ' || occurrence.normalized_query || ' ')
-                  GLOB '*[^a-z0-9_]oficial[^a-z0-9_]*'
-              )
-          ) THEN 1 ELSE 0 END) AS official_responses,
-          SUM(CASE WHEN EXISTS(
-            SELECT 1
-            FROM analytics_related_query_occurrences occurrence
-            WHERE occurrence.snapshot_id = fact.snapshot_id
-              AND (
-                (occurrence.normalized_query || ' ')
-                  GLOB '*.gov[^a-z0-9_]*'
-                OR (occurrence.normalized_query || ' ')
-                  GLOB '*.gob[^a-z0-9_]*'
-              )
-          ) THEN 1 ELSE 0 END) AS government_responses
+            AS responses_with_fan_out,
+          SUM(fact.related_queries_count) AS total_fan_outs,
+          ${fanOutSignalSelectSql}
          FROM analytics_snapshot_facts fact
          JOIN projects project
            ON project.id = fact.project_id AND project.deleted_at IS NULL
          JOIN workspaces workspace
            ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
          WHERE fact.metric_date BETWEEN ? AND ?
-           AND (? = 'all' OR fact.tracking_source = ?)
-           AND fact.related_query_insights_indexed_at IS NOT NULL
+           AND (
+             (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini'))
+             OR fact.tracking_source = ?
+           )
+           AND fact.related_query_signal_counts_indexed_at IS NOT NULL
          GROUP BY fact.metric_date
          ORDER BY fact.metric_date`,
       )
-        .bind(dates.from, dates.to, ...sourceBindings(input.source))
-        .all<{
-          metric_date: string;
-          completed_responses: number;
-          total_responses: number;
-          site_responses: number;
-          review_responses: number;
-          official_responses: number;
-          government_responses: number;
-        }>(),
+        .bind(dates.from, dates.to, ...fanOutSourceBindings(input.source))
+        .all<DailyFanOutRow>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT fact.metric_date, CAST(year.value AS INTEGER) AS year,
-          COUNT(DISTINCT fact.snapshot_id) AS matching_responses
+        `SELECT fact.metric_date, CAST(year.key AS INTEGER) AS year,
+          SUM(CAST(year.value AS INTEGER)) AS matching_fan_outs,
+          SUM(CASE WHEN CAST(year.value AS INTEGER) > 0 THEN 1 ELSE 0 END)
+            AS matching_responses
          FROM analytics_snapshot_facts fact
          JOIN projects project
            ON project.id = fact.project_id AND project.deleted_at IS NULL
          JOIN workspaces workspace
            ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
-         JOIN json_each(fact.related_query_years_json) year
+         JOIN json_each(
+           json_extract(fact.related_query_signal_counts_json, '$.years')
+         ) year
          WHERE fact.metric_date BETWEEN ? AND ?
-           AND (? = 'all' OR fact.tracking_source = ?)
-           AND fact.related_query_insights_indexed_at IS NOT NULL
-           AND CAST(year.value AS INTEGER) BETWEEN 2025 AND ?
-         GROUP BY fact.metric_date, year.value
+           AND (
+             (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini'))
+             OR fact.tracking_source = ?
+           )
+           AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+           AND CAST(year.key AS INTEGER) BETWEEN 2025 AND ?
+         GROUP BY fact.metric_date, year.key
          ORDER BY year, fact.metric_date`,
       )
         .bind(
           dates.from,
           dates.to,
-          ...sourceBindings(input.source),
+          ...fanOutSourceBindings(input.source),
           currentYear,
         )
-        .all<{
-          metric_date: string;
-          year: number;
-          matching_responses: number;
-        }>(),
+        .all<YearFanOutRow>(),
     ]);
     const completedByDate = new Map(
       daily.results.map((row) => [
@@ -324,28 +343,72 @@ operatorInsightRoutes.get(
         Number(row.completed_responses),
       ]),
     );
-    const totalByDate = new Map(
-      daily.results.map((row) => [row.metric_date, Number(row.total_responses)]),
+    const responsesWithFanOutByDate = new Map(
+      daily.results.map((row) => [
+        row.metric_date,
+        Number(row.responses_with_fan_out),
+      ]),
     );
-    const siteByDate = new Map(
-      daily.results.map((row) => [row.metric_date, Number(row.site_responses)]),
+    const totalFanOutsByDate = new Map(
+      daily.results.map((row) => [row.metric_date, Number(row.total_fan_outs)]),
     );
-    const reviewByDate = new Map(
-      daily.results.map((row) => [row.metric_date, Number(row.review_responses)]),
-    );
-    const officialByDate = new Map(
-      daily.results.map((row) => [row.metric_date, Number(row.official_responses)]),
-    );
-    const governmentByDate = new Map(
-      daily.results.map((row) => [row.metric_date, Number(row.government_responses)]),
-    );
-    const matchingByYear = new Map<number, Map<string, number>>();
+    const signalResponseMaps = new Map<
+      RelatedQuerySignalKey,
+      Map<string, number>
+    >();
+    const signalFanOutMaps = new Map<
+      RelatedQuerySignalKey,
+      Map<string, number>
+    >();
+    for (const key of RELATED_QUERY_SIGNAL_KEYS) {
+      signalResponseMaps.set(key, new Map(
+        daily.results.map((row) => [
+          row.metric_date,
+          Number(row[`${key}_responses`]),
+        ]),
+      ));
+      signalFanOutMaps.set(key, new Map(
+        daily.results.map((row) => [
+          row.metric_date,
+          Number(row[`${key}_fanouts`]),
+        ]),
+      ));
+    }
+    const responseMapsByYear = new Map<number, Map<string, number>>();
+    const fanOutMapsByYear = new Map<number, Map<string, number>>();
     for (const row of yearly.results) {
       const year = Number(row.year);
-      const values = matchingByYear.get(year) ?? new Map<string, number>();
-      values.set(row.metric_date, Number(row.matching_responses));
-      matchingByYear.set(year, values);
+      const responses = responseMapsByYear.get(year) ?? new Map<string, number>();
+      responses.set(row.metric_date, Number(row.matching_responses));
+      responseMapsByYear.set(year, responses);
+      const fanOuts = fanOutMapsByYear.get(year) ?? new Map<string, number>();
+      fanOuts.set(row.metric_date, Number(row.matching_fan_outs));
+      fanOutMapsByYear.set(year, fanOuts);
     }
+    const signalTrends = Object.fromEntries(
+      RELATED_QUERY_SIGNAL_KEYS.map((key) => [
+        key,
+        buildFanOutSignalTrend(
+          dates,
+          completedByDate,
+          totalFanOutsByDate,
+          signalResponseMaps.get(key) ?? new Map(),
+          signalFanOutMaps.get(key) ?? new Map(),
+        ),
+      ]),
+    );
+    const yearSignals = [...responseMapsByYear.entries()]
+      .sort(([left], [right]) => left - right)
+      .map(([year, responses]) => ({
+        year,
+        trend: buildFanOutSignalTrend(
+          dates,
+          completedByDate,
+          totalFanOutsByDate,
+          responses,
+          fanOutMapsByYear.get(year) ?? new Map(),
+        ),
+      }));
     return c.json({
       data: {
         period: input.period,
@@ -353,24 +416,48 @@ operatorInsightRoutes.get(
         indexing: false,
         remainingSnapshots: 0,
         estimatedMinutes: 0,
-        total: buildResponseShareTrend(dates, completedByDate, totalByDate),
-        siteOperator: buildResponseShareTrend(dates, completedByDate, siteByDate),
-        reviews: buildResponseShareTrend(dates, completedByDate, reviewByDate),
+        activity: buildFanOutActivityTrend(
+          dates,
+          completedByDate,
+          responsesWithFanOutByDate,
+          totalFanOutsByDate,
+        ),
+        signals: signalTrends,
+        yearSignals,
+        total: buildResponseShareTrend(
+          dates,
+          completedByDate,
+          responsesWithFanOutByDate,
+        ),
+        siteOperator: buildResponseShareTrend(
+          dates,
+          completedByDate,
+          signalResponseMaps.get("site") ?? new Map(),
+        ),
+        reviews: buildResponseShareTrend(
+          dates,
+          completedByDate,
+          signalResponseMaps.get("reviews") ?? new Map(),
+        ),
         official: buildResponseShareTrend(
           dates,
           completedByDate,
-          officialByDate,
+          signalResponseMaps.get("official") ?? new Map(),
         ),
         government: buildResponseShareTrend(
           dates,
           completedByDate,
-          governmentByDate,
+          signalResponseMaps.get("government") ?? new Map(),
         ),
-        years: [...matchingByYear.entries()]
+        years: [...responseMapsByYear.entries()]
           .sort(([left], [right]) => left - right)
-          .map(([year, values]) => ({
+          .map(([year, responses]) => ({
             year,
-            trend: buildResponseShareTrend(dates, completedByDate, values),
+            trend: buildResponseShareTrend(
+              dates,
+              completedByDate,
+              responses,
+            ),
           })),
       },
     });

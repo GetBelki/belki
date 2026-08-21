@@ -28,7 +28,12 @@ import {
 } from "../lib/crypto";
 import { ApiError, nowIso } from "../lib/http";
 import { sendInvitationEmail, sendPasswordResetEmail } from "../lib/email";
-import { listProjects } from "../lib/projects";
+import {
+  projectListStatements,
+  projectSummariesFromRows,
+  type ProjectSourceCountRow,
+  type ProjectSummaryRow,
+} from "../lib/projects";
 import { z } from "zod";
 
 interface LoginRow {
@@ -38,6 +43,17 @@ interface LoginRow {
   iterations: number;
   salt: string;
   password_hash: string;
+}
+
+interface SessionWorkspaceRow {
+  id: string;
+  name: string;
+  status: string;
+  plan_key: string;
+}
+
+interface SessionWorkspaceMembershipRow extends SessionWorkspaceRow {
+  role: string;
 }
 
 export const authRoutes = new Hono<AppEnv>();
@@ -170,24 +186,49 @@ authRoutes.post("/auth/login", zValidator("json", LoginSchema), async (c) => {
 
 authRoutes.get("/auth/session", async (c) => {
   const principal = c.get("principal");
-  const [projects, workspace, workspaces, operator] = await Promise.all([
-    listProjects(c.env.CONTROL_DB, principal.workspaceId),
-    c.env.CONTROL_DB.prepare("SELECT id, name, status, plan_key FROM workspaces WHERE id = ?")
-      .bind(principal.workspaceId)
-      .first<{ id: string; name: string; status: string; plan_key: string }>(),
-    c.env.CONTROL_DB.prepare(
-      `SELECT workspace.id, workspace.name, workspace.status, workspace.plan_key,
-        membership.role
-       FROM memberships membership
-       JOIN workspaces workspace ON workspace.id = membership.workspace_id
-       WHERE membership.user_id = ? AND membership.status = 'active'
-         AND workspace.status != 'deleted'
-       ORDER BY workspace.name COLLATE NOCASE, workspace.id`,
-    ).bind(principal.userId).all(),
-    c.env.CONTROL_DB.prepare(
-      "SELECT 1 AS found FROM platform_operators WHERE email = ? COLLATE NOCASE",
-    ).bind(principal.email).first<{ found: number }>(),
-  ]);
+  const [
+    projectRowsResult,
+    sourceCountsResult,
+    workspaceResult,
+    workspacesResult,
+    operatorResult,
+  ] = await c.get("timing").measureD1("session_db", () =>
+    c.env.CONTROL_DB.batch([
+      ...projectListStatements(c.env.CONTROL_DB, principal.workspaceId),
+      c.env.CONTROL_DB.prepare(
+        "SELECT id, name, status, plan_key FROM workspaces WHERE id = ?",
+      )
+        .bind(principal.workspaceId),
+      c.env.CONTROL_DB.prepare(
+        `SELECT workspace.id, workspace.name, workspace.status, workspace.plan_key,
+          membership.role
+         FROM memberships membership
+         JOIN workspaces workspace ON workspace.id = membership.workspace_id
+         WHERE membership.user_id = ? AND membership.status = 'active'
+           AND workspace.status != 'deleted'
+         ORDER BY workspace.name COLLATE NOCASE, workspace.id`,
+      ).bind(principal.userId),
+      c.env.CONTROL_DB.prepare(
+        "SELECT 1 AS found FROM platform_operators WHERE email = ? COLLATE NOCASE",
+      ).bind(principal.email),
+    ]),
+  );
+  if (
+    !projectRowsResult ||
+    !sourceCountsResult ||
+    !workspaceResult ||
+    !workspacesResult ||
+    !operatorResult
+  ) {
+    throw new Error("Session batch returned incomplete results.");
+  }
+  const projects = projectSummariesFromRows(
+    projectRowsResult.results as ProjectSummaryRow[],
+    sourceCountsResult.results as ProjectSourceCountRow[],
+  );
+  const workspace = workspaceResult.results[0] as SessionWorkspaceRow | undefined;
+  const workspaces = workspacesResult.results as SessionWorkspaceMembershipRow[];
+  const operator = operatorResult.results[0] as { found: number } | undefined;
   if (!workspace) {
     throw new ApiError(500, "workspace_not_found", "The current workspace could not be loaded.");
   }
@@ -201,7 +242,7 @@ authRoutes.get("/auth/session", async (c) => {
       },
       workspaceId: principal.workspaceId,
       workspace,
-      workspaces: workspaces.results,
+      workspaces,
       projects,
       csrfTokenPresent: Boolean(getCookie(c, "ai_tracker_csrf")),
       isPlatformOperator: Boolean(operator?.found),

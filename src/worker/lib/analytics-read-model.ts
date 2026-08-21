@@ -1,5 +1,5 @@
-// Version 6 records response-level fan-out classifications for operator trends.
-export const ANALYTICS_READ_MODEL_SCHEMA_VERSION = 6;
+// Version 7 records response-level fan-out signal counts for operator trends.
+export const ANALYTICS_READ_MODEL_SCHEMA_VERSION = 7;
 export const ANALYTICS_BACKFILL_BATCH_SIZE = 50;
 // Related-query tables and indexing were complete in version 4. Later additive
 // schema versions must remain valid for this report.

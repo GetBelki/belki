@@ -69,19 +69,21 @@ app.use("*", async (c, next) => {
     c.header(name, value);
   }
   c.header("Server-Timing", timing.toServerTiming(), { append: true });
-  if (
-    c.req.path.startsWith("/api/v1/analytics/") ||
-    c.req.path.startsWith("/api/v1/operator/insights/")
-  ) {
+  if (c.req.method === "GET" && c.req.path.startsWith("/api/v1/")) {
+    const requestCf = c.req.raw.cf as IncomingRequestCfProperties | undefined;
     console.log(
       JSON.stringify({
         level: "info",
-        message: "analytics_request_timing",
+        message: "api_request_timing",
         requestId: c.get("requestId"),
         method: c.req.method,
         path: c.req.path,
+        route: c.req.routePath,
         status: c.res.status,
+        workerColo: requestCf?.colo ?? null,
+        placement: c.res.headers.get("cf-placement"),
         timingMs: timing.toLogRecord(),
+        d1: timing.toD1LogRecord(),
       }),
     );
   }

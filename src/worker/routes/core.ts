@@ -14,8 +14,11 @@ import {
   QueryInputSchema,
   QueryUpdateSchema,
   WorkspaceUpdateSchema,
+  type PlanKey,
   type Schedule,
+  type TrackingSource,
 } from "../../shared/contracts";
+import { DEFAULT_TRACKING_SOURCES } from "../../shared/tracking-sources";
 import type { AppEnv } from "../lib/app";
 import { requireRole } from "../lib/auth";
 import { writeAudit } from "../lib/audit";
@@ -51,6 +54,7 @@ import {
 import {
   assertTrackingSourcesAllowed,
   availableSources,
+  planSourceEntitlement,
   projectTrackingSources,
   scheduledForTrackingSource,
   workspaceSourceEntitlement,
@@ -305,31 +309,54 @@ coreRoutes.get(
   async (c) => {
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
-    await requireProject(c.env.CONTROL_DB, principal.workspaceId, id);
-    const [project, sources, sourceEntitlement] = await Promise.all([
+    const result = await c.get("timing").measureD1("project_settings_db", () =>
       c.env.CONTROL_DB.prepare(
-      `SELECT id, name, primary_domain, html_capture_enabled,
-        product_enrichment_enabled, entity_extraction_enabled,
-        entity_auto_track_enabled, raw_retention_days, html_retention_days
-       FROM projects
-       WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`,
-    )
-      .bind(id, principal.workspaceId)
-      .first<{
-        id: string;
-        name: string;
-        primary_domain: string | null;
-        html_capture_enabled: number;
-        product_enrichment_enabled: number;
-        entity_extraction_enabled: number;
-        entity_auto_track_enabled: number;
-        raw_retention_days: number;
-        html_retention_days: number;
-      }>(),
-      projectTrackingSources(c.env, id),
-      workspaceSourceEntitlement(c.env, principal.workspaceId),
-    ]);
+        `SELECT project.id, project.name, project.primary_domain,
+          project.html_capture_enabled,
+          product_enrichment_enabled, entity_extraction_enabled,
+          entity_auto_track_enabled, raw_retention_days, html_retention_days,
+          billing.plan_key, billing.source_limit,
+          COALESCE((
+            SELECT json_group_array(source.source)
+            FROM (
+              SELECT source
+              FROM project_tracking_sources
+              WHERE project_id = project.id AND enabled = 1
+              ORDER BY CASE source
+                WHEN 'chatgpt' THEN 0 WHEN 'gemini' THEN 1
+                WHEN 'google_ai_mode' THEN 2 ELSE 3 END
+            ) source
+          ), '[]') AS tracking_sources_json
+         FROM projects project
+         JOIN billing_accounts billing ON billing.workspace_id = project.workspace_id
+         WHERE project.id = ? AND project.workspace_id = ?
+           AND project.deleted_at IS NULL AND project.archived_at IS NULL
+         LIMIT 1`,
+      )
+        .bind(id, principal.workspaceId)
+        .all<{
+          id: string;
+          name: string;
+          primary_domain: string | null;
+          html_capture_enabled: number;
+          product_enrichment_enabled: number;
+          entity_extraction_enabled: number;
+          entity_auto_track_enabled: number;
+          raw_retention_days: number;
+          html_retention_days: number;
+          plan_key: PlanKey;
+          source_limit: number;
+          tracking_sources_json: string;
+        }>(),
+    );
+    const project = result.results[0];
     if (!project) throw new ApiError(404, "project_not_found", "Project not found.");
+    const availableTrackingSources = availableSources(c.env);
+    const configuredEntitlement = planSourceEntitlement(project.plan_key);
+    const sources = jsonParse<TrackingSource[]>(
+      project.tracking_sources_json,
+      [],
+    );
     return c.json({
       data: {
         id: project.id,
@@ -341,10 +368,15 @@ coreRoutes.get(
         entityAutoTrackEnabled: project.entity_auto_track_enabled === 1,
         rawRetentionDays: project.raw_retention_days,
         htmlRetentionDays: project.html_retention_days,
-        trackingSources: sources,
-        availableTrackingSources: availableSources(c.env),
-        allowedTrackingSources: sourceEntitlement.allowedSources,
-        trackingSourceLimit: sourceEntitlement.sourceLimit,
+        trackingSources: sources.length ? sources : [...DEFAULT_TRACKING_SOURCES],
+        availableTrackingSources,
+        allowedTrackingSources: configuredEntitlement.allowedSources.filter((source) =>
+          availableTrackingSources.includes(source),
+        ),
+        trackingSourceLimit: Math.min(
+          Number(project.source_limit),
+          configuredEntitlement.sourceLimit,
+        ),
       },
     });
   },
@@ -662,27 +694,41 @@ coreRoutes.get(
   async (c) => {
     const principal = c.get("principal");
     const { projectId } = c.req.valid("param");
-    await requireProject(c.env.CONTROL_DB, principal.workspaceId, projectId);
-    const tags = await c.env.CONTROL_DB.prepare(
-      `SELECT
-        t.id, t.name, t.color_index,
-        COUNT(q.id) AS usage_count
-       FROM prompt_tags t
-       LEFT JOIN tracked_query_tags qt ON qt.tag_id = t.id
-       LEFT JOIN tracked_queries q
-         ON q.id = qt.tracked_query_id AND q.deleted_at IS NULL
-       WHERE t.project_id = ?
-       GROUP BY t.id, t.name, t.color_index
-       HAVING COUNT(q.id) > 0
-       ORDER BY usage_count DESC, lower(t.name), t.id`,
-    )
-      .bind(projectId)
-      .all<{
-        id: string;
-        name: string;
-        color_index: number;
-        usage_count: number;
-      }>();
+    const [projectResult, tagsResult] = await c.get("timing").measureD1(
+      "project_tags_db",
+      () => c.env.CONTROL_DB.batch([
+        c.env.CONTROL_DB.prepare(
+          `SELECT id
+           FROM projects
+           WHERE id = ? AND workspace_id = ?
+             AND deleted_at IS NULL AND archived_at IS NULL
+           LIMIT 1`,
+        ).bind(projectId, principal.workspaceId),
+        c.env.CONTROL_DB.prepare(
+          `SELECT
+            t.id, t.name, t.color_index,
+            COUNT(q.id) AS usage_count
+           FROM prompt_tags t
+           LEFT JOIN tracked_query_tags qt ON qt.tag_id = t.id
+           LEFT JOIN tracked_queries q
+             ON q.id = qt.tracked_query_id AND q.deleted_at IS NULL
+           WHERE t.project_id = ?
+           GROUP BY t.id, t.name, t.color_index
+           HAVING COUNT(q.id) > 0
+           ORDER BY usage_count DESC, lower(t.name), t.id`,
+        ).bind(projectId),
+      ]),
+    );
+    if (!projectResult?.results.length) {
+      throw new ApiError(404, "project_not_found", "Project not found.");
+    }
+    if (!tagsResult) throw new Error("Project tags batch returned no tag result.");
+    const tags = tagsResult as D1Result<{
+      id: string;
+      name: string;
+      color_index: number;
+      usage_count: number;
+    }>;
     return c.json({
       data: tags.results.map((tag) => ({
         id: tag.id,

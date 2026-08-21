@@ -2,7 +2,7 @@
 
 ## Executive summary
 
-A ChatGPT web-only LLM tracker built on Cloudflare Workers is technically feasible, and the best-fit design is a **Worker-first, queue-backed ingestion system** that uses **DataForSEO ChatGPT LLM Scraper** as the source of truth for public ChatGPT Search-mode results, **D1** for relational analytics and indexing, and **R2** for raw payload and HTML retention. This design matches the “Peec AI-style” product shape well because DataForSEO’s ChatGPT LLM Scraper returns the exact categories that matter for visibility tracking: cited sources, search-result URLs, brand entities, result item types, product blocks, source metadata, timestamps, and a direct `check_url` back to the ChatGPT web result. Crucially, the tracker should use **LLM Scraper**, not **LLM Responses**, because DataForSEO describes LLM Scraper as scraped ChatGPT Search-mode output, whereas LLM Responses is a separate API that generates structured model responses and would blur the line between web ChatGPT behaviour and API/model testing. citeturn26view1turn7search0turn26view0
+A ChatGPT web-only LLM tracker built on Cloudflare Workers is technically feasible, and the best-fit design is a **Worker-first, queue-backed ingestion system** that uses **DataForSEO ChatGPT LLM Scraper** as the source of truth for public ChatGPT Search-mode results, **D1** for relational analytics and indexing, and **R2** for raw payload and HTML retention. This design fits an AI visibility analytics product because DataForSEO’s ChatGPT LLM Scraper returns the exact categories that matter for visibility tracking: cited sources, search-result URLs, brand entities, result item types, product blocks, source metadata, timestamps, and a direct `check_url` back to the ChatGPT web result. Crucially, the tracker should use **LLM Scraper**, not **LLM Responses**, because DataForSEO describes LLM Scraper as scraped ChatGPT Search-mode output, whereas LLM Responses is a separate API that generates structured model responses and would blur the line between web ChatGPT behaviour and API/model testing. citeturn26view1turn7search0turn26view0
 
 For day-to-day monitoring, the most economical architecture is **Standard task posting with `postback_url`** for Advanced payloads, plus **Cloudflare Queues** between scheduling and submission/persistence. DataForSEO lets you post up to 100 tasks per Standard POST call, supports `postback_url` and `pingback_url`, returns gzip-compressed postbacks, and moves failed postbacks to `tasks_ready`; by contrast, `live/advanced` supports only one task per call and can take up to 120 seconds. That makes Live ideal for **manual refresh / ad hoc debugging**, but not as the default monitoring path. citeturn38view0turn13view0turn8view0turn38view1
 
@@ -819,7 +819,7 @@ The key strategic point is that **DataForSEO spend dominates** much earlier than
 
 ### UI integration plan with shadcn/ui
 
-A Peec-style dashboard maps very naturally onto shadcn/ui’s component catalogue:
+An AI visibility dashboard maps naturally onto shadcn/ui’s component catalogue:
 
 | Page / surface | shadcn/ui components | Behaviour |
 |---|---|---|

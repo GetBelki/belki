@@ -1,3 +1,7 @@
+import type {
+  D1Database,
+  D1PreparedStatement,
+} from "@cloudflare/workers-types";
 import type { TrackingSource } from "../../shared/tracking-sources";
 
 export interface ProjectSourceDataCount {
@@ -19,11 +23,20 @@ export interface ProjectSummary {
   source_data_counts: Partial<Record<TrackingSource, ProjectSourceDataCount>>;
 }
 
-export async function listProjects(
+export type ProjectSummaryRow = Omit<ProjectSummary, "source_data_counts">;
+
+export interface ProjectSourceCountRow {
+  project_id: string;
+  tracking_source: TrackingSource;
+  ads_count: number;
+  products_count: number;
+}
+
+export function projectListStatements(
   db: D1Database,
   workspaceId: string,
-): Promise<ProjectSummary[]> {
-  const [rows, sourceCounts] = await Promise.all([
+): [D1PreparedStatement, D1PreparedStatement] {
+  return [
     db.prepare(
       `SELECT
         p.id, p.name, p.primary_domain, p.html_capture_enabled, p.created_at, p.updated_at,
@@ -50,9 +63,7 @@ export async function listProjects(
       FROM projects p
       WHERE p.workspace_id = ? AND p.deleted_at IS NULL AND p.archived_at IS NULL
       ORDER BY p.updated_at DESC`,
-    )
-    .bind(workspaceId)
-    .all<Omit<ProjectSummary, "source_data_counts">>(),
+    ).bind(workspaceId),
     db.prepare(
       `SELECT fact.project_id, fact.tracking_source,
         COALESCE(SUM(fact.ads_count), 0) AS ads_count,
@@ -63,21 +74,19 @@ export async function listProjects(
          AND project.archived_at IS NULL
          AND (fact.ads_count > 0 OR fact.products_count > 0)
        GROUP BY fact.project_id, fact.tracking_source`,
-    )
-      .bind(workspaceId)
-      .all<{
-        project_id: string;
-        tracking_source: TrackingSource;
-        ads_count: number;
-        products_count: number;
-      }>(),
-  ]);
+    ).bind(workspaceId),
+  ];
+}
 
+export function projectSummariesFromRows(
+  rows: ProjectSummaryRow[],
+  sourceCounts: ProjectSourceCountRow[],
+): ProjectSummary[] {
   const countsByProject = new Map<
     string,
     Partial<Record<TrackingSource, ProjectSourceDataCount>>
   >();
-  for (const count of sourceCounts.results) {
+  for (const count of sourceCounts) {
     const projectCounts = countsByProject.get(count.project_id) ?? {};
     projectCounts[count.tracking_source] = {
       ads: Number(count.ads_count),
@@ -86,8 +95,24 @@ export async function listProjects(
     countsByProject.set(count.project_id, projectCounts);
   }
 
-  return rows.results.map((project) => ({
+  return rows.map((project) => ({
     ...project,
     source_data_counts: countsByProject.get(project.id) ?? {},
   }));
+}
+
+export async function listProjects(
+  db: D1Database,
+  workspaceId: string,
+): Promise<ProjectSummary[]> {
+  const [rowsResult, sourceCountsResult] = await db.batch(
+    projectListStatements(db, workspaceId),
+  );
+  if (!rowsResult || !sourceCountsResult) {
+    throw new Error("Project list batch returned incomplete results.");
+  }
+  return projectSummariesFromRows(
+    rowsResult.results as ProjectSummaryRow[],
+    sourceCountsResult.results as ProjectSourceCountRow[],
+  );
 }
