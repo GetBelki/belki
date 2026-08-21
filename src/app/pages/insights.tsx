@@ -690,6 +690,31 @@ export function CitationSourceDetailPage() {
   );
 }
 
+function entityRelationshipReason(reason: string): string {
+  const labels: Record<string, string> = {
+    owned_brand: "Configured owned brand",
+    tracked_competitor: "Configured competitor",
+    explicit_comparison: "Explicitly compared in the answer",
+    alternative_or_substitute: "Presented as an alternative or substitute",
+    explicit_rival: "Described as a rival",
+    same_recommendation_set: "Recommended in the same option set",
+    incidental_mention: "Mentioned without a competitive relationship",
+    insufficient_context: "Relationship needs review",
+    legacy_classifier: "Detected by the legacy extractor",
+  };
+  return labels[reason] ?? "Relationship needs review";
+}
+
+function entitySourceLabel(source: string): string {
+  const labels: Record<string, string> = {
+    workers_ai: "context model",
+    dataforseo_entity: "provider entity",
+    observed_domain: "observed domain",
+    tracked_brand: "tracked identity",
+  };
+  return labels[source] ?? source;
+}
+
 export function BrandsPage() {
   const { projectId, session } = useApp();
   const queryClient = useQueryClient();
@@ -712,6 +737,9 @@ export function BrandsPage() {
     confidence: number | null;
     provider_corroborated: number;
     domain_corroborated: number;
+    evidenceTier: "strong" | "moderate" | "weak";
+    relationshipReason: string | null;
+    latestSources: string[];
     latestEvidence: string[];
   }>>("entities");
   const updateEntity = useMutation({
@@ -847,11 +875,22 @@ export function BrandsPage() {
                         <div className="entity-discovery-copy">
                           <div>
                             <strong>{entity.canonical_name}</strong>
-                            <Badge tone={entity.relationship === "competitor" ? "warning" : "neutral"}>{entity.relationship}</Badge>
-                            {entity.provider_corroborated || entity.domain_corroborated ? <Badge tone="success">Corroborated</Badge> : null}
+                            <Badge tone={entity.relationship === "competitor" ? "warning" : "neutral"}>
+                              {entity.relationship === "competitor"
+                                ? entity.evidenceTier === "strong" ? "Likely competitor" : "Possible competitor"
+                                : entity.relationship}
+                            </Badge>
+                            <Badge tone={entity.evidenceTier === "strong" ? "success" : "neutral"}>
+                              {entity.evidenceTier === "strong"
+                                ? "Strong evidence"
+                                : entity.evidenceTier === "moderate" ? "Corroborated" : "Needs review"}
+                            </Badge>
                             {entity.status === "ignored" ? <Badge>Ignored</Badge> : null}
                           </div>
                           <span>{compact(entity.period_snapshot_count)} responses · {compact(entity.period_prompt_count)} prompts</span>
+                          {entity.relationshipReason ? (
+                            <span>{entityRelationshipReason(entity.relationshipReason)}{entity.latestSources.length ? ` · ${entity.latestSources.map(entitySourceLabel).join(", ")}` : ""}</span>
+                          ) : null}
                           {entity.latestEvidence[0] ? (
                             <details className="entity-evidence">
                               <summary>Show evidence</summary>
@@ -2945,7 +2984,7 @@ export function SettingsPage() {
                   </label>
                   <div className="settings-enrichment-usage">
                     <div><strong>{formatProviderCost(entitySettings.data.monthToDateCost)}</strong><span>Estimated month-to-date</span></div>
-                    <div><strong>{compact(entitySettings.data.monthToDateTasks)}</strong><span>Inference calls</span></div>
+                    <div><strong>{compact(entitySettings.data.monthToDateTasks)}</strong><span>Extraction tasks</span></div>
                   </div>
                   {entitySettings.data.warningExceeded ? <div className="settings-enrichment-warning"><AlertTriangle size={14} /> The estimated monthly warning level has been reached.</div> : null}
                   <form className="settings-enrichment-threshold" onSubmit={entityWarningSubmit}>

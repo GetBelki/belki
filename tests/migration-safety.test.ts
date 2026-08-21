@@ -96,4 +96,21 @@ describe("control database migrations", () => {
     expect(snapshotSql).toMatch(/CREATE TRIGGER snapshots_fanout_telemetry_infer_unknown/i);
     expect(`${controlSql}\n${snapshotSql}`).not.toMatch(/DROP TABLE/i);
   });
+
+  it("versions entity extraction without disabling foreign-key enforcement", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0023_entity_extraction_v2.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/UNIQUE\s*\(snapshot_id,\s*extractor_version\)/i);
+    expect(sql).toMatch(/UNIQUE\s*\(snapshot_id,\s*entity_id,\s*extractor_version\)/i);
+    expect(sql).toMatch(/run_type IN \('live', 'backfill', 'evaluation'\)/i);
+    expect(sql).toMatch(/evidence_tier IN \('strong', 'moderate', 'weak'\)/i);
+    expect(sql).toMatch(
+      /UPDATE projects SET active_entity_extractor_version = 'entities-v1'/i,
+    );
+    expect(sql).not.toMatch(/UPDATE snapshot_index SET detected_entities_count = 0/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
 });

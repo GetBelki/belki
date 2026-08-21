@@ -76,7 +76,8 @@ automationRoutes.get(
           SELECT COUNT(*) AS tasks, COALESCE(SUM(chunk.estimated_cost_usd), 0) AS cost
           FROM entity_extraction_chunks chunk
           JOIN entity_extraction_jobs job ON job.id = chunk.job_id
-          WHERE job.project_id = ? AND chunk.status = 'completed'
+          WHERE job.project_id = ? AND job.run_type = 'live'
+            AND chunk.status = 'completed'
             AND chunk.completed_at >= strftime('%Y-%m-01T00:00:00.000Z', 'now')
           UNION ALL
           SELECT COALESCE(SUM(charged_tasks), 0), COALESCE(SUM(estimated_cost_usd), 0)
@@ -208,7 +209,8 @@ automationRoutes.get("/settings/entity-extraction", async (c) => {
         SELECT COUNT(*) AS tasks, COALESCE(SUM(chunk.estimated_cost_usd), 0) AS cost
         FROM entity_extraction_chunks chunk
         JOIN entity_extraction_jobs job ON job.id = chunk.job_id
-        WHERE job.workspace_id = ? AND chunk.status = 'completed'
+        WHERE job.workspace_id = ? AND job.run_type = 'live'
+          AND chunk.status = 'completed'
           AND chunk.completed_at >= strftime('%Y-%m-01T00:00:00.000Z', 'now')
         UNION ALL
         SELECT COALESCE(SUM(charged_tasks), 0), COALESCE(SUM(estimated_cost_usd), 0)
@@ -362,17 +364,25 @@ automationRoutes.patch(
           `INSERT INTO entity_mentions (
             id, snapshot_id, workspace_id, project_id, tracked_query_id, entity_id,
             surface_text, occurrence_count, entity_type, relationship, confidence,
-            evidence_json, sources_json, captured_at, created_at
-          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-          ON CONFLICT(snapshot_id, entity_id) DO UPDATE SET
+            evidence_json, sources_json, captured_at, created_at, extractor_version,
+            evidence_tier, relationship_reason
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+          ON CONFLICT(snapshot_id, entity_id, extractor_version) DO UPDATE SET
             occurrence_count = entity_mentions.occurrence_count + excluded.occurrence_count,
-            confidence = MAX(entity_mentions.confidence, excluded.confidence)`,
+            confidence = MAX(entity_mentions.confidence, excluded.confidence),
+            evidence_tier = CASE
+              WHEN entity_mentions.evidence_tier = 'strong' OR excluded.evidence_tier = 'strong'
+                THEN 'strong'
+              WHEN entity_mentions.evidence_tier = 'moderate' OR excluded.evidence_tier = 'moderate'
+                THEN 'moderate'
+              ELSE 'weak' END`,
         ).bind(
           crypto.randomUUID(), mention.snapshot_id, mention.workspace_id,
           mention.project_id, mention.tracked_query_id, target.id, mention.surface_text,
           mention.occurrence_count, mention.entity_type, mention.relationship,
           mention.confidence, mention.evidence_json, mention.sources_json,
-          mention.captured_at, mention.created_at,
+          mention.captured_at, mention.created_at, mention.extractor_version,
+          mention.evidence_tier, mention.relationship_reason,
         ).run();
       }
       await c.env.CONTROL_DB.batch([
@@ -394,10 +404,18 @@ automationRoutes.patch(
         ),
         c.env.CONTROL_DB.prepare(
           `UPDATE project_entities SET
-            snapshot_count = (SELECT COUNT(DISTINCT snapshot_id) FROM entity_mentions WHERE entity_id = ?),
-            prompt_count = (SELECT COUNT(DISTINCT tracked_query_id) FROM entity_mentions WHERE entity_id = ?),
-            competitor_snapshot_count = (SELECT COUNT(DISTINCT snapshot_id) FROM entity_mentions WHERE entity_id = ? AND relationship = 'competitor'),
-            competitor_prompt_count = (SELECT COUNT(DISTINCT tracked_query_id) FROM entity_mentions WHERE entity_id = ? AND relationship = 'competitor'),
+            snapshot_count = (SELECT COUNT(DISTINCT snapshot_id) FROM entity_mentions
+              WHERE entity_id = ? AND extractor_version = (
+                SELECT active_entity_extractor_version FROM projects WHERE id = entity_mentions.project_id)),
+            prompt_count = (SELECT COUNT(DISTINCT tracked_query_id) FROM entity_mentions
+              WHERE entity_id = ? AND extractor_version = (
+                SELECT active_entity_extractor_version FROM projects WHERE id = entity_mentions.project_id)),
+            competitor_snapshot_count = (SELECT COUNT(DISTINCT snapshot_id) FROM entity_mentions
+              WHERE entity_id = ? AND relationship = 'competitor' AND extractor_version = (
+                SELECT active_entity_extractor_version FROM projects WHERE id = entity_mentions.project_id)),
+            competitor_prompt_count = (SELECT COUNT(DISTINCT tracked_query_id) FROM entity_mentions
+              WHERE entity_id = ? AND relationship = 'competitor' AND extractor_version = (
+                SELECT active_entity_extractor_version FROM projects WHERE id = entity_mentions.project_id)),
             updated_at = ? WHERE id = ?`,
         ).bind(target.id, target.id, target.id, target.id, now, target.id),
         c.env.CONTROL_DB.prepare(

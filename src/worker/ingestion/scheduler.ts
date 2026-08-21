@@ -355,10 +355,14 @@ export async function runRetention(env: Env): Promise<void> {
   await env.CONTROL_DB.batch([
     env.CONTROL_DB.prepare(
       `DELETE FROM project_entities
-       WHERE tracked_brand_id IS NULL
+       WHERE tracked_brand_id IS NULL AND status = 'candidate'
          AND NOT EXISTS (
            SELECT 1 FROM entity_mentions mention
            WHERE mention.entity_id = project_entities.id
+             AND mention.extractor_version = (
+               SELECT active_entity_extractor_version FROM projects
+               WHERE id = project_entities.project_id
+             )
          )`,
     ),
     env.CONTROL_DB.prepare(
@@ -366,18 +370,34 @@ export async function runRetention(env: Env): Promise<void> {
         snapshot_count = (
           SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
           WHERE mention.entity_id = project_entities.id
+            AND mention.extractor_version = (
+              SELECT active_entity_extractor_version FROM projects
+              WHERE id = project_entities.project_id
+            )
         ),
         prompt_count = (
           SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
           WHERE mention.entity_id = project_entities.id
+            AND mention.extractor_version = (
+              SELECT active_entity_extractor_version FROM projects
+              WHERE id = project_entities.project_id
+            )
         ),
         competitor_snapshot_count = (
           SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
           WHERE mention.entity_id = project_entities.id AND mention.relationship = 'competitor'
+            AND mention.extractor_version = (
+              SELECT active_entity_extractor_version FROM projects
+              WHERE id = project_entities.project_id
+            )
         ),
         competitor_prompt_count = (
           SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
           WHERE mention.entity_id = project_entities.id AND mention.relationship = 'competitor'
+            AND mention.extractor_version = (
+              SELECT active_entity_extractor_version FROM projects
+              WHERE id = project_entities.project_id
+            )
         ),
         updated_at = ?`,
     ).bind(now),

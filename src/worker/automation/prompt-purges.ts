@@ -460,7 +460,8 @@ export async function processPromptPurge(env: Env, purgeJobId: string): Promise<
         COALESCE(SUM(chunk.estimated_cost_usd), 0), ?
       FROM entity_extraction_chunks chunk
       JOIN entity_extraction_jobs job ON job.id = chunk.job_id
-      WHERE job.tracked_query_id = ? AND chunk.status = 'completed'
+      WHERE job.tracked_query_id = ? AND job.run_type = 'live'
+        AND chunk.status = 'completed'
       GROUP BY job.workspace_id, job.project_id, substr(chunk.completed_at, 1, 10)
       ON CONFLICT(project_id, usage_date) DO UPDATE SET
         charged_tasks = charged_tasks + excluded.charged_tasks,
@@ -477,10 +478,14 @@ export async function processPromptPurge(env: Env, purgeJobId: string): Promise<
     ).bind(job.tracked_query_id),
     env.CONTROL_DB.prepare(
       `DELETE FROM project_entities
-       WHERE project_id = ? AND tracked_brand_id IS NULL
+       WHERE project_id = ? AND tracked_brand_id IS NULL AND status = 'candidate'
          AND NOT EXISTS (
            SELECT 1 FROM entity_mentions mention
            WHERE mention.entity_id = project_entities.id
+             AND mention.extractor_version = (
+               SELECT active_entity_extractor_version FROM projects
+               WHERE id = project_entities.project_id
+             )
          )`,
     ).bind(job.project_id),
     env.CONTROL_DB.prepare(
@@ -488,18 +493,34 @@ export async function processPromptPurge(env: Env, purgeJobId: string): Promise<
         snapshot_count = (
           SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
           WHERE mention.entity_id = project_entities.id
+            AND mention.extractor_version = (
+              SELECT active_entity_extractor_version FROM projects
+              WHERE id = project_entities.project_id
+            )
         ),
         prompt_count = (
           SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
           WHERE mention.entity_id = project_entities.id
+            AND mention.extractor_version = (
+              SELECT active_entity_extractor_version FROM projects
+              WHERE id = project_entities.project_id
+            )
         ),
         competitor_snapshot_count = (
           SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
           WHERE mention.entity_id = project_entities.id AND mention.relationship = 'competitor'
+            AND mention.extractor_version = (
+              SELECT active_entity_extractor_version FROM projects
+              WHERE id = project_entities.project_id
+            )
         ),
         competitor_prompt_count = (
           SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
           WHERE mention.entity_id = project_entities.id AND mention.relationship = 'competitor'
+            AND mention.extractor_version = (
+              SELECT active_entity_extractor_version FROM projects
+              WHERE id = project_entities.project_id
+            )
         ),
         updated_at = ? WHERE project_id = ?`,
     ).bind(now, job.project_id),

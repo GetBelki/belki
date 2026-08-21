@@ -199,6 +199,11 @@ Before merging this schema release, run `pnpm db:migrate:remote`, which applies:
   metadata backfill handles up to 400 responses per minute, reads at most five
   snapshot shards concurrently, and excludes unavailable telemetry from
   fan-out rate denominators.
+- `0023_entity_extraction_v2.sql`: versioned extraction jobs and mentions,
+  evidence tiers, relationship reasons, and a project-level active extractor.
+  Existing projects continue reading v1 until the bounded v2 backfill completes;
+  v1 data is retained so operators can roll a project back by changing its
+  active extractor version.
 - Snapshot migrations `0005_tracking_sources.sql` and
   `0006_fanout_telemetry.sql` on every snapshot shard: source identity,
   AI-surface presence, model metadata, and the distinction between an explicit
