@@ -93,6 +93,7 @@ describe("control database migrations", () => {
     expect(controlSql).toMatch(/schema_version\s*=\s*8/i);
     expect(snapshotSql).toMatch(/ADD COLUMN fan_out_telemetry_status/i);
     expect(snapshotSql).toMatch(/json_array_length\(fan_out_queries_json\)/i);
+    expect(snapshotSql).toMatch(/CREATE TRIGGER snapshots_fanout_telemetry_infer_unknown/i);
     expect(`${controlSql}\n${snapshotSql}`).not.toMatch(/DROP TABLE/i);
   });
 });
