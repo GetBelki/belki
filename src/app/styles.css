@@ -7574,6 +7574,31 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 .operator-signal-group-control { display: grid; flex: 0 0 190px; gap: 7px; min-width: 0; }
 .operator-signal-group-control .select-trigger { min-height: 40px; min-width: 190px; }
 .operator-signal-chart { height: 380px; }
+.operator-signal-chart .recharts-default-legend {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  justify-content: center;
+  line-height: 1;
+  margin: 0 !important;
+}
+.operator-signal-chart .recharts-legend-item {
+  align-items: center;
+  display: inline-flex !important;
+  margin-right: 0 !important;
+}
+.operator-signal-chart .recharts-legend-icon {
+  height: 9px;
+  margin-right: 4px;
+  width: 9px;
+}
+.operator-signal-chart .recharts-legend-item-text {
+  color: #52525b !important;
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+}
 .operator-signal-note { color: #71717a; font-size: 11px; line-height: 1.5; margin: -4px 22px 18px; }
 .operator-signal-tooltip { gap: 8px; min-width: 260px; }
 .operator-signal-tooltip-row {
