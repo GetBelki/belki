@@ -56,7 +56,7 @@ export async function backfillAnalyticsReadModel(
     .run();
 
   // Recover projects that were marked ready before every response-level
-  // fan-out classification had actually been persisted.
+  // fan-out signal count had actually been persisted.
   await env.CONTROL_DB.prepare(
     `UPDATE analytics_read_model_projects
      SET status = 'pending', error_message = NULL, updated_at = ?
@@ -68,7 +68,7 @@ export async function backfillAnalyticsReadModel(
          WHERE snapshot.project_id = analytics_read_model_projects.project_id
            AND (
              fact.snapshot_id IS NULL
-             OR fact.related_query_insights_indexed_at IS NULL
+             OR fact.related_query_signal_counts_indexed_at IS NULL
            )
        )`,
   )
@@ -112,7 +112,7 @@ export async function backfillAnalyticsReadModel(
        FROM snapshot_index snapshot
        LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
        WHERE snapshot.project_id = ?
-         AND (fact.snapshot_id IS NULL OR fact.related_query_insights_indexed_at IS NULL)
+         AND (fact.snapshot_id IS NULL OR fact.related_query_signal_counts_indexed_at IS NULL)
        ORDER BY snapshot.captured_at, snapshot.id
        LIMIT ?`,
     )
@@ -135,7 +135,7 @@ export async function backfillAnalyticsReadModel(
         FROM snapshot_index snapshot
         LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
         WHERE snapshot.project_id = ?
-          AND (fact.snapshot_id IS NULL OR fact.related_query_insights_indexed_at IS NULL)
+          AND (fact.snapshot_id IS NULL OR fact.related_query_signal_counts_indexed_at IS NULL)
       ) AS has_more`,
     )
       .bind(project.project_id)

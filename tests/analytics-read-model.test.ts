@@ -21,8 +21,8 @@ describe("analytics read-model compatibility", () => {
     ).toBe(true);
   });
 
-  it("uses version 6 for response-level fan-out insight classifications", () => {
-    expect(ANALYTICS_READ_MODEL_SCHEMA_VERSION).toBe(6);
+  it("uses version 7 for response-level fan-out signal counts", () => {
+    expect(ANALYTICS_READ_MODEL_SCHEMA_VERSION).toBe(7);
   });
 
   it("requires the requested schema capability and a completed backfill", () => {
@@ -34,7 +34,7 @@ describe("analytics read-model compatibility", () => {
   });
 
   it("accepts later compatible schema versions", () => {
-    expect(analyticsReadModelSupports({ status: "ready", schema_version: 6 }))
+    expect(analyticsReadModelSupports({ status: "ready", schema_version: 7 }))
       .toBe(true);
   });
 

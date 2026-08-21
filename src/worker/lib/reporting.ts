@@ -33,10 +33,30 @@ export function normalizeRelatedQuery(value: string): string {
   return value.normalize("NFKC").trim().replace(/\s+/gu, " ").toLowerCase();
 }
 
+export const RELATED_QUERY_SIGNAL_KEYS = [
+  "site",
+  "official",
+  "government",
+  "pricing",
+  "reviews",
+  "best",
+  "top",
+  "comparison",
+  "vs",
+] as const;
+
+export type RelatedQuerySignalKey = (typeof RELATED_QUERY_SIGNAL_KEYS)[number];
+
+export interface RelatedQuerySignalCounts
+  extends Record<RelatedQuerySignalKey, number> {
+  years: Record<string, number>;
+}
+
 export interface RelatedQueryClassification {
   governmentPresent: boolean;
   officialPresent: boolean;
   reviewPresent: boolean;
+  signalCounts: RelatedQuerySignalCounts;
   sitePresent: boolean;
   years: number[];
 }
@@ -73,38 +93,166 @@ export function buildResponseShareTrend(
   return values;
 }
 
+export interface FanOutActivityTrendPoint {
+  date: string;
+  completedResponses: number;
+  responsesWithFanOut: number;
+  totalFanOuts: number;
+  responseShare: number;
+  fanOutsPerResponse: number;
+}
+
+export interface FanOutSignalTrendPoint {
+  date: string;
+  matchingFanOuts: number;
+  totalFanOuts: number;
+  matchingResponses: number;
+  completedResponses: number;
+  shareOfFanOuts: number;
+  fanOutsPerResponse: number;
+  responseShare: number;
+}
+
+export function buildFanOutActivityTrend(
+  dates: { from: string; to: string },
+  completedByDate: ReadonlyMap<string, number>,
+  responsesWithFanOutByDate: ReadonlyMap<string, number>,
+  totalFanOutsByDate: ReadonlyMap<string, number>,
+): FanOutActivityTrendPoint[] {
+  const values: FanOutActivityTrendPoint[] = [];
+  const cursor = new Date(`${dates.from}T00:00:00.000Z`);
+  const end = Date.parse(`${dates.to}T00:00:00.000Z`);
+  while (cursor.getTime() <= end) {
+    const date = cursor.toISOString().slice(0, 10);
+    const completedResponses = completedByDate.get(date) ?? 0;
+    const responsesWithFanOut = responsesWithFanOutByDate.get(date) ?? 0;
+    const totalFanOuts = totalFanOutsByDate.get(date) ?? 0;
+    values.push({
+      date,
+      completedResponses,
+      responsesWithFanOut,
+      totalFanOuts,
+      responseShare: completedResponses
+        ? (responsesWithFanOut / completedResponses) * 100
+        : 0,
+      fanOutsPerResponse: completedResponses
+        ? totalFanOuts / completedResponses
+        : 0,
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return values;
+}
+
+export function buildFanOutSignalTrend(
+  dates: { from: string; to: string },
+  completedByDate: ReadonlyMap<string, number>,
+  totalFanOutsByDate: ReadonlyMap<string, number>,
+  matchingResponsesByDate: ReadonlyMap<string, number>,
+  matchingFanOutsByDate: ReadonlyMap<string, number>,
+): FanOutSignalTrendPoint[] {
+  const values: FanOutSignalTrendPoint[] = [];
+  const cursor = new Date(`${dates.from}T00:00:00.000Z`);
+  const end = Date.parse(`${dates.to}T00:00:00.000Z`);
+  while (cursor.getTime() <= end) {
+    const date = cursor.toISOString().slice(0, 10);
+    const completedResponses = completedByDate.get(date) ?? 0;
+    const totalFanOuts = totalFanOutsByDate.get(date) ?? 0;
+    const matchingResponses = matchingResponsesByDate.get(date) ?? 0;
+    const matchingFanOuts = matchingFanOutsByDate.get(date) ?? 0;
+    values.push({
+      date,
+      matchingFanOuts,
+      totalFanOuts,
+      matchingResponses,
+      completedResponses,
+      shareOfFanOuts: totalFanOuts
+        ? (matchingFanOuts / totalFanOuts) * 100
+        : 0,
+      fanOutsPerResponse: completedResponses
+        ? matchingFanOuts / completedResponses
+        : 0,
+      responseShare: completedResponses
+        ? (matchingResponses / completedResponses) * 100
+        : 0,
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return values;
+}
+
+function emptyRelatedQuerySignalCounts(): RelatedQuerySignalCounts {
+  return {
+    site: 0,
+    official: 0,
+    government: 0,
+    pricing: 0,
+    reviews: 0,
+    best: 0,
+    top: 0,
+    comparison: 0,
+    vs: 0,
+    years: {},
+  };
+}
+
 export function classifyRelatedQueries(
   queries: Iterable<string>,
   currentYear = new Date().getUTCFullYear(),
 ): RelatedQueryClassification {
-  let governmentPresent = false;
-  let officialPresent = false;
-  let reviewPresent = false;
-  let sitePresent = false;
-  const years = new Set<number>();
+  const signalCounts = emptyRelatedQuerySignalCounts();
+  const seenQueries = new Set<string>();
   for (const query of queries) {
-    const normalized = query.normalize("NFKC").toLowerCase();
-    sitePresent ||= /(?:^|[^\p{L}\p{N}_])site:/iu.test(normalized);
-    officialPresent ||= /(?:^|[^\p{L}\p{N}_])(?:official|oficial)(?=$|[^\p{L}\p{N}_])/iu.test(
-      normalized,
-    );
-    governmentPresent ||= /\.(?:gov|gob)(?=$|[^\p{L}\p{N}_])/iu.test(
-      normalized,
-    );
-    reviewPresent ||= /(?:^|[^\p{L}\p{N}_])reviews?(?=$|[^\p{L}\p{N}_])/iu.test(
-      normalized,
-    );
+    const normalized = normalizeRelatedQuery(query);
+    if (!normalized || seenQueries.has(normalized)) continue;
+    seenQueries.add(normalized);
+    if (/(?:^|[^\p{L}\p{N}_])site:/iu.test(normalized)) {
+      signalCounts.site += 1;
+    }
+    if (/(?:^|[^\p{L}\p{N}_])(?:official|oficial)(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
+      signalCounts.official += 1;
+    }
+    if (/\.(?:gov|gob)(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
+      signalCounts.government += 1;
+    }
+    if (/(?:^|[^\p{L}\p{N}_])pricing(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
+      signalCounts.pricing += 1;
+    }
+    if (/(?:^|[^\p{L}\p{N}_])reviews?(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
+      signalCounts.reviews += 1;
+    }
+    if (/(?:^|[^\p{L}\p{N}_])best(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
+      signalCounts.best += 1;
+    }
+    if (/(?:^|[^\p{L}\p{N}_])top(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
+      signalCounts.top += 1;
+    }
+    if (/(?:^|[^\p{L}\p{N}_])comparisons?(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
+      signalCounts.comparison += 1;
+    }
+    if (/(?:^|[^\p{L}\p{N}_])vs(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
+      signalCounts.vs += 1;
+    }
+    const queryYears = new Set<number>();
     for (const match of normalized.matchAll(/(?:^|\D)(\d{4})(?=\D|$)/gu)) {
       const year = Number(match[1]);
-      if (year >= 2025 && year <= currentYear) years.add(year);
+      if (year >= 2025 && year <= currentYear) queryYears.add(year);
+    }
+    for (const year of queryYears) {
+      const key = String(year);
+      signalCounts.years[key] = (signalCounts.years[key] ?? 0) + 1;
     }
   }
+  const years = Object.keys(signalCounts.years)
+    .map(Number)
+    .sort((left, right) => left - right);
   return {
-    governmentPresent,
-    officialPresent,
-    reviewPresent,
-    sitePresent,
-    years: [...years].sort((left, right) => left - right),
+    governmentPresent: signalCounts.government > 0,
+    officialPresent: signalCounts.official > 0,
+    reviewPresent: signalCounts.reviews > 0,
+    signalCounts,
+    sitePresent: signalCounts.site > 0,
+    years,
   };
 }
 

@@ -192,6 +192,8 @@ Before merging this schema release, run `pnpm db:migrate:remote`, which applies:
 - `0018_operator_insights.sql`: response-level Site, Reviews, and year fan-out
   classifications plus the bounded analytics read-model backfill used by the
   operator-wide trend reports.
+- `0021_fanout_signal_metrics.sql`: additive response-level fan-out signal
+  counts, schema-v7 backfill scheduling, and multi-denominator operator trends.
 - Snapshot migration `0005_tracking_sources.sql` on every snapshot shard:
   source identity and AI-surface presence.
 - Durable Object migration `v1`: `WorkspaceUsageGate` for atomic internal

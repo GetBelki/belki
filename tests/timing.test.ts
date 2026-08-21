@@ -43,4 +43,43 @@ describe("request timing", () => {
     await expect(timing.measure("failed_step", operation)).rejects.toThrow("failed");
     expect(timing.toLogRecord()).toHaveProperty("failed_step");
   });
+
+  it("aggregates D1 execution metadata from batches", async () => {
+    const timing = new RequestTiming();
+    await timing.measureD1("navigation_db", () => Promise.resolve([
+      {
+        meta: {
+          duration: 3.2,
+          rows_read: 12,
+          rows_written: 0,
+          served_by_region: "WEUR",
+          served_by_colo: "FRA",
+          served_by_primary: false,
+          total_attempts: 1,
+        },
+      },
+      {
+        meta: {
+          duration: 1.3,
+          rows_read: 4,
+          rows_written: 1,
+          served_by_region: "WEUR",
+          served_by_colo: "FRA",
+          served_by_primary: true,
+          total_attempts: 2,
+        },
+      },
+    ]));
+
+    expect(timing.toD1LogRecord()).toEqual({
+      calls: 2,
+      durationMs: 4.5,
+      rowsRead: 16,
+      rowsWritten: 1,
+      primaryCalls: 1,
+      retryAttempts: 1,
+      regions: ["WEUR"],
+      colos: ["FRA"],
+    });
+  });
 });

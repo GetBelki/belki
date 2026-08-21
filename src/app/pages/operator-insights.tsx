@@ -25,7 +25,13 @@ import {
   Skeleton,
 } from "../components/ui";
 import { api } from "../lib/api";
-import { insightYAxisMax } from "../lib/chart-scale";
+import { insightNumericYAxisMax, insightYAxisMax } from "../lib/chart-scale";
+import {
+  fanOutMetricValue,
+  fanOutSignalGroupValue,
+  type FanOutMetric,
+  type FanOutSignalGroup,
+} from "../lib/operator-fanout";
 import {
   TRACKING_SOURCE_LABELS,
   TRACKING_SOURCES,
@@ -34,6 +40,17 @@ import {
 
 type InsightPeriod = "7d" | "30d" | "90d";
 type InsightSource = TrackingSource | "all";
+type FanOutSource = "chatgpt" | "gemini" | "all";
+type FanOutSignalKey =
+  | "site"
+  | "official"
+  | "government"
+  | "pricing"
+  | "reviews"
+  | "best"
+  | "top"
+  | "comparison"
+  | "vs";
 
 interface TrendPoint {
   date: string;
@@ -49,12 +66,35 @@ interface CitationTrendReport {
   trend: TrendPoint[];
 }
 
+interface FanOutActivityPoint {
+  date: string;
+  completedResponses: number;
+  responsesWithFanOut: number;
+  totalFanOuts: number;
+  responseShare: number;
+  fanOutsPerResponse: number;
+}
+
+interface FanOutSignalPoint {
+  date: string;
+  matchingFanOuts: number;
+  totalFanOuts: number;
+  matchingResponses: number;
+  completedResponses: number;
+  shareOfFanOuts: number;
+  fanOutsPerResponse: number;
+  responseShare: number;
+}
+
 interface FanOutTrendReport {
   period: InsightPeriod;
   source: InsightSource;
   indexing: boolean;
   remainingSnapshots: number;
   estimatedMinutes: number;
+  activity: FanOutActivityPoint[];
+  signals: Record<FanOutSignalKey, FanOutSignalPoint[]>;
+  yearSignals: Array<{ year: number; trend: FanOutSignalPoint[] }>;
   total: TrendPoint[];
   siteOperator: TrendPoint[];
   reviews: TrendPoint[];
@@ -88,6 +128,70 @@ const SOURCE_OPTIONS = [
   })),
 ];
 
+const FAN_OUT_SOURCE_OPTIONS = [
+  { value: "chatgpt", label: TRACKING_SOURCE_LABELS.chatgpt },
+  { value: "gemini", label: TRACKING_SOURCE_LABELS.gemini },
+  { value: "all", label: "All fan-out sources" },
+];
+
+const FAN_OUT_METRIC_OPTIONS = [
+  { value: "shareOfFanOuts", label: "Share of fan-outs" },
+  { value: "fanOutsPerResponse", label: "Per response" },
+  { value: "responseShare", label: "Response prevalence" },
+];
+
+const FAN_OUT_GROUP_OPTIONS = [
+  { value: "direct-source", label: "Direct source" },
+  { value: "commercial-research", label: "Commercial research" },
+  { value: "listicle", label: "Listicle" },
+  { value: "comparison", label: "Comparison" },
+  { value: "years", label: "Years" },
+];
+
+const FAN_OUT_SIGNAL_GROUPS: Record<
+  Exclude<FanOutSignalGroup, "years">,
+  Array<{ key: FanOutSignalKey; label: string }>
+> = {
+  "direct-source": [
+    { key: "site", label: "Site operator" },
+    { key: "official", label: "Official" },
+    { key: "government", label: "Government domains" },
+  ],
+  "commercial-research": [
+    { key: "pricing", label: "Pricing" },
+    { key: "reviews", label: "Reviews" },
+  ],
+  listicle: [
+    { key: "best", label: "Best" },
+    { key: "top", label: "Top" },
+  ],
+  comparison: [
+    { key: "vs", label: "Vs" },
+    { key: "comparison", label: "Comparison" },
+  ],
+};
+
+const FAN_OUT_METRIC_COPY: Record<
+  FanOutMetric,
+  { label: string; description: string; percentage: boolean }
+> = {
+  shareOfFanOuts: {
+    label: "Share of fan-outs",
+    description: "Matching fan-out queries as a share of all fan-out queries.",
+    percentage: true,
+  },
+  fanOutsPerResponse: {
+    label: "Fan-outs per response",
+    description: "Average matching fan-out queries per completed response, including responses with none.",
+    percentage: false,
+  },
+  responseShare: {
+    label: "Response prevalence",
+    description: "Share of completed responses containing at least one matching fan-out query.",
+    percentage: true,
+  },
+};
+
 const YEAR_COLORS = [
   "#18181b",
   "#2563eb",
@@ -114,6 +218,10 @@ function sourceValue(value: string | null): InsightSource {
     : "all";
 }
 
+function fanOutSourceValue(value: string | null): FanOutSource {
+  return value === "all" || value === "gemini" ? value : "chatgpt";
+}
+
 function useDebouncedValue<T>(value: T, delay: number): T {
   const [debouncedValue, setDebouncedValue] = useState(value);
   useEffect(() => {
@@ -125,6 +233,13 @@ function useDebouncedValue<T>(value: T, delay: number): T {
 
 function percent(value: number): string {
   return `${value.toLocaleString(undefined, { maximumFractionDigits: 1 })}%`;
+}
+
+function decimal(value: number): string {
+  return value.toLocaleString(undefined, {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  });
 }
 
 function insightYAxisTicks(maximum: number): number[] {
@@ -253,7 +368,7 @@ function TrendChart({
   );
 }
 
-function YearsChart({
+export function YearsChart({
   years,
   pending,
 }: {
@@ -334,6 +449,292 @@ function YearsChart({
   );
 }
 
+function isFanOutActivityPoint(value: unknown): value is FanOutActivityPoint {
+  if (!value || typeof value !== "object") return false;
+  const point = value as Partial<FanOutActivityPoint>;
+  return typeof point.date === "string"
+    && typeof point.completedResponses === "number"
+    && typeof point.responsesWithFanOut === "number"
+    && typeof point.totalFanOuts === "number"
+    && typeof point.responseShare === "number"
+    && typeof point.fanOutsPerResponse === "number";
+}
+
+function ActivityTooltip({
+  active,
+  label,
+  payload,
+  metric,
+}: TooltipContentProps & { metric: "responseShare" | "fanOutsPerResponse" }) {
+  const point: unknown = payload[0]?.payload;
+  if (!active || !isFanOutActivityPoint(point)) return null;
+  const isShare = metric === "responseShare";
+  return (
+    <div className="operator-chart-tooltip">
+      <strong>{tooltipDateLabel(label)}</strong>
+      <span>{isShare ? percent(point.responseShare) : decimal(point.fanOutsPerResponse)}</span>
+      <small>
+        {isShare
+          ? `${point.responsesWithFanOut.toLocaleString()} of ${point.completedResponses.toLocaleString()} responses`
+          : `${point.totalFanOuts.toLocaleString()} fan-outs across ${point.completedResponses.toLocaleString()} responses`}
+      </small>
+    </div>
+  );
+}
+
+function FanOutActivityChart({
+  title,
+  description,
+  data,
+  metric,
+  pending,
+}: {
+  title: string;
+  description: string;
+  data: FanOutActivityPoint[];
+  metric: "responseShare" | "fanOutsPerResponse";
+  pending: boolean;
+}) {
+  const isShare = metric === "responseShare";
+  const values = data.map((point) => point[metric]);
+  const yAxisMax = isShare
+    ? insightYAxisMax(values)
+    : insightNumericYAxisMax(values);
+  const hasResponses = data.some((point) => point.completedResponses > 0);
+  const gradientId = `operator-activity-${metric}`;
+  return (
+    <Card className="operator-insight-card">
+      <CardHeader title={title} description={description} />
+      <div className="operator-insight-chart">
+        {pending ? (
+          <Skeleton className="operator-insight-chart-skeleton" />
+        ) : !hasResponses ? (
+          <EmptyState
+            title="No fan-out activity"
+            description="Completed responses will appear here for the selected period."
+          />
+        ) : (
+          <ResponsiveContainer height="100%" minWidth={0} width="100%">
+            <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
+              <defs>
+                <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="5%" stopColor="#18181b" stopOpacity={0.12} />
+                  <stop offset="95%" stopColor="#18181b" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                axisLine={false}
+                dataKey="date"
+                minTickGap={24}
+                tick={{ fill: "#71717a", fontSize: 11 }}
+                tickFormatter={dateLabel}
+                tickLine={false}
+              />
+              <YAxis
+                axisLine={false}
+                domain={[0, yAxisMax]}
+                tick={{ fill: "#71717a", fontSize: 11 }}
+                tickFormatter={(value) => isShare
+                  ? axisPercent(Number(value))
+                  : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                tickLine={false}
+                ticks={insightYAxisTicks(yAxisMax)}
+                width={42}
+              />
+              <Tooltip
+                content={(props) => <ActivityTooltip {...props} metric={metric} />}
+              />
+              <Area
+                dataKey={metric}
+                dot={{ fill: "#fff", r: 2.5, stroke: "#18181b", strokeWidth: 2 }}
+                fill={`url(#${gradientId})`}
+                isAnimationActive={false}
+                name={title}
+                stroke="#18181b"
+                strokeWidth={2.25}
+                type="monotone"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function isFanOutSignalPoint(value: unknown): value is FanOutSignalPoint {
+  if (!value || typeof value !== "object") return false;
+  const point = value as Partial<FanOutSignalPoint>;
+  return typeof point.date === "string"
+    && typeof point.matchingFanOuts === "number"
+    && typeof point.totalFanOuts === "number"
+    && typeof point.matchingResponses === "number"
+    && typeof point.completedResponses === "number"
+    && typeof point.shareOfFanOuts === "number"
+    && typeof point.fanOutsPerResponse === "number"
+    && typeof point.responseShare === "number";
+}
+
+function SignalTooltip({
+  active,
+  label,
+  payload,
+  metric,
+}: TooltipContentProps & { metric: FanOutMetric }) {
+  if (!active || !payload.length) return null;
+  return (
+    <div className="operator-chart-tooltip operator-signal-tooltip">
+      <strong>{tooltipDateLabel(label)}</strong>
+      {payload.map((entry) => {
+        const dataKey = String(entry.dataKey ?? "");
+        const chartPoint: unknown = entry.payload;
+        const detail: unknown = chartPoint && typeof chartPoint === "object"
+          ? (chartPoint as Record<string, unknown>)[`${dataKey}Detail`]
+          : null;
+        if (!isFanOutSignalPoint(detail)) return null;
+        const value = detail[metric];
+        const denominator = metric === "shareOfFanOuts"
+          ? `${detail.matchingFanOuts.toLocaleString()} of ${detail.totalFanOuts.toLocaleString()} fan-outs`
+          : metric === "fanOutsPerResponse"
+            ? `${detail.matchingFanOuts.toLocaleString()} fan-outs across ${detail.completedResponses.toLocaleString()} responses`
+            : `${detail.matchingResponses.toLocaleString()} of ${detail.completedResponses.toLocaleString()} responses`;
+        return (
+          <div className="operator-signal-tooltip-row" key={dataKey}>
+            <i style={{ background: entry.color }} />
+            <span>{String(entry.name)}</span>
+            <b>{FAN_OUT_METRIC_COPY[metric].percentage ? percent(value) : decimal(value)}</b>
+            <small>{denominator}</small>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+export function FanOutSignalExplorer({
+  activity,
+  group,
+  metric,
+  onGroupChange,
+  pending,
+  signals,
+  yearSignals,
+}: {
+  activity: FanOutActivityPoint[];
+  group: FanOutSignalGroup;
+  metric: FanOutMetric;
+  onGroupChange: (group: FanOutSignalGroup) => void;
+  pending: boolean;
+  signals: FanOutTrendReport["signals"];
+  yearSignals: FanOutTrendReport["yearSignals"];
+}) {
+  const series = group === "years"
+    ? yearSignals.map(({ year, trend }) => ({
+        id: `year-${year}`,
+        label: String(year),
+        trend,
+      }))
+    : FAN_OUT_SIGNAL_GROUPS[group].map(({ key, label }) => ({
+        id: key,
+        label,
+        trend: signals[key] ?? [],
+      }));
+  const dates = activity.map((point) => point.date);
+  const chartData = dates.map((date, index) => {
+    const point: Record<string, unknown> = { date };
+    for (const { id, trend } of series) {
+      point[id] = trend[index]?.[metric] ?? 0;
+      point[`${id}Detail`] = trend[index] ?? null;
+    }
+    return point;
+  });
+  const values = series.flatMap(({ trend }) => trend.map((point) => point[metric]));
+  const metricCopy = FAN_OUT_METRIC_COPY[metric];
+  const yAxisMax = metricCopy.percentage
+    ? insightYAxisMax(values)
+    : insightNumericYAxisMax(values);
+  const hasResponses = activity.some((point) => point.completedResponses > 0);
+  return (
+    <Card className="operator-insight-card operator-signal-card">
+      <CardHeader
+        title="Fan-out signals"
+        description={metricCopy.description}
+        action={(
+          <div className="operator-signal-group-control">
+            <span className="operator-insight-filter-label">Signal group</span>
+            <Select
+              ariaLabel="Fan-out signal group"
+              onValueChange={(value) => onGroupChange(fanOutSignalGroupValue(value))}
+              options={FAN_OUT_GROUP_OPTIONS}
+              value={group}
+            />
+          </div>
+        )}
+      />
+      <div className="operator-insight-chart operator-signal-chart">
+        {pending ? (
+          <Skeleton className="operator-insight-chart-skeleton" />
+        ) : !hasResponses ? (
+          <EmptyState
+            title="No fan-out signals"
+            description="Completed responses will appear here for the selected period."
+          />
+        ) : !series.length ? (
+          <EmptyState
+            title="No year signals"
+            description="Standalone years from 2025 through the current year will appear here."
+          />
+        ) : (
+          <ResponsiveContainer height="100%" minWidth={0} width="100%">
+            <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
+              <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+              <XAxis
+                axisLine={false}
+                dataKey="date"
+                minTickGap={24}
+                tick={{ fill: "#71717a", fontSize: 11 }}
+                tickFormatter={dateLabel}
+                tickLine={false}
+              />
+              <YAxis
+                axisLine={false}
+                domain={[0, yAxisMax]}
+                tick={{ fill: "#71717a", fontSize: 11 }}
+                tickFormatter={(value) => metricCopy.percentage
+                  ? axisPercent(Number(value))
+                  : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                tickLine={false}
+                ticks={insightYAxisTicks(yAxisMax)}
+                width={42}
+              />
+              <Tooltip
+                content={(props) => <SignalTooltip {...props} metric={metric} />}
+              />
+              <Legend />
+              {series.map(({ id, label }, index) => (
+                <Line
+                  dataKey={id}
+                  dot={{ r: 2 }}
+                  isAnimationActive={false}
+                  key={id}
+                  name={label}
+                  stroke={YEAR_COLORS[index % YEAR_COLORS.length]}
+                  strokeWidth={2.25}
+                  type="monotone"
+                />
+              ))}
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+      <p className="operator-signal-note">
+        Signals can overlap when one fan-out query matches more than one category.
+      </p>
+    </Card>
+  );
+}
+
 function Filters({
   period,
   source,
@@ -372,6 +773,54 @@ function Filters({
   );
 }
 
+function FanOutFilters({
+  metric,
+  onMetricChange,
+  onPeriodChange,
+  onSourceChange,
+  period,
+  source,
+}: {
+  metric: FanOutMetric;
+  onMetricChange: (metric: FanOutMetric) => void;
+  onPeriodChange: (period: InsightPeriod) => void;
+  onSourceChange: (source: FanOutSource) => void;
+  period: InsightPeriod;
+  source: FanOutSource;
+}) {
+  return (
+    <div className="operator-insight-filters operator-fanout-filters">
+      <div className="operator-insight-filter-field">
+        <span className="operator-insight-filter-label">Source</span>
+        <Select
+          ariaLabel="Fan-out source"
+          onValueChange={(value) => onSourceChange(fanOutSourceValue(value))}
+          options={FAN_OUT_SOURCE_OPTIONS}
+          value={source}
+        />
+      </div>
+      <div className="operator-insight-filter-field">
+        <span className="operator-insight-filter-label">Period</span>
+        <Select
+          ariaLabel="Fan-out trend period"
+          onValueChange={(value) => onPeriodChange(periodValue(value))}
+          options={PERIOD_OPTIONS}
+          value={period}
+        />
+      </div>
+      <div className="operator-insight-filter-field">
+        <span className="operator-insight-filter-label">Metric</span>
+        <Select
+          ariaLabel="Fan-out metric"
+          onValueChange={(value) => onMetricChange(fanOutMetricValue(value))}
+          options={FAN_OUT_METRIC_OPTIONS}
+          value={metric}
+        />
+      </div>
+    </div>
+  );
+}
+
 function useInsightFilters() {
   const [searchParams, setSearchParams] = useSearchParams();
   const period = periodValue(searchParams.get("period"));
@@ -393,6 +842,40 @@ function useInsightFilters() {
     setSearchParams(next, { replace: true });
   };
   return { period, searchParams, source, update };
+}
+
+function useFanOutFilters() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const period = periodValue(searchParams.get("period"));
+  const source = fanOutSourceValue(searchParams.get("source"));
+  const metric = fanOutMetricValue(searchParams.get("metric"));
+  const group = fanOutSignalGroupValue(searchParams.get("group"));
+  const update = (values: {
+    period?: InsightPeriod;
+    source?: FanOutSource;
+    metric?: FanOutMetric;
+    group?: FanOutSignalGroup;
+  }) => {
+    const next = new URLSearchParams(searchParams);
+    if (values.period !== undefined) {
+      if (values.period === "30d") next.delete("period");
+      else next.set("period", values.period);
+    }
+    if (values.source !== undefined) {
+      if (values.source === "chatgpt") next.delete("source");
+      else next.set("source", values.source);
+    }
+    if (values.metric !== undefined) {
+      if (values.metric === "shareOfFanOuts") next.delete("metric");
+      else next.set("metric", values.metric);
+    }
+    if (values.group !== undefined) {
+      if (values.group === "direct-source") next.delete("group");
+      else next.set("group", values.group);
+    }
+    setSearchParams(next, { replace: true });
+  };
+  return { group, metric, period, source, update };
 }
 
 export function CitationDomainCombobox({
@@ -563,7 +1046,7 @@ export function OperatorCitationTrendsPage() {
 }
 
 export function OperatorFanOutTrendsPage() {
-  const { period, source, update } = useInsightFilters();
+  const { group, metric, period, source, update } = useFanOutFilters();
   const params = new URLSearchParams({ period, source });
   const report = useQuery({
     queryKey: ["operator-fan-out-trends", period, source],
@@ -579,9 +1062,11 @@ export function OperatorFanOutTrendsPage() {
     <div className="page operator-insights-page">
       <PageHeader
         title="Fan-out query trends"
-        description="Daily related-query share aggregated across every retained project."
+        description="Daily fan-out behavior aggregated across every retained project."
       />
-      <Filters
+      <FanOutFilters
+        metric={metric}
+        onMetricChange={(value) => update({ metric: value })}
         onPeriodChange={(value) => update({ period: value })}
         onSourceChange={(value) => update({ source: value })}
         period={period}
@@ -595,39 +1080,43 @@ export function OperatorFanOutTrendsPage() {
           />
         </Card>
       ) : (
-        <div className="operator-insight-grid">
-          <TrendChart
-            data={data?.total ?? []}
-            description="Share of completed responses containing at least one related query."
+        <>
+          <div className="operator-insight-grid operator-fanout-activity-grid">
+            <FanOutActivityChart
+              data={data?.activity ?? []}
+              description="Share of completed responses containing at least one fan-out query."
+              metric="responseShare"
+              pending={report.isPending}
+              title="Responses with fan-out"
+            />
+            <FanOutActivityChart
+              data={data?.activity ?? []}
+              description="Average unique fan-out queries per completed response, including responses with none."
+              metric="fanOutsPerResponse"
+              pending={report.isPending}
+              title="Fan-outs per response"
+            />
+          </div>
+          <FanOutSignalExplorer
+            activity={data?.activity ?? []}
+            group={group}
+            metric={metric}
+            onGroupChange={(value) => update({ group: value })}
             pending={report.isPending}
-            title="Total fan-out"
+            signals={data?.signals ?? {
+              site: [],
+              official: [],
+              government: [],
+              pricing: [],
+              reviews: [],
+              best: [],
+              top: [],
+              comparison: [],
+              vs: [],
+            }}
+            yearSignals={data?.yearSignals ?? []}
           />
-          <TrendChart
-            data={data?.siteOperator ?? []}
-            description="Share of completed responses with at least one related query using site:."
-            pending={report.isPending}
-            title="Site operator"
-          />
-          <TrendChart
-            data={data?.reviews ?? []}
-            description="Share of completed responses with related queries containing review or reviews."
-            pending={report.isPending}
-            title="Reviews"
-          />
-          <TrendChart
-            data={data?.official ?? []}
-            description="Share of completed responses with related queries containing official or oficial."
-            pending={report.isPending}
-            title="Official"
-          />
-          <TrendChart
-            data={data?.government ?? []}
-            description="Share of completed responses with related queries containing a .gov or .gob domain."
-            pending={report.isPending}
-            title="Government domains"
-          />
-          <YearsChart pending={report.isPending} years={data?.years ?? []} />
-        </div>
+        </>
       )}
     </div>
   );

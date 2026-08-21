@@ -305,8 +305,10 @@ export async function syncAnalyticsReadModel(
         related_queries_count, related_queries_indexed_at,
         related_site_query_present, related_review_query_present,
         related_query_years_json, related_query_insights_indexed_at,
+        related_query_signal_counts_json,
+        related_query_signal_counts_indexed_at,
         provider_cost_usd, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(snapshot_id) DO UPDATE SET
         tracking_source = excluded.tracking_source,
         surface_present = excluded.surface_present,
@@ -326,6 +328,8 @@ export async function syncAnalyticsReadModel(
         related_review_query_present = excluded.related_review_query_present,
         related_query_years_json = excluded.related_query_years_json,
         related_query_insights_indexed_at = excluded.related_query_insights_indexed_at,
+        related_query_signal_counts_json = excluded.related_query_signal_counts_json,
+        related_query_signal_counts_indexed_at = excluded.related_query_signal_counts_indexed_at,
         provider_cost_usd = excluded.provider_cost_usd,
         updated_at = excluded.updated_at`,
     ).bind(
@@ -352,6 +356,8 @@ export async function syncAnalyticsReadModel(
       relatedQueryClassification.sitePresent ? 1 : 0,
       relatedQueryClassification.reviewPresent ? 1 : 0,
       JSON.stringify(relatedQueryClassification.years),
+      updatedAt,
+      JSON.stringify(relatedQueryClassification.signalCounts),
       updatedAt,
       snapshot.provider_cost_usd,
       updatedAt,

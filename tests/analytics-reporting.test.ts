@@ -4,6 +4,8 @@ import {
   billingDateRange,
   buildBillingReport,
   buildBrandComparison,
+  buildFanOutActivityTrend,
+  buildFanOutSignalTrend,
   buildPromptSetEvents,
   buildResponseShareTrend,
   classifyRelatedQueries,
@@ -98,6 +100,83 @@ describe("related query reporting", () => {
       "future cameras 2030 2050 6700",
       "model 20250",
     ], 2026).years).toEqual([2025, 2026]);
+  });
+
+  it("counts normalized fan-out signals with standalone boundaries", () => {
+    const classification = classifyRelatedQueries([
+      "Best CRM pricing reviews 2026",
+      "best crm pricing reviews 2026",
+      "Top CRM comparison: Acme vs. Beta",
+      "SITE:example.com official pricing",
+      "site:agency.gov/reviews",
+      "topical unofficial gobstopper comparisonist vss",
+    ], 2026);
+
+    expect(classification.signalCounts).toEqual({
+      site: 2,
+      official: 1,
+      government: 1,
+      pricing: 2,
+      reviews: 2,
+      best: 1,
+      top: 1,
+      comparison: 1,
+      vs: 1,
+      years: { "2026": 1 },
+    });
+  });
+
+  it("counts each year once per normalized fan-out query", () => {
+    expect(classifyRelatedQueries([
+      "2025 pricing 2025",
+      "2025 reviews",
+      "２０２６ comparison",
+    ], 2026).signalCounts.years).toEqual({ "2025": 2, "2026": 1 });
+  });
+
+  it("builds activity trends with response and fan-out denominators", () => {
+    expect(buildFanOutActivityTrend(
+      { from: "2026-08-17", to: "2026-08-18" },
+      new Map([["2026-08-17", 10]]),
+      new Map([["2026-08-17", 8]]),
+      new Map([["2026-08-17", 25]]),
+    )).toEqual([
+      {
+        date: "2026-08-17",
+        completedResponses: 10,
+        responsesWithFanOut: 8,
+        totalFanOuts: 25,
+        responseShare: 80,
+        fanOutsPerResponse: 2.5,
+      },
+      {
+        date: "2026-08-18",
+        completedResponses: 0,
+        responsesWithFanOut: 0,
+        totalFanOuts: 0,
+        responseShare: 0,
+        fanOutsPerResponse: 0,
+      },
+    ]);
+  });
+
+  it("builds signal trends across all three metric definitions", () => {
+    expect(buildFanOutSignalTrend(
+      { from: "2026-08-17", to: "2026-08-17" },
+      new Map([["2026-08-17", 10]]),
+      new Map([["2026-08-17", 20]]),
+      new Map([["2026-08-17", 4]]),
+      new Map([["2026-08-17", 5]]),
+    )).toEqual([{
+      date: "2026-08-17",
+      matchingFanOuts: 5,
+      totalFanOuts: 20,
+      matchingResponses: 4,
+      completedResponses: 10,
+      shareOfFanOuts: 25,
+      fanOutsPerResponse: 0.5,
+      responseShare: 40,
+    }]);
   });
 
   it("zero-fills response-share trends and uses completed responses as the denominator", () => {
