@@ -7470,7 +7470,10 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 .operator-fanout-filters {
   grid-template-columns: minmax(170px, 210px) minmax(190px, 240px) minmax(150px, 180px) minmax(190px, 220px);
 }
-.operator-fanout-activity-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.operator-insight-grid.operator-fanout-activity-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+.operator-fanout-activity-grid .operator-insight-chart { height: 300px; }
 .operator-telemetry-notice {
   align-items: start;
   background: #fffbeb;
@@ -7588,9 +7591,16 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
   .operator-insight-filters.has-domain { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .operator-domain-combobox { grid-column: 1 / -1; }
   .operator-insight-grid { grid-template-columns: 1fr; }
+  .operator-insight-grid.operator-fanout-activity-grid { grid-template-columns: 1fr; }
   .operator-signal-card > .card-header { align-items: stretch; flex-direction: column; }
   .operator-signal-group-control { flex-basis: auto; width: 100%; }
   .operator-signal-group-control .select-trigger { min-width: 0; width: 100%; }
+}
+
+@media (min-width: 901px) and (max-width: 1200px) {
+  .operator-insight-grid.operator-fanout-activity-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
 }
 
 @media (max-width: 640px) {
