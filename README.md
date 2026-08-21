@@ -62,8 +62,12 @@ Share of Voice across every tracked competitor.
 - Settings are scoped explicitly: feature switches belong to the selected
   **project**, project administration and webhooks belong to the **workspace**,
   and installation checks live under **Diagnostics**.
-- Named entity extraction is enabled for new projects. Automatic competitor
-  tracking is opt-in and requires repeated, corroborated evidence.
+- Named entity extraction is enabled for new projects. The versioned v2 path
+  extracts exact answer spans first, classifies competitive context separately,
+  and then combines tracked-brand, provider, and observed-domain evidence.
+  Automatic competitor tracking is opt-in and requires repeated strong evidence;
+  existing projects remain on v1 until their retained responses finish a v2
+  backfill.
 - Google Shopping enrichment is opt-in for new projects and only runs when a
   captured product includes a compatible Google Shopping identifier.
 - The Ads navigation item appears automatically after the selected project has
@@ -366,6 +370,13 @@ pnpm test
 pnpm build
 pnpm deploy:dry
 ```
+
+Entity-extraction releases also have an offline gold-set gate. Keep the private
+or sanitized JSONL fixtures out of Git. `pnpm evaluate:entities` creates the
+private stratified sample, v1/v2 predictions, and local review page; after
+review, run `pnpm benchmark:entities --
+--gold <gold.jsonl> --prediction v2=<predictions.jsonl>`; fixture shape, metrics,
+and acceptance thresholds are documented in `evaluation/entity-extraction`.
 
 CI runs type checking, linting, tests, and the production build for every pull
 request. Tests cover contracts, entity extraction and corroboration,

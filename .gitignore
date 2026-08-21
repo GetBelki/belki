@@ -12,6 +12,7 @@ coverage/
 .DS_Store
 playwright-report/
 test-results/
+evaluation/entity-extraction/private/
 brand-reputation-prompt-templates.md
 website/
 belki-logo.png

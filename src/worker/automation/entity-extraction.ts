@@ -11,15 +11,21 @@ import {
   ENTITY_INPUT_PRICE_PER_MILLION_USD,
   ENTITY_OUTPUT_PRICE_PER_MILLION_USD,
   ENTITY_PRICING_VERSION,
-  EXTRACTION_JSON_SCHEMA,
   ExtractionResponseSchema,
+  RELATIONSHIP_JSON_SCHEMA,
+  SPAN_EXTRACTION_JSON_SCHEMA,
+  applyRelationshipAssessments,
   chunkEntityText,
   countSurface,
   estimatedEntityExtractionCost,
   extractionSystemPrompt,
-  parsedAiResponse,
+  parsedRelationshipAiResponse,
+  parsedSpanAiResponse,
+  relationshipSystemPrompt,
   validateExtractedEntities,
+  type EvidenceTier,
   type ExtractedEntity,
+  type ProviderEntityRow,
   type TrackedBrandRow,
   type ValidatedEntity,
 } from "./entity-extraction-core";
@@ -33,9 +39,13 @@ interface EntityJobRow {
   shard_id: number;
   status: string;
   attempts: number;
+  extractor_version: string;
+  run_type: "live" | "backfill" | "evaluation";
   query_text: string;
+  language_code: string;
   primary_domain: string | null;
   captured_at: string;
+  active_entity_extractor_version: string;
   entity_extraction_enabled: number;
   entity_auto_track_enabled: number;
 }
@@ -47,14 +57,76 @@ interface ChunkResult {
   estimatedCostUsd: number;
 }
 
+interface AiCallResult<T> {
+  value: T;
+  inputTokens: number;
+  outputTokens: number;
+}
+
+interface CombinedEntity extends ValidatedEntity {
+  surfaces: Set<string>;
+  evidenceList: Set<string>;
+  sourceSet: Set<ExtractedEntity["sources"][number]>;
+}
+
+function record(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function aiCallResult<T>(
+  result: unknown,
+  parse: (value: unknown) => T,
+): AiCallResult<T> {
+  if (typeof result === "string") {
+    return { value: parse(result), inputTokens: 0, outputTokens: 0 };
+  }
+  const envelope = record(result);
+  if (!envelope || !("response" in envelope)) {
+    throw new Error("Workers AI returned no synchronous response");
+  }
+  const usage = record(envelope.usage);
+  return {
+    value: parse(envelope.response),
+    inputTokens: Number(usage?.prompt_tokens ?? 0),
+    outputTokens: Number(usage?.completion_tokens ?? 0),
+  };
+}
+
+function relationshipCandidates(entities: ValidatedEntity[]) {
+  return entities
+    .filter((entity) =>
+      !entity.trackedBrand &&
+      ["brand", "company", "organization"].includes(entity.entity_type),
+    )
+    .map((entity) => ({
+      surface: entity.surface,
+      entity_type: entity.entity_type,
+      evidence: entity.evidence,
+      provider_corroborated: entity.providerCorroborated,
+      domain_corroborated: entity.domainCorroborated,
+    }));
+}
+
 async function runChunk(
   env: Env,
   job: EntityJobRow,
   chunk: string,
   chunkIndex: number,
   brands: TrackedBrandRow[],
+  providerEntities: ProviderEntityRow[],
+  observedDomains: string[],
 ): Promise<ChunkResult> {
-  const inputHash = await sha256(chunk);
+  const inputHash = await sha256(JSON.stringify({
+    version: job.extractor_version,
+    query: job.query_text,
+    language: job.language_code,
+    chunk,
+    brands: brands.map((brand) => [brand.id, brand.name, brand.aliases_json, brand.domains_json]),
+    providerEntities,
+    observedDomains,
+  }));
   const existing = await env.CONTROL_DB.prepare(
     `SELECT input_hash, result_json, input_tokens, output_tokens, estimated_cost_usd
      FROM entity_extraction_chunks
@@ -92,15 +164,16 @@ async function runChunk(
     .bind(job.id, chunkIndex, inputHash, now, now)
     .run();
 
-  const reservation = {
+  const reservation = job.run_type === "live" ? {
     reservationId: `${job.id}:chunk:${chunkIndex}`,
     sku: "entity_extraction" as const,
     units: USAGE_UNITS.entity_extraction,
     resourceType: "entity_extraction_chunk",
     resourceId: `${job.id}:${chunkIndex}`,
-  };
-  await reserveUsage(env, job.workspace_id, reservation);
+  } : null;
+  if (reservation) await reserveUsage(env, job.workspace_id, reservation);
   let inferenceCompleted = false;
+  let usageFinalized = false;
   try {
     const knownBrands = brands.map((brand) => ({
       name: brand.name,
@@ -108,41 +181,71 @@ async function runChunk(
       aliases: jsonParse<string[]>(brand.aliases_json, []),
       domains: jsonParse<string[]>(brand.domains_json, []),
     }));
-    const result = await env.AI.run(ENTITY_EXTRACTION_MODEL, {
+    const spanRaw = await env.AI.run(ENTITY_EXTRACTION_MODEL, {
       messages: [
         { role: "system", content: extractionSystemPrompt() },
         {
           role: "user",
           content: JSON.stringify({
-            prompt: job.query_text,
-            owned_domain: job.primary_domain,
-            tracked_brands: knownBrands,
+            language_code: job.language_code,
             answer_chunk: chunk,
           }),
         },
       ],
       response_format: {
         type: "json_schema",
-        json_schema: EXTRACTION_JSON_SCHEMA,
+        json_schema: SPAN_EXTRACTION_JSON_SCHEMA,
       },
       temperature: 0,
       seed: 731_991,
-      max_tokens: 1_200,
+      max_tokens: 1_400,
     });
     inferenceCompleted = true;
-    await commitUsage(env, job.workspace_id, reservation);
-    if (typeof result === "string") {
-      const parsed = parsedAiResponse(result);
-      await env.CONTROL_DB.prepare(
-        `UPDATE entity_extraction_chunks SET status = 'completed', result_json = ?,
-          completed_at = ?, updated_at = ? WHERE job_id = ? AND chunk_index = ?`,
-      ).bind(JSON.stringify(parsed), nowIso(), nowIso(), job.id, chunkIndex).run();
-      return { entities: parsed.entities, inputTokens: 0, outputTokens: 0, estimatedCostUsd: 0 };
+    const spanResult = aiCallResult(spanRaw, parsedSpanAiResponse);
+    let entities = validateExtractedEntities(spanResult.value, chunk, {
+      providerEntities,
+      observedDomains,
+      trackedBrands: brands,
+    });
+    let inputTokens = spanResult.inputTokens;
+    let outputTokens = spanResult.outputTokens;
+
+    const unresolved = relationshipCandidates(entities);
+    if (unresolved.length) {
+      const relationshipRaw = await env.AI.run(ENTITY_EXTRACTION_MODEL, {
+        messages: [
+          { role: "system", content: relationshipSystemPrompt() },
+          {
+            role: "user",
+            content: JSON.stringify({
+              tracked_query: job.query_text,
+              owned_domain: job.primary_domain,
+              tracked_brands: knownBrands,
+              candidates: unresolved,
+            }),
+          },
+        ],
+        response_format: {
+          type: "json_schema",
+          json_schema: RELATIONSHIP_JSON_SCHEMA,
+        },
+        temperature: 0,
+        seed: 731_991,
+        max_tokens: 1_000,
+      });
+      const relationshipResult = aiCallResult(
+        relationshipRaw,
+        parsedRelationshipAiResponse,
+      );
+      entities = applyRelationshipAssessments(entities, relationshipResult.value);
+      inputTokens += relationshipResult.inputTokens;
+      outputTokens += relationshipResult.outputTokens;
     }
-    if (!("response" in result)) throw new Error("Workers AI returned no synchronous response");
-    const parsed = parsedAiResponse(result.response);
-    const inputTokens = Number(result.usage?.prompt_tokens ?? 0);
-    const outputTokens = Number(result.usage?.completion_tokens ?? 0);
+
+    if (reservation) {
+      await commitUsage(env, job.workspace_id, reservation);
+      usageFinalized = true;
+    }
     const estimatedCostUsd = estimatedEntityExtractionCost(inputTokens, outputTokens);
     await env.CONTROL_DB.prepare(
       `UPDATE entity_extraction_chunks SET status = 'completed', result_json = ?,
@@ -150,7 +253,7 @@ async function runChunk(
         completed_at = ?, updated_at = ? WHERE job_id = ? AND chunk_index = ?`,
     )
       .bind(
-        JSON.stringify(parsed),
+        JSON.stringify({ entities }),
         inputTokens,
         outputTokens,
         estimatedCostUsd,
@@ -160,9 +263,12 @@ async function runChunk(
         chunkIndex,
       )
       .run();
-    return { entities: parsed.entities, inputTokens, outputTokens, estimatedCostUsd };
+    return { entities, inputTokens, outputTokens, estimatedCostUsd };
   } catch (error) {
-    if (!inferenceCompleted) await releaseUsage(env, job.workspace_id, reservation);
+    if (reservation && !usageFinalized) {
+      if (inferenceCompleted) await commitUsage(env, job.workspace_id, reservation);
+      else await releaseUsage(env, job.workspace_id, reservation);
+    }
     await env.CONTROL_DB.prepare(
       `UPDATE entity_extraction_chunks SET status = 'failed', updated_at = ?
        WHERE job_id = ? AND chunk_index = ?`,
@@ -175,13 +281,21 @@ function relationshipRank(value: ValidatedEntity["relationship"]): number {
   return value === "owned" ? 4 : value === "competitor" ? 3 : value === "mentioned" ? 2 : 1;
 }
 
+function evidenceRank(value: EvidenceTier): number {
+  return value === "strong" ? 3 : value === "moderate" ? 2 : 1;
+}
+
+function compatibilityConfidence(value: EvidenceTier): number {
+  return value === "strong" ? 1 : value === "moderate" ? 0.75 : 0.5;
+}
+
 async function persistEntities(
   env: Env,
   job: EntityJobRow,
   answer: string,
   entities: ValidatedEntity[],
 ): Promise<void> {
-  const combined = new Map<string, ValidatedEntity & { surfaces: Set<string>; evidenceList: Set<string> }>();
+  const combined = new Map<string, CombinedEntity>();
   for (const entity of entities) {
     const existing = combined.get(entity.normalizedName);
     if (!existing) {
@@ -189,23 +303,32 @@ async function persistEntities(
         ...entity,
         surfaces: new Set([entity.surface]),
         evidenceList: new Set([entity.evidence]),
+        sourceSet: new Set(entity.sources),
       });
       continue;
     }
     existing.surfaces.add(entity.surface);
     existing.evidenceList.add(entity.evidence);
-    existing.confidence = Math.max(existing.confidence, entity.confidence);
+    entity.sources.forEach((source) => existing.sourceSet.add(source));
     existing.providerCorroborated ||= entity.providerCorroborated;
     existing.domainCorroborated ||= entity.domainCorroborated;
     existing.domains = [...new Set([...existing.domains, ...entity.domains])];
     if (relationshipRank(entity.relationship) > relationshipRank(existing.relationship)) {
       existing.relationship = entity.relationship;
+      existing.relationship_reason = entity.relationship_reason;
+    }
+    if (evidenceRank(entity.evidence_tier) > evidenceRank(existing.evidence_tier)) {
+      existing.evidence_tier = entity.evidence_tier;
+    }
+    if (entity.trackedBrand || entity.providerCorroborated) {
+      existing.canonical_name = entity.canonical_name;
+      existing.normalizedName = entity.normalizedName;
     }
   }
 
-  await env.CONTROL_DB.prepare("DELETE FROM entity_mentions WHERE snapshot_id = ?")
-    .bind(job.snapshot_id)
-    .run();
+  await env.CONTROL_DB.prepare(
+    "DELETE FROM entity_mentions WHERE snapshot_id = ? AND extractor_version = ?",
+  ).bind(job.snapshot_id, job.extractor_version).run();
   for (const entity of combined.values()) {
     const now = nowIso();
     const storedEntity = await env.CONTROL_DB.prepare(
@@ -218,9 +341,7 @@ async function persistEntities(
     const aliases = [...new Set([
       ...jsonParse<string[]>(storedEntity?.aliases_json, []),
       ...entity.surfaces,
-    ])].filter(
-      (surface) => normalizeBrand(surface) !== entity.normalizedName,
-    );
+    ])].filter((surface) => normalizeBrand(surface) !== entity.normalizedName);
     const domains = [...new Set([
       ...jsonParse<string[]>(storedEntity?.domains_json, []),
       ...entity.domains,
@@ -233,7 +354,11 @@ async function persistEntities(
         first_seen_at, last_seen_at, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(project_id, normalized_name) DO UPDATE SET
-        canonical_name = excluded.canonical_name,
+        canonical_name = CASE
+          WHEN project_entities.tracked_brand_id IS NOT NULL THEN project_entities.canonical_name
+          WHEN excluded.tracked_brand_id IS NOT NULL OR excluded.provider_corroborated = 1
+            THEN excluded.canonical_name
+          ELSE project_entities.canonical_name END,
         entity_type = CASE
           WHEN project_entities.entity_type IN ('other', 'organization')
             THEN excluded.entity_type ELSE project_entities.entity_type END,
@@ -275,27 +400,30 @@ async function persistEntities(
       )
       .run();
     const stored = await env.CONTROL_DB.prepare(
-      `SELECT id FROM project_entities WHERE project_id = ? AND normalized_name = ?`,
-    )
-      .bind(job.project_id, entity.normalizedName)
-      .first<{ id: string }>();
+      "SELECT id FROM project_entities WHERE project_id = ? AND normalized_name = ?",
+    ).bind(job.project_id, entity.normalizedName).first<{ id: string }>();
     if (!stored) continue;
     const occurrenceCount = [...entity.surfaces].reduce(
       (total, surface) => total + countSurface(answer, surface),
       0,
     );
-    const sources = [
-      "workers_ai",
-      ...(entity.providerCorroborated ? ["dataforseo_entity"] : []),
-      ...(entity.domainCorroborated ? ["observed_domain"] : []),
-      ...(entity.trackedBrand ? ["tracked_brand"] : []),
-    ];
     await env.CONTROL_DB.prepare(
       `INSERT INTO entity_mentions (
         id, snapshot_id, workspace_id, project_id, tracked_query_id, entity_id,
         surface_text, occurrence_count, entity_type, relationship, confidence,
-        evidence_json, sources_json, captured_at, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        evidence_json, sources_json, captured_at, created_at, extractor_version,
+        evidence_tier, relationship_reason
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(snapshot_id, entity_id, extractor_version) DO UPDATE SET
+        surface_text = excluded.surface_text,
+        occurrence_count = excluded.occurrence_count,
+        entity_type = excluded.entity_type,
+        relationship = excluded.relationship,
+        confidence = excluded.confidence,
+        evidence_json = excluded.evidence_json,
+        sources_json = excluded.sources_json,
+        evidence_tier = excluded.evidence_tier,
+        relationship_reason = excluded.relationship_reason`,
     )
       .bind(
         crypto.randomUUID(),
@@ -308,11 +436,14 @@ async function persistEntities(
         Math.max(1, occurrenceCount),
         entity.entity_type,
         entity.relationship,
-        entity.confidence,
+        compatibilityConfidence(entity.evidence_tier),
         JSON.stringify([...entity.evidenceList].slice(0, 5)),
-        JSON.stringify(sources),
+        JSON.stringify([...entity.sourceSet]),
         job.captured_at,
         now,
+        job.extractor_version,
+        entity.evidence_tier,
+        entity.relationship_reason,
       )
       .run();
   }
@@ -321,61 +452,89 @@ async function persistEntities(
     `UPDATE project_entities SET
       snapshot_count = (
         SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
-        WHERE mention.entity_id = project_entities.id
+        WHERE mention.entity_id = project_entities.id AND mention.extractor_version = ?
       ),
       prompt_count = (
         SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
-        WHERE mention.entity_id = project_entities.id
+        WHERE mention.entity_id = project_entities.id AND mention.extractor_version = ?
       ),
       competitor_snapshot_count = (
         SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
         WHERE mention.entity_id = project_entities.id AND mention.relationship = 'competitor'
+          AND mention.extractor_version = ?
       ),
       competitor_prompt_count = (
         SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
         WHERE mention.entity_id = project_entities.id AND mention.relationship = 'competitor'
+          AND mention.extractor_version = ?
       ),
       updated_at = ?
-     WHERE project_id = ?`,
-  ).bind(nowIso(), job.project_id).run();
+     WHERE project_id = ?
+       AND ? = (
+         SELECT active_entity_extractor_version FROM projects
+         WHERE id = project_entities.project_id
+       )`,
+  ).bind(
+    job.extractor_version,
+    job.extractor_version,
+    job.extractor_version,
+    job.extractor_version,
+    nowIso(),
+    job.project_id,
+    job.extractor_version,
+  ).run();
 }
 
-async function autoTrackEligibleCompetitors(env: Env, job: EntityJobRow): Promise<number> {
-  if (job.entity_auto_track_enabled !== 1) return 0;
+type AutoTrackContext = Pick<
+  EntityJobRow,
+  | "project_id"
+  | "workspace_id"
+  | "extractor_version"
+  | "active_entity_extractor_version"
+  | "entity_auto_track_enabled"
+>;
+
+async function autoTrackEligibleCompetitors(
+  env: Env,
+  job: AutoTrackContext,
+): Promise<number> {
+  if (
+    job.entity_auto_track_enabled !== 1 ||
+    job.active_entity_extractor_version !== job.extractor_version
+  ) return 0;
   const eligible = await env.CONTROL_DB.prepare(
     `SELECT entity.id, entity.canonical_name, entity.aliases_json, entity.domains_json
      FROM project_entities entity
      WHERE entity.project_id = ?
        AND entity.status = 'candidate'
-       AND entity.entity_type IN ('brand', 'company')
+       AND entity.entity_type IN ('brand', 'company', 'organization')
        AND entity.relationship = 'competitor'
        AND (
-         SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
-         WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
-           AND julianday(mention.captured_at) >= julianday('now', '-30 days')
-       ) >= 3
-       AND (
-         SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
-         WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
-           AND julianday(mention.captured_at) >= julianday('now', '-30 days')
-       ) >= 2
-       AND (
-         entity.provider_corroborated = 1 OR entity.domain_corroborated = 1 OR
-         ((
-           SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
-           WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
-             AND julianday(mention.captured_at) >= julianday('now', '-30 days')
-         ) >= 5 AND (
-           SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
-           WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
-             AND julianday(mention.captured_at) >= julianday('now', '-30 days')
-         ) >= 3)
-       )
-       AND EXISTS (
-         SELECT 1 FROM entity_mentions mention
-         WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
-           AND mention.confidence >= 0.9
-           AND julianday(mention.captured_at) >= julianday('now', '-30 days')
+         (
+           (entity.provider_corroborated = 1 OR entity.domain_corroborated = 1)
+           AND (SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
+             WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
+               AND mention.extractor_version = ? AND julianday(mention.captured_at) >= julianday('now', '-30 days')) >= 3
+           AND (SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
+             WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
+               AND mention.extractor_version = ? AND julianday(mention.captured_at) >= julianday('now', '-30 days')) >= 2
+           AND (SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
+             WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
+               AND mention.evidence_tier = 'strong' AND mention.extractor_version = ?
+               AND julianday(mention.captured_at) >= julianday('now', '-30 days')) >= 2
+         ) OR (
+           entity.provider_corroborated = 0 AND entity.domain_corroborated = 0
+           AND (SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
+             WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
+               AND mention.extractor_version = ? AND julianday(mention.captured_at) >= julianday('now', '-30 days')) >= 5
+           AND (SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
+             WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
+               AND mention.extractor_version = ? AND julianday(mention.captured_at) >= julianday('now', '-30 days')) >= 3
+           AND (SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
+             WHERE mention.entity_id = entity.id AND mention.relationship = 'competitor'
+               AND mention.evidence_tier = 'strong' AND mention.extractor_version = ?
+               AND julianday(mention.captured_at) >= julianday('now', '-30 days')) >= 3
+         )
        )
        AND NOT EXISTS (
          SELECT 1 FROM tracked_brands brand
@@ -383,7 +542,15 @@ async function autoTrackEligibleCompetitors(env: Env, job: EntityJobRow): Promis
            AND lower(trim(brand.name)) = entity.normalized_name
        )`,
   )
-    .bind(job.project_id)
+    .bind(
+      job.project_id,
+      job.extractor_version,
+      job.extractor_version,
+      job.extractor_version,
+      job.extractor_version,
+      job.extractor_version,
+      job.extractor_version,
+    )
     .all<{
       id: string;
       canonical_name: string;
@@ -417,7 +584,11 @@ async function autoTrackEligibleCompetitors(env: Env, job: EntityJobRow): Promis
       action: "entity.auto_tracked",
       resourceType: "project_entity",
       resourceId: entity.id,
-      metadata: { projectId: job.project_id, name: entity.canonical_name },
+      metadata: {
+        projectId: job.project_id,
+        name: entity.canonical_name,
+        extractorVersion: job.extractor_version,
+      },
     });
   }
   return tracked;
@@ -425,7 +596,8 @@ async function autoTrackEligibleCompetitors(env: Env, job: EntityJobRow): Promis
 
 export async function processEntityExtraction(env: Env, jobId: string): Promise<void> {
   const job = await env.CONTROL_DB.prepare(
-    `SELECT job.*, query.query_text, project.primary_domain, snapshot.captured_at,
+    `SELECT job.*, query.query_text, query.language_code, project.primary_domain,
+      snapshot.captured_at, project.active_entity_extractor_version,
       project.entity_extraction_enabled, project.entity_auto_track_enabled
      FROM entity_extraction_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
@@ -434,6 +606,9 @@ export async function processEntityExtraction(env: Env, jobId: string): Promise<
      WHERE job.id = ? AND query.deleted_at IS NULL AND project.deleted_at IS NULL`,
   ).bind(jobId).first<EntityJobRow>();
   if (!job || job.status === "completed" || job.status === "cancelled") return;
+  if (job.extractor_version !== ENTITY_EXTRACTOR_VERSION) {
+    throw new Error(`Unsupported entity extractor version: ${job.extractor_version}`);
+  }
   if (job.entity_extraction_enabled !== 1) {
     await env.CONTROL_DB.prepare(
       `UPDATE entity_extraction_jobs SET status = 'cancelled',
@@ -451,10 +626,15 @@ export async function processEntityExtraction(env: Env, jobId: string): Promise<
     shard.prepare("SELECT answer_markdown FROM snapshots WHERE id = ?")
       .bind(job.snapshot_id).first<{ answer_markdown: string | null }>(),
     shard.prepare(
-      `SELECT DISTINCT title FROM snapshot_brand_entities WHERE snapshot_id = ?`,
-    ).bind(job.snapshot_id).all<{ title: string }>(),
+      `SELECT entity.title,
+        COALESCE(GROUP_CONCAT(DISTINCT url.registrable_domain), '') AS domains_csv
+       FROM snapshot_brand_entities entity
+       LEFT JOIN brand_entity_urls url ON url.brand_entity_id = entity.id
+       WHERE entity.snapshot_id = ?
+       GROUP BY entity.id, entity.title`,
+    ).bind(job.snapshot_id).all<{ title: string; domains_csv: string }>(),
     shard.prepare(
-      `SELECT registrable_domain FROM snapshot_domains WHERE snapshot_id = ?`,
+      "SELECT registrable_domain FROM snapshot_domains WHERE snapshot_id = ?",
     ).bind(job.snapshot_id).all<{ registrable_domain: string }>(),
     env.CONTROL_DB.prepare(
       `SELECT id, kind, name, aliases_json, domains_json
@@ -463,22 +643,46 @@ export async function processEntityExtraction(env: Env, jobId: string): Promise<
   ]);
   if (!snapshot) throw new Error("Snapshot not found for entity extraction");
   const answer = snapshot.answer_markdown ?? "";
+  const providerEntities = providerRows.results.map((row) => ({
+    title: row.title,
+    domains: row.domains_csv.split(",").filter(Boolean),
+  }));
+  const observedDomains = domainRows.results.map((row) => row.registrable_domain);
   const chunks = chunkEntityText(answer);
   const validated: ValidatedEntity[] = [];
   for (const [index, chunk] of chunks.entries()) {
-    const result = await runChunk(env, job, chunk, index, trackedRows.results);
+    const result = await runChunk(
+      env,
+      job,
+      chunk,
+      index,
+      trackedRows.results,
+      providerEntities,
+      observedDomains,
+    );
     await env.CONTROL_DB.prepare(
       "UPDATE entity_extraction_jobs SET updated_at = ? WHERE id = ?",
     ).bind(nowIso(), job.id).run();
     validated.push(...validateExtractedEntities(
-      { entities: result.entities },
+      { entities: result.entities.map((entity) => ({
+        surface: entity.surface,
+        entity_type: entity.entity_type,
+      })) },
       chunk,
-      {
-        providerNames: providerRows.results.map((row) => row.title),
-        observedDomains: domainRows.results.map((row) => row.registrable_domain),
-        trackedBrands: trackedRows.results,
-      },
-    ));
+      { providerEntities, observedDomains, trackedBrands: trackedRows.results },
+    ).map((entity) => {
+      const stored = result.entities.find(
+        (candidate) => normalizeBrand(candidate.surface) === normalizeBrand(entity.surface),
+      );
+      return stored ? {
+        ...entity,
+        relationship: stored.relationship,
+        relationship_reason: stored.relationship_reason,
+        evidence_tier: stored.evidence_tier,
+        domains: stored.domains,
+        sources: stored.sources,
+      } : entity;
+    }));
   }
   await persistEntities(env, job, brandMentionText(answer), validated);
   const totals = await env.CONTROL_DB.prepare(
@@ -491,7 +695,7 @@ export async function processEntityExtraction(env: Env, jobId: string): Promise<
     output_tokens: number;
     estimated_cost_usd: number;
   }>();
-  await autoTrackEligibleCompetitors(env, job);
+  const autoTracked = await autoTrackEligibleCompetitors(env, job);
   await env.CONTROL_DB.batch([
     env.CONTROL_DB.prepare(
       `UPDATE entity_extraction_jobs SET status = 'completed', input_tokens = ?,
@@ -507,10 +711,30 @@ export async function processEntityExtraction(env: Env, jobId: string): Promise<
     ),
     env.CONTROL_DB.prepare(
       `UPDATE snapshot_index SET detected_entities_count = (
-        SELECT COUNT(*) FROM entity_mentions WHERE snapshot_id = ?
-      ) WHERE id = ?`,
-    ).bind(job.snapshot_id, job.snapshot_id),
+        SELECT COUNT(*) FROM entity_mentions
+        WHERE snapshot_id = ? AND extractor_version = ?
+      ) WHERE id = ? AND ? = (
+        SELECT active_entity_extractor_version FROM projects
+        WHERE id = snapshot_index.project_id
+      )`,
+    ).bind(
+      job.snapshot_id,
+      job.extractor_version,
+      job.snapshot_id,
+      job.extractor_version,
+    ),
   ]);
+  console.log(JSON.stringify({
+    level: "info",
+    message: "entity_extraction_completed",
+    jobId: job.id,
+    extractorVersion: job.extractor_version,
+    runType: job.run_type,
+    chunks: chunks.length,
+    entities: validated.length,
+    autoTracked,
+    estimatedCostUsd: Number(totals?.estimated_cost_usd ?? 0),
+  }));
 }
 
 export async function enqueueEntityExtractionForSnapshot(
@@ -522,6 +746,7 @@ export async function enqueueEntityExtractionForSnapshot(
     trackedQueryId: string;
     shardId: number;
   },
+  runType: "live" | "backfill" = "live",
 ): Promise<string | null> {
   const project = await env.CONTROL_DB.prepare(
     `SELECT entity_extraction_enabled FROM projects
@@ -533,9 +758,9 @@ export async function enqueueEntityExtractionForSnapshot(
   const inserted = await env.CONTROL_DB.prepare(
     `INSERT OR IGNORE INTO entity_extraction_jobs (
       id, snapshot_id, workspace_id, project_id, tracked_query_id, shard_id,
-      status, model, extractor_version, input_price_per_million_usd,
+      status, model, extractor_version, run_type, input_price_per_million_usd,
       output_price_per_million_usd, pricing_version, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?)`,
+    ) VALUES (?, ?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     id,
     snapshot.id,
@@ -545,6 +770,7 @@ export async function enqueueEntityExtractionForSnapshot(
     snapshot.shardId,
     ENTITY_EXTRACTION_MODEL,
     ENTITY_EXTRACTOR_VERSION,
+    runType,
     ENTITY_INPUT_PRICE_PER_MILLION_USD,
     ENTITY_OUTPUT_PRICE_PER_MILLION_USD,
     ENTITY_PRICING_VERSION,
@@ -562,6 +788,7 @@ export async function enqueueEntityExtractionForSnapshot(
       level: "error",
       message: "entity_extraction_enqueue_failed",
       jobId: id,
+      extractorVersion: ENTITY_EXTRACTOR_VERSION,
       error: String(error),
     }));
   }
@@ -575,11 +802,12 @@ export async function reconcileEntityExtractionJobs(env: Env): Promise<number> {
      FROM snapshot_index snapshot
      JOIN projects project ON project.id = snapshot.project_id
      JOIN tracked_queries query ON query.id = snapshot.tracked_query_id
-     LEFT JOIN entity_extraction_jobs job ON job.snapshot_id = snapshot.id
+     LEFT JOIN entity_extraction_jobs job
+       ON job.snapshot_id = snapshot.id AND job.extractor_version = ?
      WHERE job.id IS NULL AND project.entity_extraction_enabled = 1
        AND project.deleted_at IS NULL AND query.deleted_at IS NULL
      ORDER BY snapshot.captured_at DESC LIMIT 100`,
-  ).all<{
+  ).bind(ENTITY_EXTRACTOR_VERSION).all<{
     id: string;
     workspace_id: string;
     project_id: string;
@@ -594,7 +822,7 @@ export async function reconcileEntityExtractionJobs(env: Env): Promise<number> {
       projectId: snapshot.project_id,
       trackedQueryId: snapshot.tracked_query_id,
       shardId: snapshot.shard_id,
-    });
+    }, "backfill");
     if (id) enqueued += 1;
   }
 
@@ -602,13 +830,13 @@ export async function reconcileEntityExtractionJobs(env: Env): Promise<number> {
     `SELECT job.id FROM entity_extraction_jobs job
      JOIN projects project ON project.id = job.project_id
      WHERE project.entity_extraction_enabled = 1 AND project.deleted_at IS NULL
-       AND job.attempts < 5 AND (
+       AND job.extractor_version = ? AND job.attempts < 5 AND (
        (job.status = 'queued' AND julianday(job.updated_at) < julianday('now', '-2 minutes')) OR
        (job.status = 'processing' AND julianday(job.updated_at) < julianday('now', '-20 minutes')) OR
        (job.status = 'failed' AND julianday(job.updated_at) < julianday('now', '-5 minutes')) OR
        (job.status = 'cancelled' AND job.error_message = 'Project entity extraction is paused.')
      ) ORDER BY job.updated_at LIMIT 100`,
-  ).all<{ id: string }>();
+  ).bind(ENTITY_EXTRACTOR_VERSION).all<{ id: string }>();
   if (stale.results.length) {
     await env.CONTROL_DB.batch(stale.results.map((row) =>
       env.CONTROL_DB.prepare(
@@ -621,7 +849,120 @@ export async function reconcileEntityExtractionJobs(env: Env): Promise<number> {
     })));
     enqueued += stale.results.length;
   }
+  await activateCompletedEntityBackfills(env);
   return enqueued;
+}
+
+async function activateCompletedEntityBackfills(env: Env): Promise<number> {
+  const ready = await env.CONTROL_DB.prepare(
+    `SELECT project.id, project.workspace_id, project.entity_auto_track_enabled
+     FROM projects project
+     WHERE project.active_entity_extractor_version != ?
+       AND project.entity_extraction_enabled = 1
+       AND project.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM snapshot_index snapshot
+         JOIN tracked_queries query ON query.id = snapshot.tracked_query_id
+         LEFT JOIN entity_extraction_jobs job
+           ON job.snapshot_id = snapshot.id AND job.extractor_version = ?
+         WHERE snapshot.project_id = project.id
+           AND query.deleted_at IS NULL
+           AND (job.id IS NULL OR job.status != 'completed')
+       )
+     ORDER BY project.created_at LIMIT 25`,
+  ).bind(ENTITY_EXTRACTOR_VERSION, ENTITY_EXTRACTOR_VERSION).all<{
+    id: string;
+    workspace_id: string;
+    entity_auto_track_enabled: number;
+  }>();
+
+  for (const project of ready.results) {
+    const now = nowIso();
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        `UPDATE projects SET active_entity_extractor_version = ?, updated_at = ?
+         WHERE id = ? AND active_entity_extractor_version != ?`,
+      ).bind(
+        ENTITY_EXTRACTOR_VERSION,
+        now,
+        project.id,
+        ENTITY_EXTRACTOR_VERSION,
+      ),
+      env.CONTROL_DB.prepare(
+        `UPDATE snapshot_index SET detected_entities_count = (
+           SELECT COUNT(*) FROM entity_mentions mention
+           WHERE mention.snapshot_id = snapshot_index.id
+             AND mention.extractor_version = ?
+         ) WHERE project_id = ?`,
+      ).bind(ENTITY_EXTRACTOR_VERSION, project.id),
+      env.CONTROL_DB.prepare(
+        `UPDATE project_entities SET
+           snapshot_count = (
+             SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
+             WHERE mention.entity_id = project_entities.id
+               AND mention.extractor_version = ?
+           ),
+           prompt_count = (
+             SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
+             WHERE mention.entity_id = project_entities.id
+               AND mention.extractor_version = ?
+           ),
+           competitor_snapshot_count = (
+             SELECT COUNT(DISTINCT mention.snapshot_id) FROM entity_mentions mention
+             WHERE mention.entity_id = project_entities.id
+               AND mention.relationship = 'competitor'
+               AND mention.extractor_version = ?
+           ),
+           competitor_prompt_count = (
+             SELECT COUNT(DISTINCT mention.tracked_query_id) FROM entity_mentions mention
+             WHERE mention.entity_id = project_entities.id
+               AND mention.relationship = 'competitor'
+               AND mention.extractor_version = ?
+           ),
+           relationship = CASE
+             WHEN tracked_brand_id IS NOT NULL THEN relationship
+             WHEN EXISTS (
+               SELECT 1 FROM entity_mentions mention
+               WHERE mention.entity_id = project_entities.id
+                 AND mention.extractor_version = ?
+                 AND mention.relationship = 'competitor'
+             ) THEN 'competitor'
+             WHEN EXISTS (
+               SELECT 1 FROM entity_mentions mention
+               WHERE mention.entity_id = project_entities.id
+                 AND mention.extractor_version = ?
+                 AND mention.relationship = 'mentioned'
+             ) THEN 'mentioned'
+             ELSE 'unknown'
+           END,
+           updated_at = ?
+         WHERE project_id = ?`,
+      ).bind(
+        ENTITY_EXTRACTOR_VERSION,
+        ENTITY_EXTRACTOR_VERSION,
+        ENTITY_EXTRACTOR_VERSION,
+        ENTITY_EXTRACTOR_VERSION,
+        ENTITY_EXTRACTOR_VERSION,
+        ENTITY_EXTRACTOR_VERSION,
+        now,
+        project.id,
+      ),
+    ]);
+    await autoTrackEligibleCompetitors(env, {
+      project_id: project.id,
+      workspace_id: project.workspace_id,
+      extractor_version: ENTITY_EXTRACTOR_VERSION,
+      active_entity_extractor_version: ENTITY_EXTRACTOR_VERSION,
+      entity_auto_track_enabled: project.entity_auto_track_enabled,
+    });
+    console.log(JSON.stringify({
+      level: "info",
+      message: "entity_extractor_version_activated",
+      projectId: project.id,
+      extractorVersion: ENTITY_EXTRACTOR_VERSION,
+    }));
+  }
+  return ready.results.length;
 }
 
 export async function entityExtractionBatch(
@@ -642,9 +983,13 @@ export async function entityExtractionBatch(
         level: "error",
         message: "entity_extraction_failed",
         jobId: message.body.jobId,
+        extractorVersion: ENTITY_EXTRACTOR_VERSION,
         error: errorMessage,
       }));
-      if (error instanceof ApiError && ["usage_limit", "payment_required", "read_only"].includes(error.code)) {
+      if (
+        error instanceof ApiError &&
+        ["usage_limit", "payment_required", "read_only"].includes(error.code)
+      ) {
         message.ack();
       } else {
         message.retry({ delaySeconds: Math.min(1_800, 30 * 2 ** message.attempts) });

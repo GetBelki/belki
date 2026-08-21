@@ -1,0 +1,10 @@
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "ai-tracker-entity-evaluation-local",
+  "main": "../../src/worker/automation/entity-extraction-evaluation-worker.ts",
+  "compatibility_date": "2026-08-17",
+  "ai": {
+    "binding": "AI",
+    "remote": true
+  }
+}

@@ -9,38 +9,62 @@ import { jsonParse } from "../lib/http";
 
 export const ENTITY_EXTRACTION_MODEL =
   "@cf/meta/llama-3.3-70b-instruct-fp8-fast" as const;
-export const ENTITY_EXTRACTOR_VERSION = "entities-v1";
+export const ENTITY_EXTRACTOR_VERSION = "entities-v2";
+export const LEGACY_ENTITY_EXTRACTOR_VERSION = "entities-v1";
 export const ENTITY_INPUT_PRICE_PER_MILLION_USD = 0.293;
 export const ENTITY_OUTPUT_PRICE_PER_MILLION_USD = 2.253;
 export const ENTITY_PRICING_VERSION = "2026-08-11";
 
 const MAX_CHUNK_CHARACTERS = 12_000;
+const DEFAULT_CHUNK_OVERLAP = 240;
 const MAX_ENTITY_NAME_CHARACTERS = 120;
 
-export const ExtractedEntitySchema = z.object({
+export const EntityTypeSchema = z.enum([
+  "brand",
+  "company",
+  "organization",
+  "product",
+  "person",
+  "place",
+  "other",
+]);
+export type EntityType = z.infer<typeof EntityTypeSchema>;
+
+export const EntityRelationshipSchema = z.enum([
+  "owned",
+  "competitor",
+  "mentioned",
+  "unknown",
+]);
+export type EntityRelationship = z.infer<typeof EntityRelationshipSchema>;
+
+export const EvidenceTierSchema = z.enum(["strong", "moderate", "weak"]);
+export type EvidenceTier = z.infer<typeof EvidenceTierSchema>;
+
+export const RelationshipReasonSchema = z.enum([
+  "owned_brand",
+  "tracked_competitor",
+  "explicit_comparison",
+  "alternative_or_substitute",
+  "explicit_rival",
+  "same_recommendation_set",
+  "incidental_mention",
+  "insufficient_context",
+  "legacy_classifier",
+]);
+export type RelationshipReason = z.infer<typeof RelationshipReasonSchema>;
+
+export const SpanEntitySchema = z.object({
   surface: z.string().trim().min(2).max(160),
-  canonical_name: z.string().trim().min(2).max(MAX_ENTITY_NAME_CHARACTERS),
-  entity_type: z.enum([
-    "brand",
-    "company",
-    "organization",
-    "product",
-    "person",
-    "place",
-    "other",
-  ]),
-  relationship: z.enum(["owned", "competitor", "mentioned", "unknown"]),
-  confidence: z.number().min(0).max(1),
-  domains: z.array(z.string().trim().min(1).max(253)).max(10).default([]),
+  entity_type: EntityTypeSchema,
+});
+export type SpanEntity = z.infer<typeof SpanEntitySchema>;
+
+export const SpanExtractionResponseSchema = z.object({
+  entities: z.array(SpanEntitySchema).max(100).default([]),
 });
 
-export type ExtractedEntity = z.infer<typeof ExtractedEntitySchema>;
-
-export const ExtractionResponseSchema = z.object({
-  entities: z.array(ExtractedEntitySchema).max(100).default([]),
-});
-
-export const EXTRACTION_JSON_SCHEMA = {
+export const SPAN_EXTRACTION_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
   properties: {
@@ -52,31 +76,91 @@ export const EXTRACTION_JSON_SCHEMA = {
         additionalProperties: false,
         properties: {
           surface: { type: "string" },
-          canonical_name: { type: "string" },
           entity_type: {
             type: "string",
             enum: ["brand", "company", "organization", "product", "person", "place", "other"],
           },
-          relationship: {
-            type: "string",
-            enum: ["owned", "competitor", "mentioned", "unknown"],
-          },
-          confidence: { type: "number", minimum: 0, maximum: 1 },
-          domains: { type: "array", maxItems: 10, items: { type: "string" } },
         },
-        required: [
-          "surface",
-          "canonical_name",
-          "entity_type",
-          "relationship",
-          "confidence",
-          "domains",
-        ],
+        required: ["surface", "entity_type"],
       },
     },
   },
   required: ["entities"],
 } as const;
+
+export const RelationshipAssessmentSchema = z.object({
+  surface: z.string().trim().min(2).max(160),
+  relationship: z.enum(["competitor", "mentioned", "unknown"]),
+  reason: z.enum([
+    "explicit_comparison",
+    "alternative_or_substitute",
+    "explicit_rival",
+    "same_recommendation_set",
+    "incidental_mention",
+    "insufficient_context",
+  ]),
+});
+export type RelationshipAssessment = z.infer<typeof RelationshipAssessmentSchema>;
+
+export const RelationshipResponseSchema = z.object({
+  assessments: z.array(RelationshipAssessmentSchema).max(100).default([]),
+});
+
+export const RELATIONSHIP_JSON_SCHEMA = {
+  type: "object",
+  additionalProperties: false,
+  properties: {
+    assessments: {
+      type: "array",
+      maxItems: 100,
+      items: {
+        type: "object",
+        additionalProperties: false,
+        properties: {
+          surface: { type: "string" },
+          relationship: {
+            type: "string",
+            enum: ["competitor", "mentioned", "unknown"],
+          },
+          reason: {
+            type: "string",
+            enum: [
+              "explicit_comparison",
+              "alternative_or_substitute",
+              "explicit_rival",
+              "same_recommendation_set",
+              "incidental_mention",
+              "insufficient_context",
+            ],
+          },
+        },
+        required: ["surface", "relationship", "reason"],
+      },
+    },
+  },
+  required: ["assessments"],
+} as const;
+
+export const ExtractedEntitySchema = z.object({
+  surface: z.string().trim().min(2).max(160),
+  canonical_name: z.string().trim().min(2).max(MAX_ENTITY_NAME_CHARACTERS),
+  entity_type: EntityTypeSchema,
+  relationship: EntityRelationshipSchema,
+  relationship_reason: RelationshipReasonSchema,
+  evidence_tier: EvidenceTierSchema,
+  domains: z.array(z.string().trim().min(1).max(253)).max(10).default([]),
+  sources: z.array(z.enum([
+    "workers_ai",
+    "dataforseo_entity",
+    "observed_domain",
+    "tracked_brand",
+  ])).max(4).default([]),
+});
+export type ExtractedEntity = z.infer<typeof ExtractedEntitySchema>;
+
+export const ExtractionResponseSchema = z.object({
+  entities: z.array(ExtractedEntitySchema).max(100).default([]),
+});
 
 export interface TrackedBrandRow {
   id: string;
@@ -84,6 +168,11 @@ export interface TrackedBrandRow {
   name: string;
   aliases_json: string;
   domains_json: string;
+}
+
+export interface ProviderEntityRow {
+  title: string;
+  domains: string[];
 }
 
 export interface ValidatedEntity extends ExtractedEntity {
@@ -108,72 +197,199 @@ export function estimatedEntityExtractionCost(
   );
 }
 
+function bestChunkBoundary(text: string, start: number, maximum: number): number {
+  const hardEnd = Math.min(text.length, start + maximum);
+  if (hardEnd === text.length) return hardEnd;
+  const candidate = text.slice(start, hardEnd);
+  const minimum = Math.floor(maximum * 0.7);
+  const sentenceMatches = [...candidate.matchAll(/[.!?](?:\s+|$)|\n+/gu)];
+  const sentenceBoundary = sentenceMatches
+    .map((match) => (match.index ?? 0) + match[0].length)
+    .filter((index) => index >= minimum)
+    .at(-1);
+  if (sentenceBoundary) return start + sentenceBoundary;
+  const whitespace = candidate.lastIndexOf(" ");
+  return whitespace >= minimum ? start + whitespace : hardEnd;
+}
+
 export function chunkEntityText(
   rawText: string,
   maximum = MAX_CHUNK_CHARACTERS,
+  overlap = DEFAULT_CHUNK_OVERLAP,
 ): string[] {
   const text = brandMentionText(rawText).trim();
   if (!text) return [];
+  if (text.length <= maximum) return [text];
+  const safeOverlap = Math.min(Math.max(0, overlap), Math.floor(maximum * 0.2));
   const chunks: string[] = [];
   let start = 0;
   while (start < text.length) {
-    let end = Math.min(text.length, start + maximum);
-    if (end < text.length) {
-      const candidate = text.slice(start, end);
-      const newline = candidate.lastIndexOf("\n");
-      const whitespace = candidate.lastIndexOf(" ");
-      const boundary = Math.max(newline, whitespace);
-      if (boundary >= Math.floor(maximum * 0.7)) end = start + boundary;
-    }
+    const end = bestChunkBoundary(text, start, maximum);
     const chunk = text.slice(start, end).trim();
     if (chunk) chunks.push(chunk);
-    start = end;
-    while (/\s/u.test(text[start] ?? "")) start += 1;
+    if (end >= text.length) break;
+    const nextStart = Math.max(start + 1, end - safeOverlap);
+    const whitespace = text.indexOf(" ", nextStart);
+    start = whitespace >= 0 && whitespace < end ? whitespace + 1 : nextStart;
   }
   return chunks;
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+}
+
+function exactSurface(text: string, term: string): string | null {
+  const pattern = escapeRegExp(term.trim()).replace(/\s+/gu, "\\s+");
+  const match = new RegExp(
+    `(^|[^\\p{L}\\p{N}])(${pattern})(?=$|[^\\p{L}\\p{N}])`,
+    "iu",
+  ).exec(text);
+  return match?.[2] ?? null;
 }
 
 function contextForSurface(text: string, surface: string): string {
   const index = text.toLocaleLowerCase().indexOf(surface.toLocaleLowerCase());
   if (index < 0) return surface;
-  const start = Math.max(0, index - 120);
-  const end = Math.min(text.length, index + surface.length + 120);
+  const start = Math.max(0, index - 180);
+  const end = Math.min(text.length, index + surface.length + 180);
   return text.slice(start, end).replace(/\s+/gu, " ").trim();
 }
 
 export function countSurface(text: string, surface: string): number {
-  const normalizedText = text.toLocaleLowerCase();
-  const normalizedSurface = surface.toLocaleLowerCase();
-  if (!normalizedSurface) return 0;
-  let count = 0;
-  let offset = 0;
-  while ((offset = normalizedText.indexOf(normalizedSurface, offset)) >= 0) {
-    count += 1;
-    offset += normalizedSurface.length;
-  }
-  return count;
+  const pattern = escapeRegExp(surface.trim()).replace(/\s+/gu, "\\s+");
+  if (!pattern) return 0;
+  return [...text.matchAll(new RegExp(
+    `(^|[^\\p{L}\\p{N}])${pattern}(?=$|[^\\p{L}\\p{N}])`,
+    "giu",
+  ))].length;
 }
 
-export function parsedAiResponse(
+function structuredJson(value: unknown): unknown {
+  if (typeof value !== "string") return value;
+  const trimmed = value.trim();
+  try {
+    return JSON.parse(trimmed);
+  } catch (originalError) {
+    const withoutFence = trimmed
+      .replace(/^```(?:json)?\s*/iu, "")
+      .replace(/\s*```$/u, "")
+      .trim();
+    const firstBrace = withoutFence.indexOf("{");
+    const lastBrace = withoutFence.lastIndexOf("}");
+    if (firstBrace < 0 || lastBrace <= firstBrace) throw originalError;
+    const repairedPrefix = withoutFence
+      .slice(firstBrace, lastBrace + 1)
+      .replace(/\}\s*\{/gu, "},{");
+    const stack: string[] = [];
+    let quoted = false;
+    let escaped = false;
+    for (const character of repairedPrefix) {
+      if (quoted) {
+        if (escaped) escaped = false;
+        else if (character === "\\") escaped = true;
+        else if (character === '"') quoted = false;
+        continue;
+      }
+      if (character === '"') quoted = true;
+      else if (character === "{" || character === "[") stack.push(character);
+      else if (character === "}" || character === "]") {
+        const expected = character === "}" ? "{" : "[";
+        if (stack.at(-1) !== expected) throw originalError;
+        stack.pop();
+      }
+    }
+    if (quoted) throw originalError;
+    const closing = stack.reverse().map((character) => character === "{" ? "}" : "]").join("");
+    const objectText = `${repairedPrefix}${closing}`
+      .replace(/,\s*([}\]])/gu, "$1");
+    return JSON.parse(objectText);
+  }
+}
+
+export function parsedSpanAiResponse(
   value: unknown,
-): z.infer<typeof ExtractionResponseSchema> {
-  if (typeof value === "string") {
-    return ExtractionResponseSchema.parse(JSON.parse(value));
-  }
-  return ExtractionResponseSchema.parse(value);
+): z.infer<typeof SpanExtractionResponseSchema> {
+  return SpanExtractionResponseSchema.parse(structuredJson(value));
 }
 
-function knownBrandForEntity(
-  entity: ExtractedEntity,
+export function parsedRelationshipAiResponse(
+  value: unknown,
+): z.infer<typeof RelationshipResponseSchema> {
+  return RelationshipResponseSchema.parse(structuredJson(value));
+}
+
+function knownBrandForSurface(
+  surface: string,
   brands: TrackedBrandRow[],
 ): TrackedBrandRow | null {
+  const normalizedSurface = normalizeBrand(surface);
   return brands.find((brand) =>
     [brand.name, ...jsonParse<string[]>(brand.aliases_json, [])].some(
-      (term) =>
-        normalizeBrand(term) === normalizeBrand(entity.canonical_name) ||
-        normalizeBrand(term) === normalizeBrand(entity.surface),
+      (term) => normalizeBrand(term) === normalizedSurface,
     ),
   ) ?? null;
+}
+
+function providerForSurface(
+  surface: string,
+  providers: ProviderEntityRow[],
+): ProviderEntityRow | null {
+  const normalizedSurface = normalizeBrand(surface);
+  return providers.find((provider) => normalizeBrand(provider.title) === normalizedSurface) ?? null;
+}
+
+function normalizedDomains(domains: string[]): string[] {
+  return [...new Set(domains
+    .map((domain) => normalizeUrl(domain).registrableDomain)
+    .filter((domain): domain is string => Boolean(domain)))];
+}
+
+function candidate(
+  span: SpanEntity,
+  chunk: string,
+  options: {
+    observedDomains: Set<string>;
+    providerEntities: ProviderEntityRow[];
+    trackedBrands: TrackedBrandRow[];
+    source: "workers_ai" | "dataforseo_entity" | "tracked_brand";
+  },
+): ValidatedEntity | null {
+  const visibleSurface = exactSurface(chunk, span.surface);
+  if (!visibleSurface || !containsBrandMention(chunk, visibleSurface)) return null;
+  const trackedBrand = knownBrandForSurface(visibleSurface, options.trackedBrands);
+  const provider = providerForSurface(visibleSurface, options.providerEntities);
+  const canonicalName = trackedBrand?.name ?? provider?.title ?? visibleSurface;
+  const normalizedName = normalizeBrand(canonicalName);
+  if (!normalizedName) return null;
+  const domains = normalizedDomains([
+    ...jsonParse<string[]>(trackedBrand?.domains_json, []),
+    ...(provider?.domains ?? []),
+  ]);
+  const domainCorroborated = domains.some((domain) => options.observedDomains.has(domain));
+  const sources = new Set<ExtractedEntity["sources"][number]>([options.source]);
+  if (trackedBrand) sources.add("tracked_brand");
+  if (provider) sources.add("dataforseo_entity");
+  if (domainCorroborated) sources.add("observed_domain");
+  return {
+    surface: visibleSurface,
+    canonical_name: canonicalName,
+    entity_type: trackedBrand ? "brand" : span.entity_type,
+    relationship: trackedBrand?.kind ?? "unknown",
+    relationship_reason: trackedBrand?.kind === "owned"
+      ? "owned_brand"
+      : trackedBrand
+        ? "tracked_competitor"
+        : "insufficient_context",
+    evidence_tier: trackedBrand ? "strong" : provider ? "moderate" : "weak",
+    domains,
+    sources: [...sources],
+    normalizedName,
+    evidence: contextForSurface(chunk, visibleSurface),
+    providerCorroborated: Boolean(provider),
+    domainCorroborated,
+    trackedBrand,
+  };
 }
 
 export function validateExtractedEntities(
@@ -181,54 +397,108 @@ export function validateExtractedEntities(
   chunk: string,
   options: {
     providerNames?: string[];
+    providerEntities?: ProviderEntityRow[];
     observedDomains?: string[];
     trackedBrands?: TrackedBrandRow[];
   } = {},
 ): ValidatedEntity[] {
-  const parsed = ExtractionResponseSchema.parse(raw);
-  const providerNames = new Set(
-    (options.providerNames ?? []).map(normalizeBrand).filter(Boolean),
-  );
-  const observedDomains = new Set(
-    (options.observedDomains ?? [])
-      .map((domain) => normalizeUrl(domain).registrableDomain)
-      .filter((domain): domain is string => Boolean(domain)),
-  );
+  const parsed = SpanExtractionResponseSchema.parse(raw);
   const trackedBrands = options.trackedBrands ?? [];
-  return parsed.entities.flatMap((entity) => {
-    if (!containsBrandMention(chunk, entity.surface)) return [];
-    const trackedBrand = knownBrandForEntity(entity, trackedBrands);
-    const canonicalName = trackedBrand?.name ?? entity.canonical_name;
-    const normalizedName = normalizeBrand(canonicalName);
-    if (!normalizedName) return [];
-    const domains = entity.domains
-      .map((domain) => normalizeUrl(domain).registrableDomain)
-      .filter((domain): domain is string => Boolean(domain));
-    const relationship = trackedBrand?.kind ?? entity.relationship;
-    return [{
+  const providerEntities = options.providerEntities ?? (options.providerNames ?? []).map(
+    (title) => ({ title, domains: [] }),
+  );
+  const observedDomains = new Set(normalizedDomains(options.observedDomains ?? []));
+  const spans = new Map<string, { span: SpanEntity; source: "workers_ai" | "dataforseo_entity" | "tracked_brand" }>();
+
+  for (const span of parsed.entities) {
+    if (!containsBrandMention(chunk, span.surface)) continue;
+    spans.set(normalizeBrand(span.surface), { span, source: "workers_ai" });
+  }
+  for (const provider of providerEntities) {
+    const surface = exactSurface(chunk, provider.title);
+    if (!surface) continue;
+    const key = normalizeBrand(surface);
+    const existing = spans.get(key);
+    spans.set(key, {
+      span: existing?.span ?? { surface, entity_type: "brand" },
+      source: existing?.source ?? "dataforseo_entity",
+    });
+  }
+  for (const brand of trackedBrands) {
+    const terms = [brand.name, ...jsonParse<string[]>(brand.aliases_json, [])]
+      .sort((left, right) => right.length - left.length);
+    const surface = terms.map((term) => exactSurface(chunk, term)).find(Boolean);
+    if (!surface) continue;
+    spans.set(normalizeBrand(surface), {
+      span: { surface, entity_type: "brand" },
+      source: "tracked_brand",
+    });
+  }
+
+  return [...spans.values()].flatMap(({ span, source }) => {
+    const validated = candidate(span, chunk, {
+      observedDomains,
+      providerEntities,
+      trackedBrands,
+      source,
+    });
+    return validated ? [validated] : [];
+  });
+}
+
+function evidenceTierForAssessment(
+  entity: ValidatedEntity,
+  assessment: RelationshipAssessment,
+): EvidenceTier {
+  if ([
+    "explicit_comparison",
+    "alternative_or_substitute",
+    "explicit_rival",
+  ].includes(assessment.reason)) return "strong";
+  if (
+    assessment.reason === "same_recommendation_set" &&
+    (entity.providerCorroborated || entity.domainCorroborated)
+  ) return "moderate";
+  return entity.evidence_tier;
+}
+
+export function applyRelationshipAssessments(
+  entities: ValidatedEntity[],
+  raw: unknown,
+): ValidatedEntity[] {
+  const assessments = RelationshipResponseSchema.parse(raw).assessments;
+  const bySurface = new Map(
+    assessments.map((assessment) => [normalizeBrand(assessment.surface), assessment]),
+  );
+  return entities.map((entity) => {
+    if (entity.trackedBrand) return entity;
+    const assessment = bySurface.get(normalizeBrand(entity.surface));
+    if (!assessment) return entity;
+    return {
       ...entity,
-      canonical_name: canonicalName,
-      relationship,
-      domains: [...new Set(domains)],
-      normalizedName,
-      evidence: contextForSurface(chunk, entity.surface),
-      providerCorroborated:
-        providerNames.has(normalizeBrand(entity.surface)) ||
-        providerNames.has(normalizeBrand(entity.canonical_name)),
-      domainCorroborated: domains.some((domain) => observedDomains.has(domain)),
-      trackedBrand,
-    }];
+      relationship: assessment.relationship,
+      relationship_reason: assessment.reason,
+      evidence_tier: evidenceTierForAssessment(entity, assessment),
+    };
   });
 }
 
 export function extractionSystemPrompt(): string {
   return [
-    "Extract named entities explicitly present in the supplied AI answer.",
-    "Focus on brands, companies, organizations, products, people, and places across any industry.",
-    "A competitor is a brand or company presented as an alternative, rival, substitute, comparison, or competing provider to the owned brand.",
-    "Do not infer entities that are absent. surface must be an exact substring of the answer chunk.",
-    "Use owned only for a supplied owned brand. Use competitor only when the answer context supports that relationship.",
-    "Use mentioned when the entity is present but no competitive relationship is established.",
-    "Return an empty entities array when no named entity is explicit.",
+    "Extract only named-entity spans explicitly present in the supplied AI answer chunk.",
+    "Return the exact visible substring and one type: brand, company, organization, product, person, place, or other.",
+    "Include commercial brands and products even when capitalization is unusual.",
+    "Do not canonicalize names, infer domains, classify relationships, or assign confidence.",
+    "Publishers, research bodies, people, and places are still entities, but generic category phrases are not.",
+    "Never invent a span. Return an empty entities array when no named entity is explicit.",
+  ].join(" ");
+}
+
+export function relationshipSystemPrompt(): string {
+  return [
+    "Classify the supplied brand, company, and organization candidates using only the tracked query and answer evidence.",
+    "competitor means an explicit comparison, rival, alternative, substitute, or a provider in the same recommendation set as the owned brand.",
+    "A source, publisher, regulator, research organization, customer, integration partner, or incidental citation is mentioned, not a competitor.",
+    "Use unknown when the evidence is insufficient. Return exactly one assessment for every candidate surface.",
   ].join(" ");
 }

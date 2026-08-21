@@ -1347,7 +1347,8 @@ analyticsRoutes.get(
              COALESCE(SUM(chunk.estimated_cost_usd), 0) AS provider_cost_usd
            FROM entity_extraction_chunks chunk
            JOIN entity_extraction_jobs job ON job.id = chunk.job_id
-           WHERE job.workspace_id = ? AND (? IS NULL OR job.project_id = ?)
+           WHERE job.workspace_id = ? AND job.run_type = 'live'
+             AND (? IS NULL OR job.project_id = ?)
              AND chunk.status = 'completed' AND chunk.completed_at >= ? AND chunk.completed_at < ?
            GROUP BY metric_date
            UNION ALL
@@ -1400,7 +1401,8 @@ analyticsRoutes.get(
             COALESCE(SUM(chunk.estimated_cost_usd), 0)
           FROM entity_extraction_chunks chunk
           JOIN entity_extraction_jobs job ON job.id = chunk.job_id
-          WHERE job.workspace_id = ? AND chunk.status = 'completed'
+          WHERE job.workspace_id = ? AND job.run_type = 'live'
+            AND chunk.status = 'completed'
             AND chunk.completed_at >= ? AND chunk.completed_at < ?
           GROUP BY job.project_id
           UNION ALL
@@ -1486,7 +1488,8 @@ analyticsRoutes.get(
             COALESCE(SUM(chunk.estimated_cost_usd), 0) AS cost
           FROM entity_extraction_chunks chunk
           JOIN entity_extraction_jobs job ON job.id = chunk.job_id
-          WHERE job.workspace_id = ? AND chunk.status = 'completed'
+          WHERE job.workspace_id = ? AND job.run_type = 'live'
+            AND chunk.status = 'completed'
             AND chunk.completed_at >= strftime('%Y-%m-01T00:00:00.000Z', 'now')
           GROUP BY job.project_id
           UNION ALL
@@ -1930,6 +1933,10 @@ analyticsRoutes.get(
             ON brand.id = entity.tracked_brand_id
            AND brand.project_id = mention.project_id
           WHERE mention.project_id = ?
+            AND mention.extractor_version = (
+              SELECT active_entity_extractor_version FROM projects
+              WHERE id = mention.project_id
+            )
             AND mention_snapshot.tracking_source IN (${sourcePlaceholders})
             AND mention.captured_at >= ?
             AND mention.captured_at < ?
@@ -4196,7 +4203,13 @@ analyticsRoutes.get(
     const dates = range(input);
     const rows = await c.env.CONTROL_DB.prepare(
       `SELECT entity.id, entity.canonical_name, entity.entity_type,
-        entity.relationship, entity.status, entity.aliases_json, entity.domains_json,
+        COALESCE((
+          SELECT latest_relationship.relationship FROM entity_mentions latest_relationship
+          WHERE latest_relationship.entity_id = entity.id
+            AND latest_relationship.extractor_version = project.active_entity_extractor_version
+          ORDER BY latest_relationship.captured_at DESC, latest_relationship.id DESC LIMIT 1
+        ), entity.relationship) AS relationship,
+        entity.status, entity.aliases_json, entity.domains_json,
         entity.provider_corroborated, entity.domain_corroborated,
         entity.snapshot_count, entity.prompt_count,
         entity.competitor_snapshot_count, entity.competitor_prompt_count,
@@ -4204,17 +4217,49 @@ analyticsRoutes.get(
         COUNT(DISTINCT mention.snapshot_id) AS period_snapshot_count,
         COUNT(DISTINCT mention.tracked_query_id) AS period_prompt_count,
         MAX(mention.confidence) AS confidence,
+        CASE
+          WHEN SUM(CASE WHEN mention.evidence_tier = 'strong' THEN 1 ELSE 0 END) > 0 THEN 'strong'
+          WHEN SUM(CASE WHEN mention.evidence_tier = 'moderate' THEN 1 ELSE 0 END) > 0 THEN 'moderate'
+          ELSE 'weak'
+        END AS evidence_tier,
         (
           SELECT latest.evidence_json FROM entity_mentions latest
           WHERE latest.entity_id = entity.id
+            AND latest.extractor_version = project.active_entity_extractor_version
             AND latest.captured_at >= ? AND latest.captured_at < ?
           ORDER BY latest.captured_at DESC, latest.id DESC
           LIMIT 1
-        ) AS latest_evidence_json
+        ) AS latest_evidence_json,
+        (
+          SELECT latest.relationship_reason FROM entity_mentions latest
+          WHERE latest.entity_id = entity.id
+            AND latest.extractor_version = project.active_entity_extractor_version
+            AND latest.captured_at >= ? AND latest.captured_at < ?
+          ORDER BY latest.captured_at DESC, latest.id DESC
+          LIMIT 1
+        ) AS relationship_reason,
+        (
+          SELECT latest.sources_json FROM entity_mentions latest
+          WHERE latest.entity_id = entity.id
+            AND latest.extractor_version = project.active_entity_extractor_version
+            AND latest.captured_at >= ? AND latest.captured_at < ?
+          ORDER BY latest.captured_at DESC, latest.id DESC
+          LIMIT 1
+        ) AS latest_sources_json
        FROM project_entities entity
+       JOIN projects project ON project.id = entity.project_id
        LEFT JOIN entity_mentions mention ON mention.entity_id = entity.id
+         AND mention.extractor_version = project.active_entity_extractor_version
          AND mention.captured_at >= ? AND mention.captured_at < ?
        WHERE entity.project_id = ? AND entity.status != 'merged'
+         AND (
+           entity.status IN ('tracked', 'auto_tracked', 'ignored')
+           OR EXISTS (
+             SELECT 1 FROM entity_mentions active_mention
+             WHERE active_mention.entity_id = entity.id
+               AND active_mention.extractor_version = project.active_entity_extractor_version
+           )
+         )
        GROUP BY entity.id
        ORDER BY
          CASE entity.status WHEN 'candidate' THEN 0 WHEN 'auto_tracked' THEN 1
@@ -4226,12 +4271,17 @@ analyticsRoutes.get(
         exclusiveDateEnd(dates.to),
         `${dates.from}T00:00:00.000Z`,
         exclusiveDateEnd(dates.to),
+        `${dates.from}T00:00:00.000Z`,
+        exclusiveDateEnd(dates.to),
+        `${dates.from}T00:00:00.000Z`,
+        exclusiveDateEnd(dates.to),
         input.projectId,
       )
       .all<Record<string, unknown> & {
         aliases_json: string;
         domains_json: string;
         latest_evidence_json: string | null;
+        latest_sources_json: string | null;
       }>();
     return c.json({
       data: rows.results.map((entity) => ({
@@ -4239,6 +4289,9 @@ analyticsRoutes.get(
         aliases: jsonParse<string[]>(entity.aliases_json, []),
         domains: jsonParse<string[]>(entity.domains_json, []),
         latestEvidence: jsonParse<string[]>(entity.latest_evidence_json, []),
+        evidenceTier: entity.evidence_tier,
+        relationshipReason: entity.relationship_reason,
+        latestSources: jsonParse<string[]>(entity.latest_sources_json, []),
       })),
     });
   },
@@ -4476,11 +4529,14 @@ analyticsRoutes.get(
         c.env.CONTROL_DB.prepare(
           `SELECT mention.id, mention.entity_id, mention.surface_text,
             mention.occurrence_count, mention.entity_type, mention.relationship,
-            mention.confidence, mention.evidence_json, mention.sources_json,
+            mention.confidence, mention.evidence_tier, mention.relationship_reason,
+            mention.evidence_json, mention.sources_json,
             entity.canonical_name, entity.status, entity.tracked_brand_id
            FROM entity_mentions mention
            JOIN project_entities entity ON entity.id = mention.entity_id
+           JOIN projects project ON project.id = mention.project_id
            WHERE mention.snapshot_id = ?
+             AND mention.extractor_version = project.active_entity_extractor_version
            ORDER BY mention.confidence DESC, entity.canonical_name`,
         )
           .bind(id)

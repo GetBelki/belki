@@ -1,0 +1,315 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Private entity extraction review</title>
+  <style>
+    :root { color-scheme: light; font-family: Inter, ui-sans-serif, system-ui, sans-serif; color: #1f2937; background: #f4f6f8; }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    button, input, select { font: inherit; }
+    button { cursor: pointer; border: 1px solid #cbd5e1; background: white; border-radius: 8px; padding: 8px 12px; }
+    button.primary { color: white; background: #176b5b; border-color: #176b5b; }
+    button:disabled { cursor: not-allowed; opacity: .5; }
+    header { position: sticky; top: 0; z-index: 2; padding: 14px 22px; color: white; background: #123f38; box-shadow: 0 2px 10px #0002; }
+    header h1 { margin: 0 0 4px; font-size: 18px; }
+    header p { margin: 0; font-size: 13px; opacity: .85; }
+    .layout { display: grid; grid-template-columns: 260px minmax(0, 1fr); min-height: calc(100vh - 70px); }
+    aside { padding: 18px; background: white; border-right: 1px solid #dbe3e8; }
+    aside label { display: block; margin: 14px 0 5px; font-size: 12px; font-weight: 700; }
+    aside select, aside input { width: 100%; padding: 8px; border: 1px solid #cbd5e1; border-radius: 7px; }
+    .progress { height: 8px; overflow: hidden; margin: 12px 0 5px; background: #e2e8f0; border-radius: 99px; }
+    .progress span { display: block; height: 100%; background: #2b9b83; }
+    .privacy { margin-top: 18px; padding: 10px; color: #6b4f00; background: #fff7d6; border-radius: 8px; font-size: 12px; line-height: 1.45; }
+    main { padding: 24px; max-width: 1200px; width: 100%; margin: 0 auto; }
+    .toolbar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-bottom: 14px; }
+    .toolbar .position { margin-left: auto; color: #64748b; font-size: 13px; }
+    .card { margin-bottom: 16px; padding: 18px; background: white; border: 1px solid #dbe3e8; border-radius: 12px; box-shadow: 0 3px 12px #1f293708; }
+    .metadata { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+    .pill { padding: 3px 8px; background: #eef2f6; border-radius: 99px; font-size: 12px; }
+    .pill.warning { color: #8a4b08; background: #fff0d9; }
+    h2 { margin: 0 0 10px; font-size: 15px; }
+    .prompt { margin: 0; color: #334155; }
+    .answer { max-height: 360px; overflow: auto; margin: 0; padding: 14px; white-space: pre-wrap; line-height: 1.55; background: #f8fafc; border-radius: 8px; }
+    .comparison { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .model { padding: 12px; background: #f8fafc; border-radius: 8px; }
+    .model strong { display: block; margin-bottom: 7px; }
+    .model ul { margin: 0; padding-left: 18px; font-size: 13px; }
+    .entity-row { display: grid; grid-template-columns: 36px 1.2fr 1.2fr .9fr 1fr 38px; gap: 8px; align-items: center; margin-bottom: 8px; }
+    .entity-row input[type="text"], .entity-row select { width: 100%; min-width: 0; padding: 7px; border: 1px solid #cbd5e1; border-radius: 6px; }
+    .entity-row .remove { padding: 7px 0; color: #9f1239; }
+    .entity-head { color: #64748b; font-size: 11px; font-weight: 700; text-transform: uppercase; }
+    .review-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+    .empty { color: #64748b; font-style: italic; }
+    @media (max-width: 820px) {
+      .layout { grid-template-columns: 1fr; }
+      aside { position: static; border-right: 0; border-bottom: 1px solid #dbe3e8; }
+      .comparison { grid-template-columns: 1fr; }
+      .entity-row { grid-template-columns: 32px 1fr 1fr; }
+      .entity-row > :nth-child(n+4) { grid-column: span 1; }
+      .entity-head { display: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>Private entity extraction review</h1>
+    <p>Review the answer, correct the proposed entities, and mark each record complete.</p>
+  </header>
+  <div class="layout">
+    <aside>
+      <strong id="progress-label"></strong>
+      <div class="progress"><span id="progress-bar"></span></div>
+      <label for="filter">Show</label>
+      <select id="filter">
+        <option value="unreviewed">Unreviewed</option>
+        <option value="disagreements">Model disagreements</option>
+        <option value="all">All answers</option>
+      </select>
+      <label for="language">Language</label>
+      <select id="language"><option value="all">All languages</option></select>
+      <label for="search">Find text</label>
+      <input id="search" placeholder="Search prompt or answer">
+      <div class="review-actions">
+        <button id="backup">Export backup</button>
+        <button class="primary" disabled id="gold">Download gold.jsonl</button>
+      </div>
+      <div class="privacy">This page contains private response text and works entirely on your computer. Do not share or commit it.</div>
+    </aside>
+    <main>
+      <div class="toolbar">
+        <button id="previous">Previous</button>
+        <button id="next">Next</button>
+        <span class="position" id="position"></span>
+      </div>
+      <section class="card">
+        <div class="metadata" id="metadata"></div>
+        <h2>Prompt</h2>
+        <p class="prompt" id="prompt"></p>
+      </section>
+      <section class="card">
+        <h2>Answer</h2>
+        <p class="answer" id="answer"></p>
+      </section>
+      <section class="card comparison">
+        <div class="model"><strong>v1 found</strong><ul id="v1"></ul></div>
+        <div class="model"><strong>v2 found</strong><ul id="v2"></ul></div>
+      </section>
+      <section class="card">
+        <h2>Correct entities</h2>
+        <div class="entity-row entity-head"><span>Keep</span><span>Exact name</span><span>Canonical name</span><span>Type</span><span>Relationship</span><span></span></div>
+        <div id="entities"></div>
+        <div class="review-actions">
+          <button id="add">Add missed entity</button>
+          <button id="use-v1">Use v1 only</button>
+          <button id="use-v2">Use v2 only</button>
+          <button class="primary" id="complete">Mark reviewed &amp; next</button>
+        </div>
+      </section>
+    </main>
+  </div>
+  <script>const RECORDS = __EVALUATION_DATA__;</script>
+  <script>
+    const STORAGE_KEY = "belki-entity-evaluation-v1";
+    const TYPES = ["brand", "company", "organization", "product", "person", "place", "other"];
+    const RELATIONSHIPS = ["owned", "competitor", "mentioned", "unknown"];
+    const normalize = (value) => String(value || "").normalize("NFKC").trim().toLowerCase().replace(/\s+/g, " ");
+    const entityName = (entity) => entity.canonicalName || entity.canonical_name || entity.surface || "";
+    const entityType = (entity) => entity.entityType || entity.entity_type || "other";
+    const modelEntities = (record, version) => record[version].map((entity) => ({
+      keep: true,
+      surface: entity.surface || entityName(entity),
+      canonicalName: entityName(entity),
+      entityType: entityType(entity),
+      relationship: entity.relationship || "unknown",
+    }));
+    const unionEntities = (record) => {
+      const union = new Map();
+      for (const entity of [...modelEntities(record, "v2"), ...modelEntities(record, "v1")]) {
+        const key = normalize(entity.canonicalName || entity.surface);
+        if (!union.has(key)) union.set(key, entity);
+      }
+      return [...union.values()];
+    };
+    const signature = (entities) => entities.map((entity) =>
+      `${normalize(entityName(entity))}:${entityType(entity)}:${entity.relationship || "unknown"}`
+    ).sort().join("|");
+    const disagreements = new Set(RECORDS.filter((record) =>
+      signature(record.v1) !== signature(record.v2)
+    ).map((record) => record.id));
+    let saved = {};
+    try { saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}"); } catch { saved = {}; }
+    for (const record of RECORDS) {
+      if (!saved[record.id]) saved[record.id] = { reviewed: false, entities: unionEntities(record) };
+    }
+    let visible = [];
+    let currentIndex = 0;
+    const byId = new Map(RECORDS.map((record) => [record.id, record]));
+    const elements = Object.fromEntries([
+      "progress-label", "progress-bar", "filter", "language", "search", "backup", "gold",
+      "previous", "next", "position", "metadata", "prompt", "answer", "v1", "v2",
+      "entities", "add", "use-v1", "use-v2", "complete",
+    ].map((id) => [id, document.getElementById(id)]));
+    const save = () => localStorage.setItem(STORAGE_KEY, JSON.stringify(saved));
+    const download = (name, content, type) => {
+      const link = document.createElement("a");
+      link.href = URL.createObjectURL(new Blob([content], { type }));
+      link.download = name;
+      link.click();
+      setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+    };
+    const option = (value, selected) => {
+      const item = document.createElement("option");
+      item.value = value;
+      item.textContent = value;
+      item.selected = value === selected;
+      return item;
+    };
+    const renderModel = (target, entities) => {
+      target.replaceChildren();
+      if (!entities.length) {
+        const item = document.createElement("li");
+        item.className = "empty";
+        item.textContent = "No entities";
+        target.append(item);
+        return;
+      }
+      for (const entity of entities) {
+        const item = document.createElement("li");
+        item.textContent = `${entityName(entity)} — ${entityType(entity)}, ${entity.relationship || "unknown"}`;
+        target.append(item);
+      }
+    };
+    const renderEntityRows = (record) => {
+      elements.entities.replaceChildren();
+      saved[record.id].entities.forEach((entity, index) => {
+        const row = document.createElement("div");
+        row.className = "entity-row";
+        const keep = document.createElement("input");
+        keep.type = "checkbox";
+        keep.checked = entity.keep;
+        keep.addEventListener("change", () => { entity.keep = keep.checked; save(); });
+        const surface = document.createElement("input");
+        surface.type = "text";
+        surface.value = entity.surface;
+        surface.addEventListener("input", () => { entity.surface = surface.value; save(); });
+        const canonical = document.createElement("input");
+        canonical.type = "text";
+        canonical.value = entity.canonicalName;
+        canonical.addEventListener("input", () => { entity.canonicalName = canonical.value; save(); });
+        const type = document.createElement("select");
+        TYPES.forEach((value) => type.append(option(value, entity.entityType)));
+        type.addEventListener("change", () => { entity.entityType = type.value; save(); });
+        const relationship = document.createElement("select");
+        RELATIONSHIPS.forEach((value) => relationship.append(option(value, entity.relationship)));
+        relationship.addEventListener("change", () => { entity.relationship = relationship.value; save(); });
+        const remove = document.createElement("button");
+        remove.className = "remove";
+        remove.textContent = "×";
+        remove.title = "Remove row";
+        remove.addEventListener("click", () => {
+          saved[record.id].entities.splice(index, 1);
+          save();
+          renderEntityRows(record);
+        });
+        row.append(keep, surface, canonical, type, relationship, remove);
+        elements.entities.append(row);
+      });
+    };
+    const render = () => {
+      const reviewed = Object.values(saved).filter((value) => value.reviewed).length;
+      elements["progress-label"].textContent = `${reviewed} of ${RECORDS.length} reviewed`;
+      elements["progress-bar"].style.width = `${(reviewed / RECORDS.length) * 100}%`;
+      elements.gold.disabled = reviewed !== RECORDS.length;
+      if (!visible.length) {
+        elements.position.textContent = "No matching answers";
+        return;
+      }
+      currentIndex = Math.max(0, Math.min(currentIndex, visible.length - 1));
+      const record = visible[currentIndex];
+      elements.position.textContent = `${currentIndex + 1} / ${visible.length}`;
+      elements.prompt.textContent = record.queryText;
+      elements.answer.textContent = record.answer;
+      elements.metadata.replaceChildren();
+      for (const [text, warning] of [
+        [record.languageCode, false],
+        [record.trackingSource, false],
+        [disagreements.has(record.id) ? "models disagree" : "models agree", disagreements.has(record.id)],
+        [saved[record.id].reviewed ? "reviewed" : "not reviewed", !saved[record.id].reviewed],
+      ]) {
+        const pill = document.createElement("span");
+        pill.className = `pill${warning ? " warning" : ""}`;
+        pill.textContent = text;
+        elements.metadata.append(pill);
+      }
+      renderModel(elements.v1, record.v1);
+      renderModel(elements.v2, record.v2);
+      renderEntityRows(record);
+      elements.previous.disabled = currentIndex === 0;
+      elements.next.disabled = currentIndex === visible.length - 1;
+    };
+    const applyFilters = () => {
+      const oldId = visible[currentIndex]?.id;
+      const search = normalize(elements.search.value);
+      visible = RECORDS.filter((record) => {
+        if (elements.filter.value === "unreviewed" && saved[record.id].reviewed) return false;
+        if (elements.filter.value === "disagreements" && !disagreements.has(record.id)) return false;
+        if (elements.language.value !== "all" && record.languageCode !== elements.language.value) return false;
+        return !search || normalize(`${record.queryText} ${record.answer}`).includes(search);
+      });
+      const retainedIndex = visible.findIndex((record) => record.id === oldId);
+      currentIndex = retainedIndex >= 0 ? retainedIndex : 0;
+      render();
+    };
+    for (const language of [...new Set(RECORDS.map((record) => record.languageCode))].sort()) {
+      elements.language.append(option(language, ""));
+    }
+    elements.filter.addEventListener("change", applyFilters);
+    elements.language.addEventListener("change", applyFilters);
+    elements.search.addEventListener("input", applyFilters);
+    elements.previous.addEventListener("click", () => { currentIndex -= 1; render(); });
+    elements.next.addEventListener("click", () => { currentIndex += 1; render(); });
+    elements.add.addEventListener("click", () => {
+      const record = visible[currentIndex];
+      saved[record.id].entities.push({ keep: true, surface: "", canonicalName: "", entityType: "brand", relationship: "unknown" });
+      save();
+      renderEntityRows(record);
+    });
+    const useModel = (version) => {
+      const record = visible[currentIndex];
+      saved[record.id].entities = modelEntities(record, version);
+      save();
+      renderEntityRows(record);
+    };
+    elements["use-v1"].addEventListener("click", () => useModel("v1"));
+    elements["use-v2"].addEventListener("click", () => useModel("v2"));
+    elements.complete.addEventListener("click", () => {
+      const record = visible[currentIndex];
+      saved[record.id].reviewed = true;
+      save();
+      applyFilters();
+    });
+    elements.backup.addEventListener("click", () => download(
+      "entity-review-backup.json",
+      JSON.stringify(saved, null, 2),
+      "application/json",
+    ));
+    elements.gold.addEventListener("click", () => {
+      const records = RECORDS.map((record) => ({
+        id: record.id,
+        languageCode: record.languageCode,
+        answer: record.answer,
+        entities: saved[record.id].entities.filter((entity) => entity.keep).map((entity) => ({
+          surface: entity.surface.trim(),
+          canonicalName: (entity.canonicalName || entity.surface).trim(),
+          entityType: entity.entityType,
+          relationship: entity.relationship,
+        })).filter((entity) => entity.surface && entity.canonicalName),
+      }));
+      download("gold.jsonl", `${records.map((record) => JSON.stringify(record)).join("\n")}\n`, "application/x-ndjson");
+    });
+    applyFilters();
+  </script>
+</body>
+</html>
