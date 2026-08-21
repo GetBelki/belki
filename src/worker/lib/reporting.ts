@@ -96,10 +96,13 @@ export function buildResponseShareTrend(
 export interface FanOutActivityTrendPoint {
   date: string;
   completedResponses: number;
+  reportedResponses: number;
+  unavailableResponses: number;
   responsesWithFanOut: number;
   totalFanOuts: number;
   responseShare: number;
   fanOutsPerResponse: number;
+  telemetryCoverage: number;
 }
 
 export interface FanOutSignalTrendPoint {
@@ -108,6 +111,7 @@ export interface FanOutSignalTrendPoint {
   totalFanOuts: number;
   matchingResponses: number;
   completedResponses: number;
+  reportedResponses: number;
   shareOfFanOuts: number;
   fanOutsPerResponse: number;
   responseShare: number;
@@ -116,6 +120,7 @@ export interface FanOutSignalTrendPoint {
 export function buildFanOutActivityTrend(
   dates: { from: string; to: string },
   completedByDate: ReadonlyMap<string, number>,
+  reportedByDate: ReadonlyMap<string, number>,
   responsesWithFanOutByDate: ReadonlyMap<string, number>,
   totalFanOutsByDate: ReadonlyMap<string, number>,
 ): FanOutActivityTrendPoint[] {
@@ -125,18 +130,24 @@ export function buildFanOutActivityTrend(
   while (cursor.getTime() <= end) {
     const date = cursor.toISOString().slice(0, 10);
     const completedResponses = completedByDate.get(date) ?? 0;
+    const reportedResponses = reportedByDate.get(date) ?? 0;
     const responsesWithFanOut = responsesWithFanOutByDate.get(date) ?? 0;
     const totalFanOuts = totalFanOutsByDate.get(date) ?? 0;
     values.push({
       date,
       completedResponses,
+      reportedResponses,
+      unavailableResponses: Math.max(0, completedResponses - reportedResponses),
       responsesWithFanOut,
       totalFanOuts,
-      responseShare: completedResponses
-        ? (responsesWithFanOut / completedResponses) * 100
+      responseShare: reportedResponses
+        ? (responsesWithFanOut / reportedResponses) * 100
         : 0,
-      fanOutsPerResponse: completedResponses
-        ? totalFanOuts / completedResponses
+      fanOutsPerResponse: reportedResponses
+        ? totalFanOuts / reportedResponses
+        : 0,
+      telemetryCoverage: completedResponses
+        ? (reportedResponses / completedResponses) * 100
         : 0,
     });
     cursor.setUTCDate(cursor.getUTCDate() + 1);
@@ -147,6 +158,7 @@ export function buildFanOutActivityTrend(
 export function buildFanOutSignalTrend(
   dates: { from: string; to: string },
   completedByDate: ReadonlyMap<string, number>,
+  reportedByDate: ReadonlyMap<string, number>,
   totalFanOutsByDate: ReadonlyMap<string, number>,
   matchingResponsesByDate: ReadonlyMap<string, number>,
   matchingFanOutsByDate: ReadonlyMap<string, number>,
@@ -157,6 +169,7 @@ export function buildFanOutSignalTrend(
   while (cursor.getTime() <= end) {
     const date = cursor.toISOString().slice(0, 10);
     const completedResponses = completedByDate.get(date) ?? 0;
+    const reportedResponses = reportedByDate.get(date) ?? 0;
     const totalFanOuts = totalFanOutsByDate.get(date) ?? 0;
     const matchingResponses = matchingResponsesByDate.get(date) ?? 0;
     const matchingFanOuts = matchingFanOutsByDate.get(date) ?? 0;
@@ -166,14 +179,15 @@ export function buildFanOutSignalTrend(
       totalFanOuts,
       matchingResponses,
       completedResponses,
+      reportedResponses,
       shareOfFanOuts: totalFanOuts
         ? (matchingFanOuts / totalFanOuts) * 100
         : 0,
-      fanOutsPerResponse: completedResponses
-        ? matchingFanOuts / completedResponses
+      fanOutsPerResponse: reportedResponses
+        ? matchingFanOuts / reportedResponses
         : 0,
-      responseShare: completedResponses
-        ? (matchingResponses / completedResponses) * 100
+      responseShare: reportedResponses
+        ? (matchingResponses / reportedResponses) * 100
         : 0,
     });
     cursor.setUTCDate(cursor.getUTCDate() + 1);

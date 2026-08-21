@@ -86,7 +86,9 @@ const AdvancedResultSchema = z
     markdown: z.string().nullable().optional(),
     search_results: providerArray(SearchResultSchema),
     sources: providerArray(SourceSchema),
-    fan_out_queries: providerArray(z.unknown()),
+    // Preserve null/missing: it means the provider did not report fan-out
+    // telemetry, which is different from an explicitly reported empty array.
+    fan_out_queries: z.array(z.unknown()).nullish(),
     brand_entities: providerArray(BrandEntitySchema),
     se_results_count: z.number().nullable().optional(),
     item_types: providerArray(z.string()),

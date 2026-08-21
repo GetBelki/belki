@@ -21,8 +21,8 @@ describe("analytics read-model compatibility", () => {
     ).toBe(true);
   });
 
-  it("uses version 7 for response-level fan-out signal counts", () => {
-    expect(ANALYTICS_READ_MODEL_SCHEMA_VERSION).toBe(7);
+  it("uses version 8 for fan-out model and telemetry availability", () => {
+    expect(ANALYTICS_READ_MODEL_SCHEMA_VERSION).toBe(8);
   });
 
   it("requires the requested schema capability and a completed backfill", () => {
@@ -34,7 +34,7 @@ describe("analytics read-model compatibility", () => {
   });
 
   it("accepts later compatible schema versions", () => {
-    expect(analyticsReadModelSupports({ status: "ready", schema_version: 7 }))
+    expect(analyticsReadModelSupports({ status: "ready", schema_version: 8 }))
       .toBe(true);
   });
 
@@ -44,5 +44,7 @@ describe("analytics read-model compatibility", () => {
     expect(analyticsBackfillEstimatedMinutes(50)).toBe(1);
     expect(analyticsBackfillEstimatedMinutes(51)).toBe(2);
     expect(analyticsBackfillEstimatedMinutes(686)).toBe(14);
+    expect(analyticsBackfillEstimatedMinutes(0, 3_291)).toBe(9);
+    expect(analyticsBackfillEstimatedMinutes(51, 3_291)).toBe(9);
   });
 });

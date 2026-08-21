@@ -76,4 +76,23 @@ describe("control database migrations", () => {
     expect(sql).not.toMatch(/DROP TABLE/i);
     expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
   });
+
+  it("adds fan-out model and telemetry metadata additively for a version 8 backfill", () => {
+    const controlSql = readFileSync(
+      resolve("migrations/control/0022_fanout_telemetry_models.sql"),
+      "utf8",
+    );
+    const snapshotSql = readFileSync(
+      resolve("migrations/snapshot/0006_fanout_telemetry.sql"),
+      "utf8",
+    );
+
+    expect(controlSql).toMatch(/ADD COLUMN provider_model/i);
+    expect(controlSql).toMatch(/ADD COLUMN fan_out_telemetry_status/i);
+    expect(controlSql).toMatch(/ADD COLUMN fan_out_telemetry_indexed_at/i);
+    expect(controlSql).toMatch(/schema_version\s*=\s*8/i);
+    expect(snapshotSql).toMatch(/ADD COLUMN fan_out_telemetry_status/i);
+    expect(snapshotSql).toMatch(/json_array_length\(fan_out_queries_json\)/i);
+    expect(`${controlSql}\n${snapshotSql}`).not.toMatch(/DROP TABLE/i);
+  });
 });

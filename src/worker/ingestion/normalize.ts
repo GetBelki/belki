@@ -233,10 +233,11 @@ export async function normalizeSnapshot(
           dataforseo_task_id, tracking_source, surface_present,
           keyword, location_code, language_code, model,
           check_url, captured_at, answer_markdown, answer_hash, se_results_count,
-          items_count, item_types_json, fan_out_queries_json, raw_r2_key,
+          items_count, item_types_json, fan_out_queries_json,
+          fan_out_telemetry_status, raw_r2_key,
           html_r2_key, provider_cost_usd, provider_status_code,
           provider_status_message, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         snapshotId,
@@ -258,7 +259,8 @@ export async function normalizeSnapshot(
         result.se_results_count ?? null,
         result.items_count ?? null,
         JSON.stringify(result.item_types),
-        JSON.stringify(result.fan_out_queries),
+        JSON.stringify(result.fan_out_queries ?? []),
+        Array.isArray(result.fan_out_queries) ? "reported" : "unavailable",
         message.rawR2Key,
         htmlR2Key,
         providerCost,

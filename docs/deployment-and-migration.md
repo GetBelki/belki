@@ -194,8 +194,15 @@ Before merging this schema release, run `pnpm db:migrate:remote`, which applies:
   operator-wide trend reports.
 - `0021_fanout_signal_metrics.sql`: additive response-level fan-out signal
   counts, schema-v7 backfill scheduling, and multi-denominator operator trends.
-- Snapshot migration `0005_tracking_sources.sql` on every snapshot shard:
-  source identity and AI-surface presence.
+- `0022_fanout_telemetry_models.sql`: provider model identity, fan-out
+  telemetry availability, and schema-v8 backfill scheduling. The dedicated
+  metadata backfill handles up to 400 responses per minute, reads at most five
+  snapshot shards concurrently, and excludes unavailable telemetry from
+  fan-out rate denominators.
+- Snapshot migrations `0005_tracking_sources.sql` and
+  `0006_fanout_telemetry.sql` on every snapshot shard: source identity,
+  AI-surface presence, model metadata, and the distinction between an explicit
+  empty fan-out list and telemetry the provider did not return.
 - Durable Object migration `v1`: `WorkspaceUsageGate` for atomic internal
   workload, prompt, source, and project-limit enforcement.
 
