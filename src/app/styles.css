@@ -7468,8 +7468,21 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
   grid-template-columns: minmax(240px, 300px) minmax(190px, 220px) minmax(150px, 180px);
 }
 .operator-fanout-filters {
-  grid-template-columns: minmax(190px, 220px) minmax(150px, 180px) minmax(190px, 220px);
+  grid-template-columns: minmax(170px, 210px) minmax(190px, 240px) minmax(150px, 180px) minmax(190px, 220px);
 }
+.operator-fanout-activity-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.operator-telemetry-notice {
+  align-items: start;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  color: #713f12;
+  display: grid;
+  gap: 3px;
+  padding: 12px 14px;
+}
+.operator-telemetry-notice strong { font-size: 12px; }
+.operator-telemetry-notice span { font-size: 12px; line-height: 1.5; }
 .operator-insight-filter-field { display: grid; gap: 7px; min-width: 0; }
 .operator-insight-filter-label {
   color: #52525b;

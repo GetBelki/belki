@@ -20,6 +20,8 @@ interface SnapshotReadModelRow {
   provider_cost_usd: number | null;
   answer_markdown: string | null;
   fan_out_queries_json: string;
+  fan_out_telemetry_status: "reported" | "unavailable" | "unknown";
+  model: string | null;
   tracking_source: string;
   surface_present: number;
 }
@@ -173,7 +175,8 @@ export async function syncAnalyticsReadModel(
       shard
         .prepare(
           `SELECT id, project_id, tracked_query_id, captured_at, provider_cost_usd,
-            answer_markdown, fan_out_queries_json, tracking_source, surface_present
+            answer_markdown, fan_out_queries_json, fan_out_telemetry_status,
+            model, tracking_source, surface_present
            FROM snapshots WHERE id = ?`,
         )
         .bind(payload.snapshotId)
@@ -307,8 +310,10 @@ export async function syncAnalyticsReadModel(
         related_query_years_json, related_query_insights_indexed_at,
         related_query_signal_counts_json,
         related_query_signal_counts_indexed_at,
+        provider_model, fan_out_telemetry_status,
+        fan_out_telemetry_indexed_at,
         provider_cost_usd, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(snapshot_id) DO UPDATE SET
         tracking_source = excluded.tracking_source,
         surface_present = excluded.surface_present,
@@ -330,6 +335,9 @@ export async function syncAnalyticsReadModel(
         related_query_insights_indexed_at = excluded.related_query_insights_indexed_at,
         related_query_signal_counts_json = excluded.related_query_signal_counts_json,
         related_query_signal_counts_indexed_at = excluded.related_query_signal_counts_indexed_at,
+        provider_model = excluded.provider_model,
+        fan_out_telemetry_status = excluded.fan_out_telemetry_status,
+        fan_out_telemetry_indexed_at = excluded.fan_out_telemetry_indexed_at,
         provider_cost_usd = excluded.provider_cost_usd,
         updated_at = excluded.updated_at`,
     ).bind(
@@ -358,6 +366,9 @@ export async function syncAnalyticsReadModel(
       JSON.stringify(relatedQueryClassification.years),
       updatedAt,
       JSON.stringify(relatedQueryClassification.signalCounts),
+      updatedAt,
+      snapshot.model,
+      snapshot.fan_out_telemetry_status,
       updatedAt,
       snapshot.provider_cost_usd,
       updatedAt,

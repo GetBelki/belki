@@ -27,6 +27,7 @@ const OperatorFanOutSourceSchema = z.enum(["all", "chatgpt", "gemini"]);
 const OperatorFanOutQuerySchema = z.object({
   period: OperatorInsightPeriodSchema.default("30d"),
   source: OperatorFanOutSourceSchema.default("chatgpt"),
+  model: z.string().trim().min(1).max(100).default("all"),
 });
 const OperatorCitationQuerySchema = OperatorInsightQuerySchema.extend({
   domain: z
@@ -60,6 +61,7 @@ interface DailyResponseRow {
 type DailyFanOutRow = {
   metric_date: string;
   completed_responses: number;
+  reported_responses: number;
   responses_with_fan_out: number;
   total_fan_outs: number;
 } & Record<`${RelatedQuerySignalKey}_fanouts`, number>
@@ -72,6 +74,11 @@ interface YearFanOutRow {
   matching_responses: number;
 }
 
+interface FanOutModelRow {
+  provider_model: string | null;
+  responses: number;
+}
+
 function insightRange(period: OperatorInsightPeriod) {
   return productAnalyticsDateRange(period);
 }
@@ -82,6 +89,10 @@ function sourceBindings(source: OperatorInsightSource): [string, string] {
 
 function fanOutSourceBindings(source: OperatorFanOutSource): [string, string] {
   return [source, source];
+}
+
+function fanOutModelBindings(model: string): [string, string, string] {
+  return [model, model, model];
 }
 
 const fanOutSignalSelectSql = RELATED_QUERY_SIGNAL_KEYS.map((key) => {
@@ -220,7 +231,14 @@ operatorInsightRoutes.get(
     const currentYear = new Date().getUTCFullYear();
     const [selectedProgress, globalProgress] = await Promise.all([
       c.env.CONTROL_DB.prepare(
-        `SELECT COUNT(*) AS remaining
+        `SELECT
+          SUM(CASE WHEN fact.snapshot_id IS NULL
+            OR fact.related_query_signal_counts_indexed_at IS NULL
+            THEN 1 ELSE 0 END) AS full_remaining,
+          SUM(CASE WHEN fact.snapshot_id IS NOT NULL
+            AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+            AND fact.fan_out_telemetry_indexed_at IS NULL
+            THEN 1 ELSE 0 END) AS telemetry_remaining
          FROM snapshot_index snapshot
          JOIN projects project
            ON project.id = snapshot.project_id AND project.deleted_at IS NULL
@@ -235,6 +253,7 @@ operatorInsightRoutes.get(
            AND (
              fact.snapshot_id IS NULL
              OR fact.related_query_signal_counts_indexed_at IS NULL
+             OR fact.fan_out_telemetry_indexed_at IS NULL
            )`,
       )
       .bind(
@@ -242,30 +261,45 @@ operatorInsightRoutes.get(
         dates.endExclusiveTimestamp,
         ...fanOutSourceBindings(input.source),
       )
-        .first<{ remaining: number }>(),
+        .first<{ full_remaining: number; telemetry_remaining: number }>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT COUNT(*) AS remaining
+        `SELECT
+          SUM(CASE WHEN fact.snapshot_id IS NULL
+            OR fact.related_query_signal_counts_indexed_at IS NULL
+            THEN 1 ELSE 0 END) AS full_remaining,
+          SUM(CASE WHEN fact.snapshot_id IS NOT NULL
+            AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+            AND fact.fan_out_telemetry_indexed_at IS NULL
+            THEN 1 ELSE 0 END) AS telemetry_remaining
          FROM snapshot_index snapshot
          JOIN projects project
            ON project.id = snapshot.project_id AND project.deleted_at IS NULL
          JOIN workspaces workspace
            ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
          LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
-         WHERE fact.snapshot_id IS NULL
-           OR fact.related_query_signal_counts_indexed_at IS NULL`,
-      ).first<{ remaining: number }>(),
+         WHERE snapshot.tracking_source IN ('chatgpt', 'gemini')
+           AND (fact.snapshot_id IS NULL
+           OR fact.related_query_signal_counts_indexed_at IS NULL
+           OR fact.fan_out_telemetry_indexed_at IS NULL)`,
+      ).first<{ full_remaining: number; telemetry_remaining: number }>(),
     ]);
-    const remainingSnapshots = Number(selectedProgress?.remaining ?? 0);
-    const globalRemainingSnapshots = Number(globalProgress?.remaining ?? 0);
+    const selectedFullRemaining = Number(selectedProgress?.full_remaining ?? 0);
+    const selectedTelemetryRemaining = Number(
+      selectedProgress?.telemetry_remaining ?? 0,
+    );
+    const remainingSnapshots = selectedFullRemaining + selectedTelemetryRemaining;
     if (remainingSnapshots > 0) {
       return c.json({
         data: {
           period: input.period,
           source: input.source,
+          model: input.model,
+          models: [],
           indexing: true,
           remainingSnapshots,
           estimatedMinutes: analyticsBackfillEstimatedMinutes(
-            globalRemainingSnapshots,
+            Number(globalProgress?.full_remaining ?? 0),
+            Number(globalProgress?.telemetry_remaining ?? 0),
           ),
           activity: [],
           signals: Object.fromEntries(
@@ -282,13 +316,17 @@ operatorInsightRoutes.get(
       });
     }
 
-    const [daily, yearly] = await Promise.all([
+    const [daily, yearly, models] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT fact.metric_date,
           COUNT(*) AS completed_responses,
-          SUM(CASE WHEN fact.related_queries_count > 0 THEN 1 ELSE 0 END)
+          SUM(CASE WHEN fact.fan_out_telemetry_status = 'reported'
+            THEN 1 ELSE 0 END) AS reported_responses,
+          SUM(CASE WHEN fact.fan_out_telemetry_status = 'reported'
+            AND fact.related_queries_count > 0 THEN 1 ELSE 0 END)
             AS responses_with_fan_out,
-          SUM(fact.related_queries_count) AS total_fan_outs,
+          SUM(CASE WHEN fact.fan_out_telemetry_status = 'reported'
+            THEN fact.related_queries_count ELSE 0 END) AS total_fan_outs,
           ${fanOutSignalSelectSql}
          FROM analytics_snapshot_facts fact
          JOIN projects project
@@ -300,11 +338,22 @@ operatorInsightRoutes.get(
              (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini'))
              OR fact.tracking_source = ?
            )
+           AND (
+             ? = 'all'
+             OR (? = '__unreported__' AND fact.provider_model IS NULL)
+             OR fact.provider_model = ?
+           )
            AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+           AND fact.fan_out_telemetry_indexed_at IS NOT NULL
          GROUP BY fact.metric_date
          ORDER BY fact.metric_date`,
       )
-        .bind(dates.from, dates.to, ...fanOutSourceBindings(input.source))
+        .bind(
+          dates.from,
+          dates.to,
+          ...fanOutSourceBindings(input.source),
+          ...fanOutModelBindings(input.model),
+        )
         .all<DailyFanOutRow>(),
       c.env.CONTROL_DB.prepare(
         `SELECT fact.metric_date, CAST(year.key AS INTEGER) AS year,
@@ -324,7 +373,14 @@ operatorInsightRoutes.get(
              (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini'))
              OR fact.tracking_source = ?
            )
+           AND (
+             ? = 'all'
+             OR (? = '__unreported__' AND fact.provider_model IS NULL)
+             OR fact.provider_model = ?
+           )
            AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+           AND fact.fan_out_telemetry_indexed_at IS NOT NULL
+           AND fact.fan_out_telemetry_status = 'reported'
            AND CAST(year.key AS INTEGER) BETWEEN 2025 AND ?
          GROUP BY fact.metric_date, year.key
          ORDER BY year, fact.metric_date`,
@@ -333,14 +389,39 @@ operatorInsightRoutes.get(
           dates.from,
           dates.to,
           ...fanOutSourceBindings(input.source),
+          ...fanOutModelBindings(input.model),
           currentYear,
         )
         .all<YearFanOutRow>(),
+      c.env.CONTROL_DB.prepare(
+        `SELECT fact.provider_model, COUNT(*) AS responses
+         FROM analytics_snapshot_facts fact
+         JOIN projects project
+           ON project.id = fact.project_id AND project.deleted_at IS NULL
+         JOIN workspaces workspace
+           ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
+         WHERE fact.metric_date BETWEEN ? AND ?
+           AND (
+             (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini'))
+             OR fact.tracking_source = ?
+           )
+           AND fact.fan_out_telemetry_indexed_at IS NOT NULL
+         GROUP BY fact.provider_model
+         ORDER BY fact.provider_model`,
+      )
+        .bind(dates.from, dates.to, ...fanOutSourceBindings(input.source))
+        .all<FanOutModelRow>(),
     ]);
     const completedByDate = new Map(
       daily.results.map((row) => [
         row.metric_date,
         Number(row.completed_responses),
+      ]),
+    );
+    const reportedByDate = new Map(
+      daily.results.map((row) => [
+        row.metric_date,
+        Number(row.reported_responses),
       ]),
     );
     const responsesWithFanOutByDate = new Map(
@@ -391,6 +472,7 @@ operatorInsightRoutes.get(
         buildFanOutSignalTrend(
           dates,
           completedByDate,
+          reportedByDate,
           totalFanOutsByDate,
           signalResponseMaps.get(key) ?? new Map(),
           signalFanOutMaps.get(key) ?? new Map(),
@@ -404,6 +486,7 @@ operatorInsightRoutes.get(
         trend: buildFanOutSignalTrend(
           dates,
           completedByDate,
+          reportedByDate,
           totalFanOutsByDate,
           responses,
           fanOutMapsByYear.get(year) ?? new Map(),
@@ -413,12 +496,19 @@ operatorInsightRoutes.get(
       data: {
         period: input.period,
         source: input.source,
+        model: input.model,
+        models: models.results.map((row) => ({
+          value: row.provider_model ?? "__unreported__",
+          label: row.provider_model ?? "Model not reported",
+          responses: Number(row.responses),
+        })),
         indexing: false,
         remainingSnapshots: 0,
         estimatedMinutes: 0,
         activity: buildFanOutActivityTrend(
           dates,
           completedByDate,
+          reportedByDate,
           responsesWithFanOutByDate,
           totalFanOutsByDate,
         ),
@@ -426,27 +516,27 @@ operatorInsightRoutes.get(
         yearSignals,
         total: buildResponseShareTrend(
           dates,
-          completedByDate,
+          reportedByDate,
           responsesWithFanOutByDate,
         ),
         siteOperator: buildResponseShareTrend(
           dates,
-          completedByDate,
+          reportedByDate,
           signalResponseMaps.get("site") ?? new Map(),
         ),
         reviews: buildResponseShareTrend(
           dates,
-          completedByDate,
+          reportedByDate,
           signalResponseMaps.get("reviews") ?? new Map(),
         ),
         official: buildResponseShareTrend(
           dates,
-          completedByDate,
+          reportedByDate,
           signalResponseMaps.get("official") ?? new Map(),
         ),
         government: buildResponseShareTrend(
           dates,
-          completedByDate,
+          reportedByDate,
           signalResponseMaps.get("government") ?? new Map(),
         ),
         years: [...responseMapsByYear.entries()]
@@ -455,7 +545,7 @@ operatorInsightRoutes.get(
             year,
             trend: buildResponseShareTrend(
               dates,
-              completedByDate,
+              reportedByDate,
               responses,
             ),
           })),

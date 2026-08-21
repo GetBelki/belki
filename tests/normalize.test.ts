@@ -25,7 +25,7 @@ function payloadWithBrandEntities(brandEntities: unknown) {
 }
 
 describe("DataForSEO Advanced response parsing", () => {
-  it("normalizes nullable provider collections to empty arrays", () => {
+  it("preserves unavailable fan-out telemetry while normalizing other collections", () => {
     const payload = parseTrackingPayload({
       tasks: [{
         id: "provider-task-id",
@@ -49,7 +49,7 @@ describe("DataForSEO Advanced response parsing", () => {
     expect(payload.tasks[0]!.result![0]).toMatchObject({
       search_results: [],
       sources: [],
-      fan_out_queries: [],
+      fan_out_queries: null,
       brand_entities: [],
       item_types: [],
       items: [],

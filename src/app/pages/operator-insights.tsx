@@ -41,6 +41,7 @@ import {
 type InsightPeriod = "7d" | "30d" | "90d";
 type InsightSource = TrackingSource | "all";
 type FanOutSource = "chatgpt" | "gemini" | "all";
+type FanOutModel = string;
 type FanOutSignalKey =
   | "site"
   | "official"
@@ -69,10 +70,13 @@ interface CitationTrendReport {
 interface FanOutActivityPoint {
   date: string;
   completedResponses: number;
+  reportedResponses: number;
+  unavailableResponses: number;
   responsesWithFanOut: number;
   totalFanOuts: number;
   responseShare: number;
   fanOutsPerResponse: number;
+  telemetryCoverage: number;
 }
 
 interface FanOutSignalPoint {
@@ -81,6 +85,7 @@ interface FanOutSignalPoint {
   totalFanOuts: number;
   matchingResponses: number;
   completedResponses: number;
+  reportedResponses: number;
   shareOfFanOuts: number;
   fanOutsPerResponse: number;
   responseShare: number;
@@ -89,6 +94,8 @@ interface FanOutSignalPoint {
 interface FanOutTrendReport {
   period: InsightPeriod;
   source: InsightSource;
+  model: FanOutModel;
+  models: Array<{ value: string; label: string; responses: number }>;
   indexing: boolean;
   remainingSnapshots: number;
   estimatedMinutes: number;
@@ -182,12 +189,12 @@ const FAN_OUT_METRIC_COPY: Record<
   },
   fanOutsPerResponse: {
     label: "Fan-outs per response",
-    description: "Average matching fan-out queries per completed response, including responses with none.",
+    description: "Average matching fan-out queries per response with reported telemetry, including explicit zeroes.",
     percentage: false,
   },
   responseShare: {
     label: "Response prevalence",
-    description: "Share of completed responses containing at least one matching fan-out query.",
+    description: "Share of responses with reported telemetry containing at least one matching fan-out query.",
     percentage: true,
   },
 };
@@ -220,6 +227,10 @@ function sourceValue(value: string | null): InsightSource {
 
 function fanOutSourceValue(value: string | null): FanOutSource {
   return value === "all" || value === "gemini" ? value : "chatgpt";
+}
+
+function fanOutModelValue(value: string | null): FanOutModel {
+  return value?.trim() || "all";
 }
 
 function useDebouncedValue<T>(value: T, delay: number): T {
@@ -392,7 +403,7 @@ export function YearsChart({
     <Card className="operator-insight-card">
       <CardHeader
         title="Years"
-        description={`Share of completed responses with related queries containing each standalone year from 2025 through ${currentYear}.`}
+        description={`Share of responses with reported telemetry containing a fan-out query with each standalone year from 2025 through ${currentYear}.`}
       />
       <div className="operator-insight-chart">
         {pending ? (
@@ -454,10 +465,13 @@ function isFanOutActivityPoint(value: unknown): value is FanOutActivityPoint {
   const point = value as Partial<FanOutActivityPoint>;
   return typeof point.date === "string"
     && typeof point.completedResponses === "number"
+    && typeof point.reportedResponses === "number"
+    && typeof point.unavailableResponses === "number"
     && typeof point.responsesWithFanOut === "number"
     && typeof point.totalFanOuts === "number"
     && typeof point.responseShare === "number"
-    && typeof point.fanOutsPerResponse === "number";
+    && typeof point.fanOutsPerResponse === "number"
+    && typeof point.telemetryCoverage === "number";
 }
 
 function ActivityTooltip({
@@ -465,18 +479,23 @@ function ActivityTooltip({
   label,
   payload,
   metric,
-}: TooltipContentProps & { metric: "responseShare" | "fanOutsPerResponse" }) {
+}: TooltipContentProps & {
+  metric: "responseShare" | "fanOutsPerResponse" | "telemetryCoverage";
+}) {
   const point: unknown = payload[0]?.payload;
   if (!active || !isFanOutActivityPoint(point)) return null;
-  const isShare = metric === "responseShare";
+  const isPercentage = metric !== "fanOutsPerResponse";
+  const value = point[metric];
   return (
     <div className="operator-chart-tooltip">
       <strong>{tooltipDateLabel(label)}</strong>
-      <span>{isShare ? percent(point.responseShare) : decimal(point.fanOutsPerResponse)}</span>
+      <span>{isPercentage ? percent(value) : decimal(value)}</span>
       <small>
-        {isShare
-          ? `${point.responsesWithFanOut.toLocaleString()} of ${point.completedResponses.toLocaleString()} responses`
-          : `${point.totalFanOuts.toLocaleString()} fan-outs across ${point.completedResponses.toLocaleString()} responses`}
+        {metric === "telemetryCoverage"
+          ? `${point.reportedResponses.toLocaleString()} of ${point.completedResponses.toLocaleString()} responses reported telemetry`
+          : metric === "responseShare"
+            ? `${point.responsesWithFanOut.toLocaleString()} of ${point.reportedResponses.toLocaleString()} reported responses`
+            : `${point.totalFanOuts.toLocaleString()} fan-outs across ${point.reportedResponses.toLocaleString()} reported responses`}
       </small>
     </div>
   );
@@ -492,10 +511,10 @@ function FanOutActivityChart({
   title: string;
   description: string;
   data: FanOutActivityPoint[];
-  metric: "responseShare" | "fanOutsPerResponse";
+  metric: "responseShare" | "fanOutsPerResponse" | "telemetryCoverage";
   pending: boolean;
 }) {
-  const isShare = metric === "responseShare";
+  const isShare = metric !== "fanOutsPerResponse";
   const values = data.map((point) => point[metric]);
   const yAxisMax = isShare
     ? insightYAxisMax(values)
@@ -571,6 +590,7 @@ function isFanOutSignalPoint(value: unknown): value is FanOutSignalPoint {
     && typeof point.totalFanOuts === "number"
     && typeof point.matchingResponses === "number"
     && typeof point.completedResponses === "number"
+    && typeof point.reportedResponses === "number"
     && typeof point.shareOfFanOuts === "number"
     && typeof point.fanOutsPerResponse === "number"
     && typeof point.responseShare === "number";
@@ -597,8 +617,8 @@ function SignalTooltip({
         const denominator = metric === "shareOfFanOuts"
           ? `${detail.matchingFanOuts.toLocaleString()} of ${detail.totalFanOuts.toLocaleString()} fan-outs`
           : metric === "fanOutsPerResponse"
-            ? `${detail.matchingFanOuts.toLocaleString()} fan-outs across ${detail.completedResponses.toLocaleString()} responses`
-            : `${detail.matchingResponses.toLocaleString()} of ${detail.completedResponses.toLocaleString()} responses`;
+            ? `${detail.matchingFanOuts.toLocaleString()} fan-outs across ${detail.reportedResponses.toLocaleString()} reported responses`
+            : `${detail.matchingResponses.toLocaleString()} of ${detail.reportedResponses.toLocaleString()} reported responses`;
         return (
           <div className="operator-signal-tooltip-row" key={dataKey}>
             <i style={{ background: entry.color }} />
@@ -775,14 +795,20 @@ function Filters({
 
 function FanOutFilters({
   metric,
+  model,
+  modelOptions,
   onMetricChange,
+  onModelChange,
   onPeriodChange,
   onSourceChange,
   period,
   source,
 }: {
   metric: FanOutMetric;
+  model: FanOutModel;
+  modelOptions: Array<{ value: string; label: string }>;
   onMetricChange: (metric: FanOutMetric) => void;
+  onModelChange: (model: FanOutModel) => void;
   onPeriodChange: (period: InsightPeriod) => void;
   onSourceChange: (source: FanOutSource) => void;
   period: InsightPeriod;
@@ -797,6 +823,15 @@ function FanOutFilters({
           onValueChange={(value) => onSourceChange(fanOutSourceValue(value))}
           options={FAN_OUT_SOURCE_OPTIONS}
           value={source}
+        />
+      </div>
+      <div className="operator-insight-filter-field">
+        <span className="operator-insight-filter-label">Model</span>
+        <Select
+          ariaLabel="Fan-out model"
+          onValueChange={(value) => onModelChange(fanOutModelValue(value))}
+          options={modelOptions}
+          value={model}
         />
       </div>
       <div className="operator-insight-filter-field">
@@ -848,11 +883,13 @@ function useFanOutFilters() {
   const [searchParams, setSearchParams] = useSearchParams();
   const period = periodValue(searchParams.get("period"));
   const source = fanOutSourceValue(searchParams.get("source"));
+  const model = fanOutModelValue(searchParams.get("model"));
   const metric = fanOutMetricValue(searchParams.get("metric"));
   const group = fanOutSignalGroupValue(searchParams.get("group"));
   const update = (values: {
     period?: InsightPeriod;
     source?: FanOutSource;
+    model?: FanOutModel;
     metric?: FanOutMetric;
     group?: FanOutSignalGroup;
   }) => {
@@ -865,6 +902,10 @@ function useFanOutFilters() {
       if (values.source === "chatgpt") next.delete("source");
       else next.set("source", values.source);
     }
+    if (values.model !== undefined) {
+      if (values.model === "all") next.delete("model");
+      else next.set("model", values.model);
+    }
     if (values.metric !== undefined) {
       if (values.metric === "shareOfFanOuts") next.delete("metric");
       else next.set("metric", values.metric);
@@ -875,7 +916,7 @@ function useFanOutFilters() {
     }
     setSearchParams(next, { replace: true });
   };
-  return { group, metric, period, source, update };
+  return { group, metric, model, period, source, update };
 }
 
 export function CitationDomainCombobox({
@@ -1046,10 +1087,10 @@ export function OperatorCitationTrendsPage() {
 }
 
 export function OperatorFanOutTrendsPage() {
-  const { group, metric, period, source, update } = useFanOutFilters();
-  const params = new URLSearchParams({ period, source });
+  const { group, metric, model, period, source, update } = useFanOutFilters();
+  const params = new URLSearchParams({ period, source, model });
   const report = useQuery({
-    queryKey: ["operator-fan-out-trends", period, source],
+    queryKey: ["operator-fan-out-trends", period, source, model],
     queryFn: () =>
       api<FanOutTrendReport>(`/operator/insights/fan-out?${params}`),
     refetchInterval: (query) => query.state.data?.indexing ? 15_000 : false,
@@ -1058,6 +1099,29 @@ export function OperatorFanOutTrendsPage() {
   const indexing = data?.indexing ?? false;
   const remainingSnapshots = data?.remainingSnapshots ?? 0;
   const estimatedMinutes = data?.estimatedMinutes ?? 0;
+  const modelOptions = useMemo(() => {
+    const options = [{ value: "all", label: "All models" }];
+    const seen = new Set(["all"]);
+    for (const option of data?.models ?? []) {
+      if (seen.has(option.value)) continue;
+      seen.add(option.value);
+      options.push({
+        value: option.value,
+        label: `${option.label} (${option.responses.toLocaleString()})`,
+      });
+    }
+    if (!seen.has(model)) {
+      options.push({
+        value: model,
+        label: model === "__unreported__" ? "Model not reported" : model,
+      });
+    }
+    return options;
+  }, [data?.models, model]);
+  const unavailableResponses = (data?.activity ?? []).reduce(
+    (total, point) => total + point.unavailableResponses,
+    0,
+  );
   return (
     <div className="page operator-insights-page">
       <PageHeader
@@ -1066,9 +1130,12 @@ export function OperatorFanOutTrendsPage() {
       />
       <FanOutFilters
         metric={metric}
+        model={model}
+        modelOptions={modelOptions}
         onMetricChange={(value) => update({ metric: value })}
+        onModelChange={(value) => update({ model: value })}
         onPeriodChange={(value) => update({ period: value })}
-        onSourceChange={(value) => update({ source: value })}
+        onSourceChange={(value) => update({ source: value, model: "all" })}
         period={period}
         source={source}
       />
@@ -1081,20 +1148,37 @@ export function OperatorFanOutTrendsPage() {
         </Card>
       ) : (
         <>
+          {unavailableResponses > 0 ? (
+            <div className="operator-telemetry-notice" role="status">
+              <strong>Partial fan-out telemetry</strong>
+              <span>
+                {unavailableResponses.toLocaleString()} responses did not report
+                fan-out telemetry. They are shown in coverage but excluded from
+                fan-out rates, so missing provider data is not counted as zero.
+              </span>
+            </div>
+          ) : null}
           <div className="operator-insight-grid operator-fanout-activity-grid">
             <FanOutActivityChart
               data={data?.activity ?? []}
-              description="Share of completed responses containing at least one fan-out query."
+              description="Share of responses with reported telemetry containing at least one fan-out query."
               metric="responseShare"
               pending={report.isPending}
               title="Responses with fan-out"
             />
             <FanOutActivityChart
               data={data?.activity ?? []}
-              description="Average unique fan-out queries per completed response, including responses with none."
+              description="Average unique fan-out queries per response with reported telemetry, including explicit zeroes."
               metric="fanOutsPerResponse"
               pending={report.isPending}
               title="Fan-outs per response"
+            />
+            <FanOutActivityChart
+              data={data?.activity ?? []}
+              description="Share of completed responses for which the provider returned fan-out telemetry."
+              metric="telemetryCoverage"
+              pending={report.isPending}
+              title="Telemetry coverage"
             />
           </div>
           <FanOutSignalExplorer

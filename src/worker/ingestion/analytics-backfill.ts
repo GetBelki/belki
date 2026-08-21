@@ -2,7 +2,9 @@ import { nowIso } from "../lib/http";
 import {
   ANALYTICS_BACKFILL_BATCH_SIZE,
   ANALYTICS_READ_MODEL_SCHEMA_VERSION,
+  FAN_OUT_TELEMETRY_BACKFILL_BATCH_SIZE,
 } from "../lib/analytics-read-model";
+import { getShard } from "../lib/shards";
 import { syncAnalyticsReadModel } from "./analytics-read-model";
 
 interface BackfillProjectRow {
@@ -18,11 +20,128 @@ interface BackfillSnapshotRow {
   captured_at: string;
 }
 
+interface FanOutTelemetryBackfillRow {
+  id: string;
+  shard_id: number;
+}
+
+interface SnapshotFanOutTelemetryRow {
+  fan_out_telemetry_status: "reported" | "unavailable" | "unknown";
+  id: string;
+  model: string | null;
+}
+
 export interface AnalyticsBackfillResult {
   projects: number;
   snapshots: number;
   ready: number;
   failed: number;
+}
+
+export interface FanOutTelemetryBackfillResult {
+  snapshots: number;
+  shards: number;
+}
+
+const FAN_OUT_TELEMETRY_SHARD_CONCURRENCY = 5;
+
+export async function backfillFanOutTelemetryReadModel(
+  env: Env,
+): Promise<FanOutTelemetryBackfillResult> {
+  const candidates = await env.CONTROL_DB.prepare(
+    `SELECT snapshot.id, snapshot.shard_id
+     FROM snapshot_index snapshot
+     JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
+     WHERE snapshot.tracking_source IN ('chatgpt', 'gemini')
+       AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+       AND fact.fan_out_telemetry_indexed_at IS NULL
+     ORDER BY snapshot.captured_at, snapshot.id
+     LIMIT ?`,
+  )
+    .bind(FAN_OUT_TELEMETRY_BACKFILL_BATCH_SIZE)
+    .all<FanOutTelemetryBackfillRow>();
+  if (!candidates.results.length) return { snapshots: 0, shards: 0 };
+
+  const idsByShard = new Map<number, string[]>();
+  for (const candidate of candidates.results) {
+    const ids = idsByShard.get(candidate.shard_id) ?? [];
+    ids.push(candidate.id);
+    idsByShard.set(candidate.shard_id, ids);
+  }
+
+  const shardGroups = [...idsByShard.entries()];
+  const telemetryRows: SnapshotFanOutTelemetryRow[] = [];
+  for (
+    let offset = 0;
+    offset < shardGroups.length;
+    offset += FAN_OUT_TELEMETRY_SHARD_CONCURRENCY
+  ) {
+    const wave = shardGroups.slice(
+      offset,
+      offset + FAN_OUT_TELEMETRY_SHARD_CONCURRENCY,
+    );
+    const waveRows = await Promise.all(wave.map(async ([shardId, snapshotIds]) => {
+      const shard = getShard(env, shardId);
+      const results = await shard.batch(snapshotIds.map((snapshotId) =>
+        shard.prepare(
+          `SELECT id, model, fan_out_telemetry_status
+           FROM snapshots
+           WHERE id = ?`,
+        ).bind(snapshotId)
+      ));
+      return results.flatMap((result) =>
+        (result.results ?? []) as unknown as SnapshotFanOutTelemetryRow[]
+      );
+    }));
+    telemetryRows.push(...waveRows.flat());
+  }
+
+  if (telemetryRows.length !== candidates.results.length) {
+    throw new Error(
+      `Fan-out telemetry backfill loaded ${telemetryRows.length} of ${candidates.results.length} snapshots`,
+    );
+  }
+
+  const indexedAt = nowIso();
+  await env.CONTROL_DB.batch(telemetryRows.map((row) =>
+    env.CONTROL_DB.prepare(
+      `UPDATE analytics_snapshot_facts
+       SET provider_model = ?, fan_out_telemetry_status = ?,
+         fan_out_telemetry_indexed_at = ?, updated_at = ?
+       WHERE snapshot_id = ?`,
+    ).bind(
+      row.model,
+      row.fan_out_telemetry_status,
+      indexedAt,
+      indexedAt,
+      row.id,
+    )
+  ));
+
+  await env.CONTROL_DB.prepare(
+    `UPDATE analytics_read_model_projects
+     SET status = 'ready', error_message = NULL, updated_at = ?
+     WHERE schema_version >= ?
+       AND status IN ('pending', 'backfilling')
+       AND NOT EXISTS(
+         SELECT 1
+         FROM snapshot_index snapshot
+         LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
+         WHERE snapshot.project_id = analytics_read_model_projects.project_id
+           AND (
+             fact.snapshot_id IS NULL
+             OR fact.related_query_signal_counts_indexed_at IS NULL
+             OR (
+               snapshot.tracking_source IN ('chatgpt', 'gemini')
+               AND fact.fan_out_telemetry_indexed_at IS NULL
+             )
+           )
+       )`,
+  )
+    .bind(indexedAt, ANALYTICS_READ_MODEL_SCHEMA_VERSION)
+    .run();
+
+  return { snapshots: telemetryRows.length, shards: shardGroups.length };
 }
 
 export async function backfillAnalyticsReadModel(
@@ -69,6 +188,10 @@ export async function backfillAnalyticsReadModel(
            AND (
              fact.snapshot_id IS NULL
              OR fact.related_query_signal_counts_indexed_at IS NULL
+             OR (
+               snapshot.tracking_source IN ('chatgpt', 'gemini')
+               AND fact.fan_out_telemetry_indexed_at IS NULL
+             )
            )
        )`,
   )
@@ -135,7 +258,14 @@ export async function backfillAnalyticsReadModel(
         FROM snapshot_index snapshot
         LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
         WHERE snapshot.project_id = ?
-          AND (fact.snapshot_id IS NULL OR fact.related_query_signal_counts_indexed_at IS NULL)
+          AND (
+            fact.snapshot_id IS NULL
+            OR fact.related_query_signal_counts_indexed_at IS NULL
+            OR (
+              snapshot.tracking_source IN ('chatgpt', 'gemini')
+              AND fact.fan_out_telemetry_indexed_at IS NULL
+            )
+          )
       ) AS has_more`,
     )
       .bind(project.project_id)

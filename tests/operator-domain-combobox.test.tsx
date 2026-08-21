@@ -107,6 +107,11 @@ describe("fan-out operator filters", () => {
       data: {
         period: "30d",
         source: "chatgpt",
+        model: "all",
+        models: [
+          { value: "gpt-5-6", label: "gpt-5-6", responses: 42 },
+          { value: "__unreported__", label: "Model not reported", responses: 5 },
+        ],
         indexing: false,
         remainingSnapshots: 0,
         estimatedMinutes: 0,
@@ -171,6 +176,14 @@ describe("fan-out operator filters", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Current search")).toHaveTextContent(
         "metric=fanOutsPerResponse&group=comparison",
+      );
+    });
+
+    fireEvent.click(screen.getByRole("combobox", { name: "Fan-out model" }));
+    fireEvent.click(await screen.findByRole("option", { name: "gpt-5-6 (42)" }));
+    await waitFor(() => {
+      expect(screen.getByLabelText("Current search")).toHaveTextContent(
+        "metric=fanOutsPerResponse&group=comparison&model=gpt-5-6",
       );
     });
   });

@@ -139,23 +139,30 @@ describe("related query reporting", () => {
       { from: "2026-08-17", to: "2026-08-18" },
       new Map([["2026-08-17", 10]]),
       new Map([["2026-08-17", 8]]),
+      new Map([["2026-08-17", 8]]),
       new Map([["2026-08-17", 25]]),
     )).toEqual([
       {
         date: "2026-08-17",
         completedResponses: 10,
+        reportedResponses: 8,
+        unavailableResponses: 2,
         responsesWithFanOut: 8,
         totalFanOuts: 25,
-        responseShare: 80,
-        fanOutsPerResponse: 2.5,
+        responseShare: 100,
+        fanOutsPerResponse: 3.125,
+        telemetryCoverage: 80,
       },
       {
         date: "2026-08-18",
         completedResponses: 0,
+        reportedResponses: 0,
+        unavailableResponses: 0,
         responsesWithFanOut: 0,
         totalFanOuts: 0,
         responseShare: 0,
         fanOutsPerResponse: 0,
+        telemetryCoverage: 0,
       },
     ]);
   });
@@ -164,6 +171,7 @@ describe("related query reporting", () => {
     expect(buildFanOutSignalTrend(
       { from: "2026-08-17", to: "2026-08-17" },
       new Map([["2026-08-17", 10]]),
+      new Map([["2026-08-17", 8]]),
       new Map([["2026-08-17", 20]]),
       new Map([["2026-08-17", 4]]),
       new Map([["2026-08-17", 5]]),
@@ -173,9 +181,10 @@ describe("related query reporting", () => {
       totalFanOuts: 20,
       matchingResponses: 4,
       completedResponses: 10,
+      reportedResponses: 8,
       shareOfFanOuts: 25,
-      fanOutsPerResponse: 0.5,
-      responseShare: 40,
+      fanOutsPerResponse: 0.625,
+      responseShare: 50,
     }]);
   });
 
