@@ -36,6 +36,7 @@ import {
 import { useApp } from "../context";
 import { api } from "../lib/api";
 import { LOCATION_OPTIONS, localeLabel } from "../lib/locale-catalog";
+import { chartDateLabel, shortChartDate } from "../lib/trend-chart";
 import { compact, dateTime, percent } from "../lib/utils";
 import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
 
@@ -352,15 +353,13 @@ export function AdsPage() {
         <CardContent className={`ad-trend-chart${!query.isPending && !hasTrendActivity ? " ad-trend-empty" : ""}`}>
           {query.isPending ? <Skeleton className="chart-skeleton" /> : hasTrendActivity ? (
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-              <LineChart data={data?.trend ?? []} margin={{ top: 8, right: 10, left: 8, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
-                <XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
-                <YAxis yAxisId="rate" domain={[0, 100]} tickFormatter={(value) => `${value}%`} tickLine={false} axisLine={false} width={52} />
-                <YAxis yAxisId="count" orientation="right" allowDecimals={false} tickLine={false} axisLine={false} width={34} />
-                <Tooltip formatter={(value, name) => name === "Rendered response rate" ? `${Number(value).toFixed(1)}%` : Number(value)} />
-                <Line yAxisId="rate" type="monotone" dataKey="appearanceRate" name="Rendered response rate" stroke="#18181b" strokeWidth={2.5} dot={{ r: 2 }} />
-                <Line yAxisId="count" type="monotone" dataKey="appearances" name="Rendered ads" stroke="#7c3aed" strokeWidth={2} dot={{ r: 2 }} />
-                <Line yAxisId="count" type="monotone" dataKey="hiddenAppearances" name="Served but hidden" stroke="#d97706" strokeWidth={2} dot={{ r: 2 }} />
+              <LineChart accessibilityLayer data={data?.trend ?? []} margin={{ top: 12, right: 10, left: 0, bottom: 2 }}>
+                <CartesianGrid stroke="#ececf0" vertical={false} />
+                <XAxis axisLine={false} dataKey="date" interval="preserveStartEnd" minTickGap={38} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={shortChartDate} tickLine={false} />
+                <YAxis allowDecimals={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => compact(Number(value))} tickLine={false} width={40} />
+                <Tooltip cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} formatter={(value, name) => [compact(Number(value)), String(name)]} isAnimationActive={false} labelFormatter={chartDateLabel} />
+                <Line activeDot={{ fill: "#fff", r: 4, strokeWidth: 2 }} dataKey="appearances" dot={false} isAnimationActive={false} name="Rendered ads" stroke="#7c3aed" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} type="linear" />
+                <Line activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }} dataKey="hiddenAppearances" dot={false} isAnimationActive={false} name="Served but hidden" stroke="#d97706" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} type="linear" />
               </LineChart>
             </ResponsiveContainer>
           ) : <EmptyState title="No ad activity" description="Ads will appear when a captured response contains a sponsored result." />}
@@ -492,7 +491,7 @@ export function AdvertiserDetailPage() {
       ) : null}
       <Card className="ad-trend-card"><CardHeader title="Appearance trend" description="Rendered placements compared with served-but-hidden placements." /><CardContent className="ad-trend-chart">
         {query.isPending ? <Skeleton className="chart-skeleton" /> : query.data?.trend.length ? (
-          <ResponsiveContainer width="100%" height="100%" minWidth={0}><LineChart data={query.data.trend}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" /><XAxis dataKey="date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} /><YAxis allowDecimals={false} tickLine={false} axisLine={false} width={34} /><Tooltip /><Line type="monotone" dataKey="appearances" name="Rendered" stroke="#18181b" strokeWidth={2.5} dot={{ r: 2 }} /><Line type="monotone" dataKey="hiddenAppearances" name="Served but hidden" stroke="#d97706" strokeWidth={2} dot={{ r: 2 }} /></LineChart></ResponsiveContainer>
+          <ResponsiveContainer width="100%" height="100%" minWidth={0}><LineChart accessibilityLayer data={query.data.trend} margin={{ top: 12, right: 10, left: 0, bottom: 2 }}><CartesianGrid stroke="#ececf0" vertical={false} /><XAxis axisLine={false} dataKey="date" interval="preserveStartEnd" minTickGap={38} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={shortChartDate} tickLine={false} /><YAxis allowDecimals={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => compact(Number(value))} tickLine={false} width={40} /><Tooltip cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} formatter={(value, name) => [compact(Number(value)), String(name)]} isAnimationActive={false} labelFormatter={chartDateLabel} /><Line activeDot={{ fill: "#fff", r: 4, strokeWidth: 2 }} dataKey="appearances" dot={false} isAnimationActive={false} name="Rendered" stroke="#18181b" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} type="linear" /><Line activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }} dataKey="hiddenAppearances" dot={false} isAnimationActive={false} name="Served but hidden" stroke="#d97706" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} type="linear" /></LineChart></ResponsiveContainer>
         ) : <EmptyState title="No trend data" description="No appearances were captured in this period." />}
       </CardContent></Card>
       <Card><CardHeader title="Prompts serving this advertiser" description="Tracked prompts where this advertiser was served, whether rendered or hidden." />

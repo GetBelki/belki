@@ -3,12 +3,20 @@ import { MemoryRouter } from "react-router-dom";
 import { describe, expect, it, vi } from "vitest";
 import { TrendChartLegend } from "../src/app/components/trend-chart";
 import {
+  chartDateLabel,
   mobileHiddenTrendSeries,
   percentageChartScale,
   previousTrendValue,
   toggleTrendSeries,
   trendWindowSummary,
 } from "../src/app/lib/trend-chart";
+
+describe("trend chart dates", () => {
+  it("formats chart dates and safely ignores unsupported tooltip labels", () => {
+    expect(chartDateLabel("2026-08-22")).not.toBe("2026-08-22");
+    expect(chartDateLabel({ date: "2026-08-22" })).toBe("");
+  });
+});
 
 describe("trend chart scales", () => {
   it("uses the available vertical space without clipping percentage values", () => {

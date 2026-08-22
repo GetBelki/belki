@@ -7959,3 +7959,89 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 }
 
 body .product-analytics-page { max-width: 1540px; }
+
+/* Shared chart system */
+.ad-trend-card,
+.billing-chart-card,
+.operator-insight-card,
+.product-chart-card,
+.source-trend-card {
+  border-radius: 12px;
+}
+
+.ad-trend-chart .recharts-surface,
+.billing-chart .recharts-surface,
+.operator-insight-chart .recharts-surface,
+.product-chart .recharts-surface,
+.source-trend-chart .recharts-surface,
+.trend-chart-plot .recharts-surface {
+  overflow: visible;
+}
+
+.recharts-cartesian-axis-tick-value {
+  fill: #71717a;
+  font-variant-numeric: tabular-nums;
+}
+
+.recharts-line-curve,
+.recharts-area-curve {
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.recharts-default-tooltip {
+  background: rgb(255 255 255 / 96%) !important;
+  border: 1px solid #d4d4d8 !important;
+  border-radius: 9px !important;
+  box-shadow: 0 10px 30px rgb(24 24 27 / 10%) !important;
+  padding: 10px 12px !important;
+}
+
+.recharts-tooltip-label {
+  color: #18181b !important;
+  font-weight: 650 !important;
+  margin-bottom: 6px !important;
+}
+
+.recharts-tooltip-item {
+  color: #52525b !important;
+  font-variant-numeric: tabular-nums;
+  padding: 2px 0 !important;
+}
+
+.recharts-default-legend {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 14px;
+  justify-content: center;
+  line-height: 1;
+  margin: 0 !important;
+}
+
+.recharts-default-legend .recharts-legend-item {
+  align-items: center;
+  display: inline-flex !important;
+  margin-right: 0 !important;
+}
+
+.recharts-default-legend .recharts-legend-item-text {
+  color: #52525b !important;
+  font-size: 10px;
+  font-weight: 550;
+}
+
+@media (max-width: 640px) {
+  .ad-trend-chart,
+  .source-trend-chart {
+    height: 260px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+
+  .product-chart {
+    height: 230px;
+    padding-left: 8px;
+    padding-right: 8px;
+  }
+}

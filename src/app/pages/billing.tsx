@@ -25,6 +25,7 @@ import { ApiClientError, api, patch, post, remove } from "../lib/api";
 import { formatProviderCost } from "../lib/snapshot-evidence";
 import { onboardingDestination } from "../lib/onboarding-navigation";
 import { compact } from "../lib/utils";
+import { shortChartDate } from "../lib/trend-chart";
 
 type BillingPeriod = "30d" | "month";
 
@@ -470,14 +471,6 @@ function ManagedBillingPanel({
   );
 }
 
-function shortDate(value: string): string {
-  return new Intl.DateTimeFormat("en-US", {
-    month: "short",
-    day: "numeric",
-    timeZone: "UTC",
-  }).format(new Date(`${value}T00:00:00.000Z`));
-}
-
 function axisCost(value: number): string {
   if (value === 0) return "$0";
   if (value >= 0.1) return `$${value.toFixed(2)}`;
@@ -789,36 +782,32 @@ export default function BillingPage() {
           ) : (
             <ResponsiveContainer width="100%" height="100%" minWidth={0}>
               <BarChart
+                accessibilityLayer
                 data={report.data?.series ?? []}
                 margin={{ top: 8, right: 8, bottom: 0, left: 4 }}
               >
                 <CartesianGrid
-                  stroke="#e4e4e7"
-                  strokeDasharray="3 3"
+                  stroke="#ececf0"
                   vertical={false}
                 />
                 <XAxis
                   axisLine={false}
                   dataKey="date"
                   interval="preserveStartEnd"
-                  minTickGap={28}
-                  tick={{ fill: "#71717a", fontSize: 11 }}
-                  tickFormatter={shortDate}
+                  minTickGap={38}
+                  tick={{ fill: "#71717a", fontSize: 10 }}
+                  tickFormatter={shortChartDate}
                   tickLine={false}
                 />
                 <YAxis
                   axisLine={false}
-                  tick={{ fill: "#71717a", fontSize: 11 }}
+                  tick={{ fill: "#71717a", fontSize: 10 }}
                   tickFormatter={axisCost}
                   tickLine={false}
                   width={62}
                 />
                 <Tooltip
-                  contentStyle={{
-                    border: "1px solid #d4d4d8",
-                    borderRadius: 6,
-                    boxShadow: "none",
-                  }}
+                  cursor={{ fill: "#f4f4f5" }}
                   formatter={(value, name) => [
                     formatProviderCost(Number(value)),
                     String(name),
@@ -835,10 +824,12 @@ export default function BillingPage() {
                         }).format(date)
                       : "";
                   }}
+                  isAnimationActive={false}
                 />
                 <Bar
                   dataKey="promptTrackingStandardCost"
                   fill="#18181b"
+                  isAnimationActive={false}
                   maxBarSize={30}
                   name="Prompt tracking · standard scheduled"
                   stackId="provider-cost"
@@ -847,6 +838,7 @@ export default function BillingPage() {
                 <Bar
                   dataKey="promptTrackingHighPriorityCost"
                   fill="#d97706"
+                  isAnimationActive={false}
                   maxBarSize={30}
                   name="Prompt tracking · high priority"
                   stackId="provider-cost"
@@ -854,6 +846,7 @@ export default function BillingPage() {
                 <Bar
                   dataKey="promptTrackingLiveCost"
                   fill="#2563eb"
+                  isAnimationActive={false}
                   maxBarSize={30}
                   name="Prompt tracking · live/manual"
                   stackId="provider-cost"
@@ -861,6 +854,7 @@ export default function BillingPage() {
                 <Bar
                   dataKey="productEnrichmentCost"
                   fill="#7c3aed"
+                  isAnimationActive={false}
                   maxBarSize={30}
                   name="Product enrichment"
                   stackId="provider-cost"
@@ -869,6 +863,7 @@ export default function BillingPage() {
                 <Bar
                   dataKey="entityExtractionCost"
                   fill="#0f766e"
+                  isAnimationActive={false}
                   maxBarSize={30}
                   name="Entity extraction (estimated)"
                   stackId="provider-cost"

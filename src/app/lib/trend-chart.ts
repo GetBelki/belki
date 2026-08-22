@@ -87,6 +87,12 @@ export function shortChartDate(value: string | number): string {
   }).format(new Date(`${date}T00:00:00.000Z`));
 }
 
+export function chartDateLabel(value: unknown): string {
+  return typeof value === "string" || typeof value === "number"
+    ? shortChartDate(value)
+    : "";
+}
+
 export function toggleTrendSeries(
   hiddenKeys: ReadonlySet<string>,
   seriesKey: string,

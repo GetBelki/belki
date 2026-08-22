@@ -79,10 +79,10 @@ import {
 import { useApp } from "../context";
 import { api, apiPage, patch, post, remove, type Project } from "../lib/api";
 import { ENTITY_GROUPS, entityGroup, type EntityGroupKey } from "../lib/entity-groups";
-import { insightYAxisMax } from "../lib/chart-scale";
 import { LOCATION_OPTIONS } from "../lib/locale-catalog";
 import { productDetailRows } from "../lib/product-analytics";
 import { formatPrice, formatProviderCost, productDestination } from "../lib/snapshot-evidence";
+import { chartDateLabel, shortChartDate } from "../lib/trend-chart";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 
 function useProjectAnalytics<T>(name: string) {
@@ -421,8 +421,9 @@ export function CitationSourceDetailPage() {
               {detail.trend.length ? (
                 <ResponsiveContainer width="100%" height="100%" minWidth={0}>
                   <AreaChart
+                    accessibilityLayer
                     data={detail.trend}
-                    margin={{ top: 8, right: 8, bottom: 0, left: 8 }}
+                    margin={{ top: 12, right: 10, bottom: 2, left: 0 }}
                   >
                     <defs>
                       <linearGradient
@@ -437,44 +438,48 @@ export function CitationSourceDetailPage() {
                       </linearGradient>
                     </defs>
                     <CartesianGrid
-                      stroke="#e4e4e7"
-                      strokeDasharray="3 3"
+                      stroke="#ececf0"
                       vertical={false}
                     />
                     <XAxis
                       axisLine={false}
                       dataKey="date"
-                      tick={{ fill: "#71717a", fontSize: 11 }}
+                      interval="preserveStartEnd"
+                      minTickGap={38}
+                      tick={{ fill: "#71717a", fontSize: 10 }}
+                      tickFormatter={shortChartDate}
                       tickLine={false}
                     />
                     <YAxis
                       axisLine={false}
                       domain={[0, 100]}
-                      tick={{ fill: "#71717a", fontSize: 11 }}
+                      tick={{ fill: "#71717a", fontSize: 10 }}
                       tickFormatter={(value) => `${value}%`}
                       tickLine={false}
                       ticks={[0, 25, 50, 75, 100]}
                       width={42}
                     />
                     <Tooltip
-                      contentStyle={{
-                        border: "1px solid #d4d4d8",
-                        borderRadius: 6,
-                        boxShadow: "none",
-                      }}
+                      cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }}
                       formatter={(value) => [
                         percent(Number(value)),
                         "Citation rate",
                       ]}
+                      isAnimationActive={false}
+                      labelFormatter={chartDateLabel}
                     />
                     <Area
+                      activeDot={{ fill: "#fff", r: 4, stroke: "#18181b", strokeWidth: 2 }}
                       dataKey="citationRate"
-                      dot={{ fill: "#fff", r: 3, stroke: "#18181b", strokeWidth: 2 }}
+                      dot={false}
                       fill="url(#sourceCitationRate)"
+                      isAnimationActive={false}
                       name="Citation rate"
                       stroke="#18181b"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
                       strokeWidth={2}
-                      type="monotone"
+                      type="linear"
                     />
                   </AreaChart>
                 </ResponsiveContainer>
@@ -2029,14 +2034,14 @@ function ProductMarketSection({
               <div className="product-chart">
                 {priceTrend.length ? (
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <LineChart data={priceTrend} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-                      <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
-                      <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
+                    <LineChart accessibilityLayer data={priceTrend} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+                      <CartesianGrid stroke="#ececf0" vertical={false} />
+                      <XAxis axisLine={false} dataKey="date" interval="preserveStartEnd" minTickGap={38} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={shortChartDate} tickLine={false} />
                       <YAxis axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} width={45} />
-                      <Tooltip formatter={(value, name) => [observedPrice(Number(value), currency), String(name)]} />
-                      <Line dataKey="minimum" dot={{ r: 2 }} name="Minimum" stroke="#a1a1aa" type="monotone" />
-                      <Line dataKey="median" dot={{ r: 2 }} name="Median" stroke="#7c3aed" strokeWidth={2} type="monotone" />
-                      <Line dataKey="maximum" dot={{ r: 2 }} name="Maximum" stroke="#18181b" type="monotone" />
+                      <Tooltip cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} formatter={(value, name) => [observedPrice(Number(value), currency), String(name)]} isAnimationActive={false} labelFormatter={chartDateLabel} />
+                      <Line activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }} dataKey="minimum" dot={false} isAnimationActive={false} name="Minimum" stroke="#a1a1aa" strokeLinecap="round" strokeLinejoin="round" type="linear" />
+                      <Line activeDot={{ fill: "#fff", r: 4, strokeWidth: 2 }} dataKey="median" dot={false} isAnimationActive={false} name="Median" stroke="#7c3aed" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} type="linear" />
+                      <Line activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }} dataKey="maximum" dot={false} isAnimationActive={false} name="Maximum" stroke="#18181b" strokeLinecap="round" strokeLinejoin="round" type="linear" />
                     </LineChart>
                   </ResponsiveContainer>
                 ) : <EmptyState title="No market history yet" description="The first completed enrichment will establish the price baseline." />}
@@ -2202,9 +2207,6 @@ export function ProductAnalyticsPage() {
     : undefined;
   const productImage = detail?.product.images[0];
   const market = detail?.market;
-  const visibilityAxisMax = insightYAxisMax(
-    detail?.visibilityTrend.map((point) => point.appearanceRate) ?? [],
-  );
   const canEditEnrichment = session.user.role !== "viewer";
   const updateSectionOffset = (
     key: "promptOffset" | "merchantOffset",
@@ -2365,14 +2367,13 @@ export function ProductAnalyticsPage() {
                 <div className="product-chart-legend" aria-hidden="true"><span className="is-visibility">Visibility</span><span className="is-win">Win rate</span></div>
                 <div className="product-chart product-performance-chart">
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <LineChart data={detail.visibilityTrend} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-                      <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
-                      <XAxis axisLine={false} dataKey="date" minTickGap={30} tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
-                      <YAxis axisLine={false} domain={[0, visibilityAxisMax]} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => `${value}%`} tickLine={false} width={40} yAxisId="visibility" />
-                      <YAxis axisLine={false} domain={[0, 100]} orientation="right" tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => `${value}%`} tickLine={false} width={40} yAxisId="winRate" />
-                      <Tooltip formatter={(value, name) => [percent(Number(value)), String(name)]} />
-                      <Line dataKey="appearanceRate" dot={false} name="Visibility" stroke="#1e73be" strokeWidth={2.5} type="monotone" yAxisId="visibility" />
-                      <Line connectNulls={false} dataKey="winRate" dot={{ r: 2 }} name="Win rate" stroke="#1f9d70" strokeWidth={2.5} type="monotone" yAxisId="winRate" />
+                    <LineChart accessibilityLayer data={detail.visibilityTrend} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+                      <CartesianGrid stroke="#ececf0" vertical={false} />
+                      <XAxis axisLine={false} dataKey="date" interval="preserveStartEnd" minTickGap={38} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={shortChartDate} tickLine={false} />
+                      <YAxis axisLine={false} domain={[0, 100]} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => `${value}%`} tickLine={false} ticks={[0, 25, 50, 75, 100]} width={40} />
+                      <Tooltip cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} formatter={(value, name) => [percent(Number(value)), String(name)]} isAnimationActive={false} labelFormatter={chartDateLabel} />
+                      <Line activeDot={{ fill: "#fff", r: 4, strokeWidth: 2 }} dataKey="appearanceRate" dot={false} isAnimationActive={false} name="Visibility" stroke="#1e73be" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} type="linear" />
+                      <Line activeDot={{ fill: "#fff", r: 4, strokeWidth: 2 }} connectNulls={false} dataKey="winRate" dot={false} isAnimationActive={false} name="Win rate" stroke="#1f9d70" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} type="linear" />
                     </LineChart>
                   </ResponsiveContainer>
                 </div>
@@ -2416,20 +2417,24 @@ export function ProductAnalyticsPage() {
               <div className="product-chart">
                 {priceChartData.length ? (
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <LineChart data={priceChartData} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-                      <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
-                      <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
+                    <LineChart accessibilityLayer data={priceChartData} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+                      <CartesianGrid stroke="#ececf0" vertical={false} />
+                      <XAxis axisLine={false} dataKey="date" interval="preserveStartEnd" minTickGap={38} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={shortChartDate} tickLine={false} />
                       <YAxis axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} width={40} />
-                      <Tooltip formatter={(value, name) => [observedPrice(Number(value), String(name) === "Price" ? null : String(name)), String(name)]} />
+                      <Tooltip cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} formatter={(value, name) => [observedPrice(Number(value), String(name) === "Price" ? null : String(name)), String(name)]} isAnimationActive={false} labelFormatter={chartDateLabel} />
                       {priceCurrencies.map((currency, index) => (
                         <Line
                           connectNulls
                           dataKey={currency}
-                          dot={{ r: 2 }}
+                          dot={false}
+                          isAnimationActive={false}
                           key={currency}
+                          activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }}
                           stroke={["#18181b", "#71717a", "#a1a1aa"][index % 3]}
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
                           strokeWidth={2}
-                          type="monotone"
+                          type="linear"
                         />
                       ))}
                     </LineChart>
@@ -2447,12 +2452,12 @@ export function ProductAnalyticsPage() {
               <div className="product-chart">
                 {detail.reviewTrend.some((point) => point.reviews !== null) ? (
                   <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                    <LineChart data={detail.reviewTrend} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-                      <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
-                      <XAxis axisLine={false} dataKey="date" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
+                    <LineChart accessibilityLayer data={detail.reviewTrend} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+                      <CartesianGrid stroke="#ececf0" vertical={false} />
+                      <XAxis axisLine={false} dataKey="date" interval="preserveStartEnd" minTickGap={38} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={shortChartDate} tickLine={false} />
                       <YAxis axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => compact(Number(value))} tickLine={false} width={40} />
-                      <Tooltip formatter={(value) => [compact(Number(value)), "Reviews"]} />
-                      <Line connectNulls dataKey="reviews" dot={{ r: 2 }} stroke="#18181b" strokeWidth={2} type="monotone" />
+                      <Tooltip cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} formatter={(value) => [compact(Number(value)), "Reviews"]} isAnimationActive={false} labelFormatter={chartDateLabel} />
+                      <Line activeDot={{ fill: "#fff", r: 4, strokeWidth: 2 }} connectNulls dataKey="reviews" dot={false} isAnimationActive={false} name="Reviews" stroke="#18181b" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} type="linear" />
                     </LineChart>
                   </ResponsiveContainer>
                 ) : (
