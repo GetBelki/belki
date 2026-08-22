@@ -1,11 +1,6 @@
 import { Globe2 } from "lucide-react";
 import { useState } from "react";
 
-interface FailedFaviconAttempt {
-  domain: string;
-  count: number;
-}
-
 function normalizeDomain(domain: string | null | undefined): string | null {
   const normalized = domain
     ?.trim()
@@ -27,32 +22,19 @@ export function DomainFavicon({
   size?: number;
 }) {
   const normalizedDomain = normalizeDomain(domain);
-  const [failedAttempt, setFailedAttempt] =
-    useState<FailedFaviconAttempt | null>(null);
-  const failedCount = failedAttempt?.domain === normalizedDomain
-    ? failedAttempt.count
-    : 0;
-  const faviconSources = normalizedDomain
-    ? [
-        `https://icons.duckduckgo.com/ip3/${encodeURIComponent(normalizedDomain)}.ico`,
-        `https://favicon.im/${encodeURIComponent(normalizedDomain)}?larger=true&throw-error-on-404=true`,
-      ]
-    : [];
-  const faviconSource = faviconSources[failedCount];
+  const [failedDomain, setFailedDomain] = useState<string | null>(null);
+  const failed = failedDomain === normalizedDomain;
 
   return (
     <span className="domain-favicon" aria-hidden="true">
-      {normalizedDomain && faviconSource ? (
+      {normalizedDomain && !failed ? (
         <img
           alt=""
           height={size}
           loading="lazy"
-          onError={() => setFailedAttempt({
-            domain: normalizedDomain,
-            count: failedCount + 1,
-          })}
+          onError={() => setFailedDomain(normalizedDomain)}
           referrerPolicy="no-referrer"
-          src={faviconSource}
+          src={`/api/v1/favicon?domain=${encodeURIComponent(normalizedDomain)}`}
           width={size}
         />
       ) : normalizedDomain ? (

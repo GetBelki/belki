@@ -36,6 +36,7 @@ import {
 } from "../lib/prompt-tags";
 import { calculateNextRun } from "../lib/schedule";
 import { manualJobDelivery } from "../lib/job-delivery";
+import { fetchDomainFavicon } from "../lib/favicon";
 import {
   promptTagKey,
   uniquePromptTagNames,
@@ -111,6 +112,10 @@ function scheduleFromCurrent(row: {
 }
 
 export const coreRoutes = new Hono<AppEnv>();
+
+coreRoutes.get("/favicon", (c) =>
+  fetchDomainFavicon(c.req.query("domain")),
+);
 
 coreRoutes.patch(
   "/settings/workspace",

@@ -5,22 +5,15 @@ import { DomainFavicon } from "../src/app/components/domain-favicon";
 afterEach(cleanup);
 
 describe("DomainFavicon", () => {
-  it("tries both favicon providers before showing a local monogram", () => {
+  it("uses the status-checked favicon endpoint before a local monogram", () => {
     const { container } = render(
       <DomainFavicon domain="https://www.Example.com/products" size={18} />,
     );
 
-    let image = container.querySelector("img");
+    const image = container.querySelector("img");
     expect(image).toHaveAttribute(
       "src",
-      "https://icons.duckduckgo.com/ip3/example.com.ico",
-    );
-
-    fireEvent.error(image!);
-    image = container.querySelector("img");
-    expect(image).toHaveAttribute(
-      "src",
-      "https://favicon.im/example.com?larger=true&throw-error-on-404=true",
+      "/api/v1/favicon?domain=example.com",
     );
 
     fireEvent.error(image!);
@@ -35,7 +28,6 @@ describe("DomainFavicon", () => {
     );
 
     fireEvent.error(container.querySelector("img")!);
-    fireEvent.error(container.querySelector("img")!);
     expect(container.querySelector(".domain-favicon-monogram"))
       .toHaveTextContent("M");
 
@@ -43,7 +35,7 @@ describe("DomainFavicon", () => {
 
     expect(container.querySelector("img")).toHaveAttribute(
       "src",
-      "https://icons.duckduckgo.com/ip3/belki.example.ico",
+      "/api/v1/favicon?domain=belki.example",
     );
   });
 

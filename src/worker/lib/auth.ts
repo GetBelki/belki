@@ -26,6 +26,7 @@ interface SessionRow {
 
 const PUBLIC_PATHS = new Set([
   "/api/v1/status",
+  "/api/v1/favicon",
   "/api/v1/setup",
   "/api/v1/auth/login",
   "/api/v1/auth/signup/redeem",
