@@ -98,6 +98,17 @@ export function AppLayout() {
       window.location.assign("/");
     },
   });
+  const projectOptions = projects.map((project) => ({
+    value: project.id,
+    label: project.name,
+    icon: <DomainFavicon domain={project.primary_domain} size={18} />,
+  }));
+  const selectProject = (value: string) => {
+    setProjectId(value);
+    setMobileOpen(false);
+    const destination = projectChangeDestination(location.pathname);
+    if (destination) void navigate(destination, { replace: true });
+  };
   return (
     <div className="app-shell">
       <aside className={cn("sidebar", mobileOpen && "sidebar-open")}>
@@ -131,18 +142,10 @@ export function AppLayout() {
         </div>
         <div className="project-label">Project</div>
         <Select
+          ariaLabel="Active project"
           value={projectId ?? undefined}
-          onValueChange={(value) => {
-            setProjectId(value);
-            setMobileOpen(false);
-            const destination = projectChangeDestination(location.pathname);
-            if (destination) void navigate(destination, { replace: true });
-          }}
-          options={projects.map((project) => ({
-            value: project.id,
-            label: project.name,
-            icon: <DomainFavicon domain={project.primary_domain} size={18} />,
-          }))}
+          onValueChange={selectProject}
+          options={projectOptions}
           placeholder="Select project"
         />
         <nav className="sidebar-nav">
@@ -230,7 +233,11 @@ export function AppLayout() {
       {mobileOpen ? <button className="sidebar-scrim" onClick={() => setMobileOpen(false)} /> : null}
       <main className="main">
         <header className="mobile-topbar">
-          <button className="mobile-menu" onClick={() => setMobileOpen(true)}>
+          <button
+            aria-label="Open navigation"
+            className="mobile-menu"
+            onClick={() => setMobileOpen(true)}
+          >
             <Menu size={19} />
           </button>
           <NavLink
@@ -241,6 +248,17 @@ export function AppLayout() {
             <AppIcon size={23} />
             <strong>{APP_NAME}</strong>
           </NavLink>
+          {projects.length > 0 ? (
+            <div className="mobile-project-switcher">
+              <Select
+                ariaLabel="Active project"
+                value={projectId ?? undefined}
+                onValueChange={selectProject}
+                options={projectOptions}
+                placeholder="Select project"
+              />
+            </div>
+          ) : null}
         </header>
         {projectId && pageTrackingSources.length > 1 && location.pathname !== "/" && ![
           "/billing",
