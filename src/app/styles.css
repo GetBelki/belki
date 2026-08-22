@@ -643,6 +643,38 @@ button { border: 0; }
 .mobile-brand .app-icon {
   flex: none;
 }
+.mobile-project-switcher {
+  display: none;
+  flex: 1 1 180px;
+  margin-left: 20px;
+  max-width: 200px;
+  min-width: 0;
+}
+.mobile-project-switcher .select-trigger {
+  background: #fafafa;
+  border-color: #e4e4e7;
+  min-height: 36px;
+  padding: 6px 9px;
+  width: 100%;
+}
+.mobile-project-switcher .select-value-content {
+  max-width: 100%;
+  overflow: hidden;
+}
+.mobile-project-switcher .select-value-content .domain-favicon {
+  background: #f4f4f5;
+  border-radius: 4px;
+  flex: none;
+  height: 22px;
+  width: 22px;
+}
+.mobile-project-switcher .select-value-content .domain-favicon img {
+  height: 18px;
+  width: 18px;
+}
+.mobile-project-switcher .select-trigger > span:last-child {
+  flex: none;
+}
 .eyebrow { color: #8d839d; font-size: 9px; font-weight: 750; letter-spacing: .14em; text-transform: uppercase; }
 .status-dot { background: #55c989; border-radius: 50%; box-shadow: 0 0 0 3px #55c98920; display: inline-block; height: 6px; width: 6px; }
 .mobile-menu { background: transparent; color: var(--ink); display: none; }
@@ -969,6 +1001,7 @@ tbody tr:hover { background: #fcfbfd; }
   .mobile-close, .mobile-menu { display: flex; }
   .main { margin-left: 0; }
   .mobile-topbar { display: flex; }
+  .mobile-project-switcher { display: block; }
   .page { padding: 22px 16px; }
   .page-header { align-items: flex-start; flex-direction: column; }
   .page-header > .button, .page-header > .button-group { width: 100%; }
