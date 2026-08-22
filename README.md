@@ -9,41 +9,270 @@
 </p>
 
 <p align="center">
-  Self-hosted ChatGPT visibility, competitor, citation, shopping, entity, and advertising intelligence on Cloudflare.
+  Self-hosted and managed AI visibility, competitor, citation, entity, advertising, and shopping intelligence on Cloudflare.
 </p>
 
-Belki schedules and captures DataForSEO ChatGPT LLM Scraper responses, retains
-the underlying evidence, and turns those responses into project-level visibility
-analytics. It supports users who belong to multiple isolated workspaces and is
-designed for at least one million runs per month on larger self-hosted installs.
+Belki schedules prompts across ChatGPT, Gemini, Google AI Mode, and Google AI
+Overviews, captures the returned answers and source evidence, and turns those
+captures into project-level visibility analytics. It supports multiple isolated
+workspaces, multiple brands per workspace, and source-specific reporting while
+retaining the evidence behind every metric.
 
-## What Belki tracks
+The default Cloudflare topology is designed for at least one million runs per
+month on larger self-hosted installations.
 
-- **Visibility and competition:** brand visibility, Share of Voice, visibility
-  gap against the leading competitor, daily competitor trends, and annotations
-  showing when the monitored prompt set changed.
-- **Prompts and snapshots:** daily or weekly scheduled prompts, manual refreshes,
-  bulk creation, tags, locale settings, captured answers, tables, citations,
-  retrieved results, and fan-out queries.
-- **Related queries:** recurring fan-out searches across prompts, tracking status,
-  response history, and contextual cited and retrieved URLs—with one-click prompt
-  creation for valuable untracked topics.
-- **Citation sources:** citation rate, source share, domain trends, source detail,
-  and links back to the exact captured response.
-- **Entities:** cross-industry discovery of brands, companies, people, and places;
-  answer-text validation; evidence and corroboration; manual tracking; and guarded
-  automatic competitor tracking.
-- **Ads:** sponsored-result detection, ad appearance rate, advertiser activity,
-  creatives, destinations, observed positions, retained image/favicon assets, and
-  the prompts and snapshots in which each ad appeared.
-- **Shopping:** products observed in AI answers, merchant labels, price, rating,
-  reviews, appearance history, and optional Google Shopping enrichment with
-  specifications, seller offers, availability, market pricing, and review data.
-- **Billing and operations:** provider charges and estimated Workers AI costs by
-  project and workload, daily trends, project-level warnings, alerts, exports,
-  webhooks, health diagnostics, users, and role-based access.
+## Contents
 
-### Metric definitions
+- [Supported AI platforms](#supported-ai-platforms)
+- [Features](#features)
+- [Metrics](#metrics)
+- [Architecture](#architecture)
+- [Requirements](#requirements)
+- [Local development](#local-development)
+- [Production deployment](#production-deployment)
+- [Managed cloud](#managed-cloud)
+- [Operations](#operations)
+- [Security and retention](#security-and-retention)
+- [Verification](#verification)
+- [Repository map](#repository-map)
+
+## Supported AI platforms
+
+Each enabled platform runs every active prompt independently. The overview can
+combine enabled platforms, while prompts, responses, citations, related queries,
+entities, ads, and shopping data remain separated by their originating source.
+
+| Platform | Data captured |
+|---|---|
+| ChatGPT Search | Answers, citations, retrieved sources, fan-out queries, entities, ads, shopping blocks, and retained page evidence |
+| Gemini | Answers, citations, retrieved sources, fan-out queries, and entities |
+| Google AI Mode | Answers, cited and retrieved sources, fan-out queries, and entities |
+| Google AI Overviews | Whether an AI Overview appeared, its answer text, cited sources, and entities |
+
+ChatGPT is enabled by default. Additional sources must be available in the
+deployment and allowed by the workspace plan. Claude and Perplexity are not part
+of the current release.
+
+## Features
+
+Belki has two deployment modes:
+
+- **Self-hosted:** the repository default. The installation owner supplies the
+  Cloudflare resources and DataForSEO credentials. Manual prompt runs are
+  available, and subscription billing is disabled.
+- **Managed cloud:** a hosted subscription service using platform credentials,
+  Stripe billing, plan limits, signup codes, and protected operator tools.
+
+Unless labeled otherwise, the features below are available in both modes.
+
+### Workspaces, projects, and onboarding
+
+- Users can belong to multiple isolated workspaces and switch between them
+  without mixing projects, memberships, billing, or analytics.
+- Guided onboarding creates the first project and its initial prompts.
+- Every project defines an owned brand and optional primary domain for mention,
+  citation, seller, and competitor comparisons.
+- Projects select one or more available AI platforms, subject to the active plan.
+- Workspace owners and administrators can create and edit projects. Archived
+  projects retain their history and can be restored when the plan has room.
+- Project and source selectors preserve the relevant report context and safely
+  return from detail pages when the selected scope changes.
+
+### Visibility overview
+
+The 30-day overview provides an **All platforms** rollup and an individual tab
+for every enabled source. It includes:
+
+- owned-brand visibility, Share of Voice, visibility gap, and completed capture
+  counts;
+- AI Overview appearance counts when Google AI Overviews is selected;
+- daily owned-brand and competitor visibility or Share of Voice trends;
+- prompt-set change annotations so changes in the monitored sample are visible;
+- leading citation-source trends, with the project domain identified separately;
+- leading competitors, top products, and recently detected products when the
+  underlying data exists.
+
+The competitor chart displays the owned brand and the four most visible
+competitors. Share of Voice still includes every tracked competitor.
+
+### Prompt tracking and prompt library
+
+- Create prompts individually or in bulk, assign tags, search and filter them,
+  and enable, pause, edit, or permanently delete them.
+- Schedule prompts daily or weekly at a local time with a selected language,
+  location, and IANA time zone. Scheduling remains DST-aware.
+- Run an enabled prompt immediately in self-hosted mode; managed plans rely on
+  scheduled runs.
+- Review the latest status, capture count, mentions, mention rate, citations,
+  and change signals for each prompt.
+- Open per-prompt response history and navigate to the exact captured response.
+- Browse a searchable library of proven brand-reputation prompt templates,
+  inspect a template, customize it, and add it with the same locale, schedule,
+  source, and tag controls as a new prompt.
+- Deleting a prompt starts an asynchronous purge across control D1, its snapshot
+  shard, and R2. Anonymous billing totals remain for reporting accuracy.
+
+### Responses and evidence
+
+Belki retains a global response explorer as well as history for each prompt.
+Response detail can show:
+
+- the captured answer rendered as readable Markdown, including tables;
+- cited sources separately from sources retrieved or considered by the model;
+- shopping results and fan-out queries returned with the answer;
+- tracked-brand and competitor mentions, extracted entities, and entities
+  supplied by the provider;
+- changes from the previous capture and links to recent captures;
+- authorized downloads of normalized raw evidence and, when enabled, the
+  original response-page HTML.
+
+Provider callbacks are authenticated, normalized asynchronously, and recoverable
+when a postback is missed. Failed or incomplete runs retain enough status data
+for diagnostics without being counted as completed answers.
+
+### Related queries
+
+- Aggregate recurring fan-out queries generated while an AI platform expands an
+  answer.
+- Search and compare 7-, 30-, 90-, or 365-day periods.
+- See frequency, tracking status, parent prompts, and every matching response.
+- Inspect cited URLs separately from retrieved-but-not-cited URLs in the context
+  of the related query.
+- Turn a useful untracked query into a new monitored prompt in one step.
+- Lists and evidence tables use cursor pagination instead of loading unbounded
+  result sets.
+
+### Citation sources
+
+- Measure citation rate, source share, leading domains, and daily source trends.
+- Separate explicit citations from retrieved search results throughout the UI.
+- Open a source to see its trend, prompts citing it, cited pages, occurrence
+  counts, and links to the exact response evidence.
+- Source and URL tables use bounded cursor pagination for large projects.
+
+### Entities and competitors
+
+- **Tracked entities** contain the owned brand and competitors included in
+  visibility and Share of Voice reporting.
+- **Discovered entities** contain brands, companies, people, places, and other
+  names extracted asynchronously from captured answers.
+- Candidate relationship labels and evidence strength distinguish likely
+  competitors from unrelated mentions and provider entities.
+- Expand an entity to review answer evidence and corroboration before tracking,
+  ignoring, or restoring it.
+- Search and filter tracked and discovered entities independently by type,
+  relationship, or review status.
+- Both entity tabs use debounced server-side search and 25-item cursor pages, so
+  thousands of discoveries are never fetched into the browser at once.
+- Versioned v2 extraction validates exact spans from the answer, tolerates
+  malformed model output, classifies competitive context separately, and
+  combines answer, provider, domain, and tracked-brand evidence.
+- Existing retained responses can be backfilled into a new extractor version.
+  Automatic competitor tracking is opt-in and requires repeated strong evidence.
+
+### Advertising intelligence
+
+Ads appears after the selected project has captured a sponsored result. Reports
+are available for sources that actually returned ad data and include:
+
+- ad appearance rate and daily rendered-versus-served-but-hidden activity;
+- advertisers, destination domains and URLs, observed positions, and prompts;
+- creative copy, images, and favicons mirrored into private R2 storage;
+- 7-, 30-, 90-, and 365-day advertiser detail and links to source snapshots.
+
+Advertisements remain visible in their originating response even when the Ads
+navigation item is hidden for a project with no current ad data.
+
+### Shopping intelligence
+
+Shopping appears for sources that returned product blocks. The catalog and
+product detail reports include:
+
+- product and merchant search, period filters, and bounded cursor pagination;
+- visibility, appearances, win rate, average and median position, and position
+  distribution;
+- co-featured products, price history, rating and review-count trends;
+- prompts, merchant observations, and links to the captured response history;
+- owned-seller identification based on workspace domains.
+
+Optional DataForSEO Google Product Info enrichment adds catalog specifications,
+seller offers, delivery and availability, market price ranges and history, and
+review data for compatible Google Shopping product identifiers. Automatic
+enrichment runs at most weekly for each product and locale; administrators can
+also request an eligible refresh. It does not bulk-backfill historical products.
+
+### Alerts, webhooks, and exports
+
+- Configure change-detection rules and review read or unread alert events in the
+  app.
+- Add workspace-wide public HTTPS webhook destinations for external delivery.
+- Webhook secrets are displayed once. Payloads include an event ID and timestamp
+  and are signed with HMAC-SHA256 in `x-ai-tracker-signature`.
+- Generate compressed analytics and captured-response indexes asynchronously as
+  CSV or NDJSON, monitor their status, and download completed exports.
+
+### Users, roles, and authentication
+
+- Role-based access uses `owner`, `admin`, `editor`, and `viewer` permissions.
+- Owners and administrators can invite members, select their role, inspect
+  pending invitations, and revoke an invitation immediately.
+- Invitation links are always displayed once for copying and can optionally be
+  sent with Cloudflare Email Sending. Links are validated before the acceptance
+  form is shown and expire after 7 days.
+- Local password authentication supports one-use password-reset links that
+  expire after 1 hour.
+- Sessions last up to 14 days and are backed by secure cookies and CSRF tokens.
+
+### Settings and diagnostics
+
+Settings are divided by ownership boundary:
+
+- **Project:** project identity, enabled AI platforms, original HTML retention,
+  Shopping enrichment, entity extraction, automatic competitor tracking, and
+  workload-specific cost warnings.
+- **Workspace:** workspace identity, active and archived projects, and signed
+  webhook destinations.
+- **Diagnostics:** administrator-only checks for the control database, all 32
+  snapshot shards, DataForSEO secrets, Stripe mode, and required runtime
+  bindings.
+
+Provider charges and estimated Workers AI costs are available in Billing as
+aggregate, daily, workload, and per-project views. Project-specific warning
+thresholds inform administrators but do not automatically stop a workload.
+
+### Billing and subscriptions
+
+Self-hosted installations report provider and inference costs without enforcing
+a subscription plan.
+
+Managed cloud adds:
+
+- current subscription, monthly limits, and usage reporting;
+- Stripe Checkout and an action-only Customer Portal;
+- immediate, prorated upgrades confirmed by Stripe;
+- downgrades scheduled for renewal with an exact transition preview;
+- replacement or cancellation of a pending downgrade;
+- non-destructive allowance enforcement that archives excess projects, pauses
+  excess prompts, and disables excess sources without deleting history;
+- read-only state for cancelled or unpaid workspaces.
+
+### Managed operator tools
+
+> These capabilities are available only in a managed deployment and must be
+> protected with Cloudflare Access.
+
+- Create email-bound, one-use signup URLs; list recent codes; and revoke unused
+  codes.
+- Inspect managed workspaces, subscription state, allowances, and operator
+  interventions.
+- Suspend or restore a workspace for support and abuse handling, and reconcile
+  state that normally follows verified Stripe webhooks.
+- Analyze aggregate citation trends across retained managed projects with source,
+  domain, period, and project filters.
+- Analyze aggregate fan-out telemetry, model activity, query signals, year terms,
+  response coverage, and fan-outs per response without unbounded D1 reads.
+
+## Metrics
 
 | Metric | Definition |
 |---|---|
@@ -52,52 +281,34 @@ designed for at least one million runs per month on larger self-hosted installs.
 | Visibility gap | Owned-brand visibility minus the visibility of the leading tracked competitor, in percentage points |
 | Citation rate | Completed responses containing at least one citation ÷ all completed responses |
 | Ad appearance rate | Completed responses containing at least one sponsored result ÷ all completed responses |
+| Product win rate | Product appearances at position 1 ÷ all responses in which the product appeared |
 
-Share of Voice is only available after a competitor is tracked. The overview
-plots the owned brand and the four most visible competitors while calculating
-Share of Voice across every tracked competitor.
-
-## Product behavior and defaults
-
-- Settings are scoped explicitly: feature switches belong to the selected
-  **project**, project administration and webhooks belong to the **workspace**,
-  and installation checks live under **Diagnostics**.
-- Named entity extraction is enabled for new projects. The versioned v2 path
-  extracts exact answer spans first, classifies competitive context separately,
-  and then combines tracked-brand, provider, and observed-domain evidence.
-  Automatic competitor tracking is opt-in and requires repeated strong evidence;
-  existing projects remain on v1 until their retained responses finish a v2
-  backfill.
-- Google Shopping enrichment is opt-in for new projects and only runs when a
-  captured product includes a compatible Google Shopping identifier.
-- The Ads navigation item appears automatically after the selected project has
-  detected a sponsored result. Ads remain visible in their originating snapshot.
-- Provider and inference costs are reported in Billing, with aggregate and
-  per-project views. Product-enrichment and entity-extraction warning thresholds
-  are project-specific and do not stop workloads automatically.
-- Original response-page HTML is opt-in per project. Normalized raw results are
-  retained for 730 days, HTML for 90 days when enabled, hot snapshots for 12
-  months, and exports for 7 days.
+Share of Voice and visibility gap become available after at least one competitor
+is tracked. Google AI Overview metrics distinguish a completed search with no AI
+Overview from a capture in which the surface appeared.
 
 ## Architecture
 
-Belki runs as a React single-page application and Hono API in one Cloudflare
-Worker. A control D1 database stores tenancy and aggregate state; 32 snapshot D1
-shards distribute detailed captures. R2 retains raw evidence, optional HTML,
-exports, and mirrored ad assets. One SQLite-backed Durable Object per workspace
-serializes usage reservations and project-limit claims so concurrent queues
-cannot overspend an allowance.
+Belki runs a React single-page application and Hono API in one Cloudflare Worker.
+A control D1 database stores tenancy, orchestration, configuration, and aggregate
+state. Thirty-two snapshot D1 shards distribute detailed captures. R2 stores raw
+evidence, optional HTML, generated exports, and mirrored advertising assets.
+
+One SQLite-backed Durable Object per workspace serializes usage reservations and
+project-limit claims so concurrent requests and queues cannot overspend an
+allowance.
 
 ```mermaid
 flowchart LR
   Browser[Belki React SPA] --> API[Hono Worker API]
-  Cron[Cloudflare Cron Triggers] --> StandardQ[Standard task queue]
-  API --> LiveQ[Live task queue]
+  Cron[Cloudflare Cron Triggers] --> StandardQ[Scheduled task queue]
+  API --> LiveQ[Manual task queue]
 
-  StandardQ --> LLM[DataForSEO ChatGPT LLM Scraper]
-  LiveQ --> LLM
-  LLM --> Postback[Authenticated postback]
-  Postback --> R2[(R2 evidence)]
+  StandardQ --> Adapter[Source-aware DataForSEO adapter]
+  LiveQ --> Adapter
+  Adapter --> Surfaces[ChatGPT / Gemini / AI Mode / AI Overviews]
+  Surfaces --> Postback[Authenticated provider result]
+  Postback --> R2[(Private R2 evidence)]
   Postback --> NormalizeQ[Normalization queue]
 
   NormalizeQ --> Shards[(32 snapshot D1 shards)]
@@ -112,50 +323,50 @@ flowchart LR
 
   Control --> ProductQ[Product enrichment queue]
   ProductQ --> Merchant[DataForSEO Google Product Info]
-  Merchant --> ProductPostback[Authenticated product postback]
+  Merchant --> ProductPostback[Authenticated product result]
   ProductPostback --> R2
   ProductPostback --> ProductQ
 
-  Control --> Automation[Alerts, exports, webhooks, and purge queues]
+  Control --> Automation[Alerts / exports / webhooks / purges]
   API --> Control
   API --> Shards
   API --> R2
 ```
 
-The control database owns workspaces, users, projects, tracked prompts,
-scheduling, job state, compact snapshot indexes, rollups, ads, entities,
-enrichment state, alerts, billing, and exports. Each tracked prompt is assigned
-to one snapshot shard for its lifetime, avoiding cross-database joins on detail
-reads.
+The control database owns workspaces, users, projects, prompts, schedules, job
+state, compact snapshot indexes, rollups, ads, entities, enrichment state,
+alerts, billing, and exports. Each prompt is assigned to one snapshot shard for
+its lifetime, avoiding cross-database joins on detail reads.
 
 ### Capture and analysis flow
 
 ```mermaid
 flowchart TD
-  Prompt[Scheduled or manually refreshed prompt] --> Mode{Run type}
+  Prompt[Scheduled or manually requested prompt] --> Source[Enabled AI platform]
+  Source --> Mode{Run type}
   Mode -->|Scheduled| Standard[Standard task with signed postback]
-  Mode -->|Manual refresh| Live[Live Advanced request]
-  Standard --> Capture[ChatGPT web response]
+  Mode -->|Self-hosted manual run| Live[Live provider request]
+  Standard --> Capture[Source-specific result]
   Live --> Capture
-  Standard -. missed postback recovery .-> Ready[DataForSEO tasks_ready]
+  Standard -. missed postback recovery .-> Ready[Provider ready-task lookup]
   Ready --> Capture
 
   Capture --> Evidence[Store raw evidence in R2]
-  Evidence --> Normalize[Validate and normalize response]
-  Normalize --> Snapshot[Persist snapshot, answer, citations, products, and ads]
-  Snapshot --> Rollup[Update project analytics and billing]
+  Evidence --> Normalize[Validate and normalize source result]
+  Normalize --> Snapshot[Persist answer / sources / products / ads]
+  Snapshot --> Rollup[Update analytics and billing]
   Snapshot --> Entities{Entity extraction enabled?}
   Snapshot --> Ads{Ad assets present?}
-  Snapshot --> Shopping{Eligible product and enrichment enabled?}
+  Snapshot --> Shopping{Eligible product enrichment?}
 
-  Entities -->|Yes| NER[Extract, validate, and corroborate entities]
-  Ads -->|Yes| Assets[Mirror creative and favicon assets to R2]
-  Shopping -->|Yes| ProductInfo[Capture Google Shopping market snapshot]
+  Entities -->|Yes| NER[Extract / validate / corroborate entities]
+  Ads -->|Yes| Assets[Mirror creative assets to R2]
+  Shopping -->|Yes| ProductInfo[Capture Shopping market snapshot]
 
-  Rollup --> Dashboard[Overview, prompts, related queries, sources, billing, and alerts]
-  NER --> Dashboard
-  Assets --> Dashboard
-  ProductInfo --> Dashboard
+  Rollup --> Reports[Overview and source-separated reports]
+  NER --> Reports
+  Assets --> Reports
+  ProductInfo --> Reports
 ```
 
 ## Requirements
@@ -163,19 +374,19 @@ flowchart TD
 - Node.js 24 or newer
 - pnpm 11
 - A Cloudflare account with Workers Paid
-- A Cloudflare Email Sending domain for optional invitation emails
-- DataForSEO credentials with ChatGPT LLM Scraper access
+- DataForSEO credentials with access to the selected LLM Scraper and SERP APIs
 - DataForSEO Merchant Google Product Info access for optional Shopping enrichment
+- A Cloudflare Email Sending domain only when invitation emails are required
+- Stripe credentials only for managed cloud subscriptions
 
 Workers Paid is required by the default topology because it declares one control
-database and 32 snapshot databases. Workers Free currently permits fewer D1
-databases than this architecture requires.
+database and 32 snapshot databases. Workers Free permits fewer D1 databases than
+this architecture requires.
 
-The Worker includes an `EMAIL` binding restricted to
-`noreply@notifications.getbelki.com`. Invitations always return a copyable link;
-administrators can optionally submit the same invitation through Cloudflare Email
-Sending. Change `EMAIL_FROM_ADDRESS` and the binding's allowed sender together in
-`wrangler.jsonc` when deploying under another onboarded sending domain.
+The checked-in Worker config restricts the `EMAIL` binding to
+`noreply@notifications.getbelki.com`. Invitations still return a copyable link
+when email is disabled. For another onboarded domain, change both
+`EMAIL_FROM_ADDRESS` and the binding's allowed sender in `wrangler.jsonc`.
 
 ## Local development
 
@@ -186,85 +397,42 @@ pnpm db:migrate:local
 pnpm dev
 ```
 
-Configure these values in `.dev.vars`:
+Configure these secrets in `.dev.vars`:
 
 | Secret | Purpose |
 |---|---|
 | `DATAFORSEO_LOGIN` | DataForSEO API login |
 | `DATAFORSEO_PASSWORD` | DataForSEO API password |
-| `DATAFORSEO_WEBHOOK_TOKEN` | Authenticates ChatGPT and product-info postbacks |
+| `DATAFORSEO_WEBHOOK_TOKEN` | Authenticates source-capture and product-info postbacks |
 | `APP_CRYPTO_KEY` | Signs provider job tags; changing it invalidates outstanding jobs |
-| `BOOTSTRAP_TOKEN` | One-time token entered during the first-run owner setup |
-| `STRIPE_SECRET_KEY` | Managed cloud only: creates Stripe Checkout and billing-portal sessions |
-| `STRIPE_WEBHOOK_SECRET` | Managed cloud only: verifies `/api/webhooks/stripe` before subscription changes |
+| `BOOTSTRAP_TOKEN` | One-time token entered during first-run owner setup |
+| `STRIPE_SECRET_KEY` | Managed only: creates Checkout and billing-portal sessions |
+| `STRIPE_WEBHOOK_SECRET` | Managed only: verifies `/api/webhooks/stripe` before subscription changes |
 
-`STRIPE_ENVIRONMENT=test|live` is a non-secret Wrangler variable. It must match
-the Stripe keys and the `stripe_livemode` stored for each managed workspace.
+`STRIPE_ENVIRONMENT=test|live` is a non-secret Wrangler variable and must match
+the Stripe keys and the `stripe_livemode` recorded for managed workspaces.
 
 Use independent, high-entropy values for the three application secrets. For
 locally submitted Standard tasks, DataForSEO must be able to reach the Worker.
-Use a deployed staging Worker or a secure public tunnel and set the workspace
-`public_base_url` accordingly. Live manual runs do not require an inbound
+Use a deployed staging Worker or secure public tunnel and set the workspace
+`public_base_url` accordingly. Self-hosted live runs do not need an inbound
 postback.
 
 ## Production deployment
 
-For a start-to-finish runbook—including fresh resource provisioning, exact
-Stripe secret placement, Stripe products/webhooks/customer portal, Cloudflare
-Access, existing-install migration, verification, and rollback—read
+For resource provisioning, secret placement, Stripe configuration, Cloudflare
+Access, existing-install migration, verification, and rollback, read
 [`docs/deployment-and-migration.md`](docs/deployment-and-migration.md).
 
-This repository deploys through GitHub and a protected `main` branch. Do not
-deploy production directly from a feature branch or local checkout.
+### Self-hosted deployment
 
-```mermaid
-flowchart LR
-  Branch[Feature branch] --> PR[Pull request]
-  PR --> CI[GitHub Actions verification]
-  CI --> Review[Review and protected-branch checks]
-  Review --> Merge[Merge to main]
-  Merge --> Build[Cloudflare Workers Build]
-  Build --> Migrate[Apply control and 32 shard migrations]
-  Migrate --> Deploy[Deploy ai-visibility-tracker Worker]
-```
-
-### Maintainer workflow
-
-1. Create a feature branch and commit the intended changes.
-2. Push the branch and open a pull request against `main`.
-3. Wait for type checking, linting, tests, and the production build to pass.
-4. Review and merge the pull request.
-5. Cloudflare Workers Builds detects the `main` update and runs the configured
-   build and deploy commands.
-6. Confirm the Workers Build completed and smoke-test the affected authenticated
-   page in production.
-
-The Cloudflare Git integration uses `/` as its root directory, `pnpm build` as
-the build command, and `pnpm deploy` as the deploy command. The deploy script
-runs remote control and snapshot migrations before publishing the
-`ai-visibility-tracker` Worker.
-
-### Connect a private GitHub repository
-
-1. In Cloudflare, open **Workers & Pages**, select **Create application**, and
-   choose **Import a repository**.
-2. Authorize the Cloudflare GitHub App for the private repository.
-3. Select `main` as the production branch and use the build/deploy commands
-   above.
-4. Add the five required values as encrypted runtime secrets under
-   **Settings → Variables & Secrets**.
-5. From an authenticated checkout, run `pnpm r2:lifecycle` once to apply the
-   checked-in evidence-retention rules.
-
-### Self-hosting alternatives
-
-For a public fork, the Cloudflare Deploy button can provision the declared D1,
-R2, Queue, Workers AI, and secret bindings and connect the fork to Workers
+For a public fork, the Cloudflare Deploy button provisions the declared D1, R2,
+Queue, Workers AI, and secret bindings and can connect the fork to Workers
 Builds:
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Xyborg/AI-Visibility-Tracker)
 
-For a manual self-hosted deployment, authenticate Wrangler, configure the five
+For a manual deployment, authenticate Wrangler, configure the five required
 production secrets, and run:
 
 ```bash
@@ -273,128 +441,151 @@ pnpm deploy
 pnpm r2:lifecycle
 ```
 
-`pnpm deploy` applies all control migrations and the same snapshot migrations
-to all 32 shards before invoking `wrangler deploy`. The lifecycle command
-replaces the lifecycle configuration of the `ai-tracker-evidence` bucket with
-the checked-in prefix-specific retention policy.
+`pnpm deploy` applies control migrations and the same snapshot migrations to all
+32 shards before publishing with Wrangler. `pnpm r2:lifecycle` replaces the
+`ai-tracker-evidence` bucket lifecycle configuration with the checked-in
+prefix-specific retention rules.
 
-Self-hosted mode is the repository default (`DEPLOYMENT_MODE=self_hosted` and
-`PAYMENT_MODE=disabled`). DataForSEO credentials stay in encrypted Worker
-secrets; Settings reports only whether they are present. They are never stored
-in D1 or sent to the browser.
+Self-hosted mode is the repository default: `DEPLOYMENT_MODE=self_hosted` and
+`PAYMENT_MODE=disabled`. DataForSEO credentials remain in encrypted Worker
+secrets and are never stored in D1 or returned to the browser.
 
-### Managed cloud mode
+### Managed production deployment
+
+Belki's managed profile lives in `deployment/getbelki.json`, while
+`wrangler.jsonc` remains the self-hosting default.
+
+```bash
+# Publish application code without changing the database schema
+pnpm deploy:getbelki
+
+# Apply pending D1 migrations before publishing
+pnpm deploy:getbelki:with-migrations
+```
+
+Production changes should pass CI on a feature branch, be reviewed through a
+pull request, and merge through the protected `main` branch. The deployment
+system can then publish the managed profile. Code-only deployments deliberately
+remain separate from migration-bearing deployments.
+
+```mermaid
+flowchart LR
+  Branch[Feature branch] --> PR[Pull request]
+  PR --> CI[pnpm check / types check / deploy dry run]
+  CI --> Merge[Protected main branch]
+  Merge --> Publish{Schema migration?}
+  Publish -->|No| Code[deploy:getbelki]
+  Publish -->|Yes| Migrate[deploy:getbelki:with-migrations]
+```
+
+## Managed cloud
 
 Managed mode uses one platform DataForSEO account and sells prompt tracking,
-not DataForSEO credentials or API credits. The public monthly tiers are:
+not provider credentials or API credits.
 
-| Plan | Price | Active prompts | Projects | Tracking sources | Seats |
+| Plan | Price | Active prompts | Projects | Tracking sources per project | Seats |
 |---|---:|---:|---:|---|---:|
-| Starter | €10 | 25 | 1 | ChatGPT | Unlimited |
-| Studio | €29 | 75 | 5 | Choose 2 per project | Unlimited |
-| Agency | €149 | 250 | 30 | All 4 per project | Unlimited |
+| Starter | €10/month | 25 | 1 | ChatGPT | Unlimited |
+| Studio | €29/month | 75 | 5 | Choose 2 | Unlimited |
+| Agency | €149/month | 250 | 30 | All 4 | Unlimited |
 
-The available sources are ChatGPT, Gemini, Google AI Mode, and Google AI
-Overviews. ChatGPT is enabled by default. Optional sources are controlled by
-deployment feature flags so managed operators can release and disable them
-independently.
+Optional sources use deployment feature flags so managed operators can release
+or disable them independently. Each additional source runs the project's active
+prompts independently.
 
-Claude and Perplexity are intentionally not part of this release. DataForSEO's
-Responses API still requires a separate provider/model task for each response;
-it is not one request that returns every model. Future sources should use the
-same adapter, entitlement, cost-validation, and source-separated reporting
-contract rather than being treated as aliases of an existing source.
+Set `DEPLOYMENT_MODE=managed`, `PAYMENT_MODE=stripe_direct`, and the matching
+`STRIPE_ENVIRONMENT`. Configure three separate Stripe Products and monthly Price
+IDs, the action-only Customer Portal, and both Stripe secrets. `stripe_managed`
+remains an unsupported preview for plan changes.
 
-Belki production is deployed with the non-secret `deployment/getbelki.json`
-profile, while `wrangler.jsonc` remains safe for self-hosters. Set
-`DEPLOYMENT_MODE=managed`, `PAYMENT_MODE=stripe_direct`, and the matching
-`STRIPE_ENVIRONMENT`; configure three
-separate Stripe Products with their monthly Price IDs, configure the action-only
-Customer Portal, and add the two Stripe secrets. `stripe_managed` remains an
-unsupported preview for plan changes. Signup is email-bound and one-use: a
-platform operator creates a URL through
-`POST /api/v1/operator/signup-codes`; unused codes can be revoked through the
-operator console. The workspace stays pending until a
-verified Stripe webhook activates it; cancelled and unpaid workspaces become
-read-only.
-
-Upgrades are confirmed in Stripe and prorated immediately. Downgrades are
-Belki-owned Subscription Schedules that take effect at renewal, so a lower
-allowance never hard-stops a customer halfway through the paid period. A
-downgrade stores an exact transition preview; at renewal, Belki archives excess
-projects, pauses excess prompts, and disables excess sources without deleting
-history. A pending downgrade can be replaced or cancelled.
-
-Protect `/api/v1/operator/*` with Cloudflare Access in managed deployments. The
-Worker additionally checks that the Access-authenticated email matches a row in
-`platform_operators`. Disable `workers.dev` and attach a custom production route
-before launching the managed service.
+Signup is email-bound and one-use. A platform operator creates a URL through the
+operator console or `POST /api/v1/operator/signup-codes`. A workspace remains
+pending until a verified Stripe webhook activates it. Protect
+`/api/v1/operator/*` with Cloudflare Access; the Worker also verifies that the
+Access-authenticated email belongs to `platform_operators`. Disable `workers.dev`
+and attach a custom production route before launch.
 
 Belki maintains internal workload budgets for cost and abuse protection. Those
-weights are implementation details rather than a customer-facing balance.
-Reservations happen before paid work; accepted provider work is committed,
-while pre-submit failures and explicit provider rejections are released.
+weights are implementation details, not a customer-facing credit balance.
+Reservations occur before paid work: accepted provider work is committed, while
+pre-submit failures and explicit provider rejections release the reservation.
 
 ## Operations
 
 | Schedule | Responsibility |
 |---|---|
-| Every 5 minutes | Enqueue due prompts, recover stale prompt jobs, enqueue eligible product enrichments, and reconcile product-enrichment jobs |
-| Every minute | Reconcile billing plan changes, recover missed ChatGPT and product postbacks, reconcile prompt purges, entity extraction and ad assets, and advance analytics backfills |
-| Daily at 03:00 UTC | Expire sessions, tokens, ingest events, jobs, indexes, and hot snapshots |
+| Every 5 minutes | Enqueue due prompts, recover stale jobs, enqueue eligible product enrichments, and reconcile product work |
+| Every minute | Reconcile billing changes, recover missed source and product postbacks, reconcile purges, entity extraction and ad assets, and advance analytics backfills |
+| Daily at 03:00 UTC | Expire sessions, tokens, ingest events, jobs, indexes, hot snapshots, and completed exports |
 | Sunday at 04:00 UTC | Refresh the DataForSEO locale catalog and reconcile metric outboxes |
 
-The Diagnostics tab reports control database, snapshot-shard, and runtime
-binding health. Cloudflare observability is enabled, and scheduled handlers emit
-structured metrics. Webhook destinations receive HMAC-SHA256 signatures in
-`x-ai-tracker-signature`; signing secrets are displayed only once.
+The scheduler uses separate standard and live queues, signed provider job tags,
+idempotent postbacks, retryable normalization, and ready-task recovery. Cloudflare
+observability is enabled and scheduled handlers emit structured metrics.
 
-### Security and retention
+## Security and retention
 
-- Local password authentication uses CSRF protection and the `owner`, `admin`,
-  `editor`, and `viewer` roles.
-- Invitations and password resets use manually shared, expiring links.
+- Workspace membership and every project read are tenant-scoped.
+- Local password authentication uses secure cookies, CSRF protection, role
+  checks, hashed one-use tokens, and bounded session lifetime.
+- Invitation links expire after 7 days; password-reset links expire after 1
+  hour; sessions expire after 14 days.
 - DataForSEO postbacks require the webhook token and a valid signed job tag.
-- R2 objects are private and evidence downloads are authorized through the
-  Worker.
-- Raw prompts should not contain personal or sensitive data.
-- Permanent prompt deletion asynchronously removes D1 and R2 evidence while
-  retaining anonymous billing totals for accurate reporting.
+- Stripe webhook signatures are verified before subscription state changes.
+- Managed operator endpoints combine Cloudflare Access identity with an internal
+  operator allowlist.
+- Webhook delivery accepts only public HTTPS destinations and signs each payload.
+- R2 is private; evidence and export downloads are authorized by the Worker.
+- Raw prompts should not contain personal or sensitive information.
+
+| Data | Default retention |
+|---|---:|
+| Normalized raw provider results | 730 days |
+| Original response-page HTML | 90 days when project capture is enabled |
+| Hot snapshot detail | 12 months |
+| Completed exports | 7 days |
+
+Original HTML capture is opt-in per project. Permanent prompt deletion removes
+its detailed D1 and R2 evidence asynchronously while preserving anonymous
+billing totals.
 
 ## Verification
 
+Run the same aggregate application checks used by CI:
+
 ```bash
-pnpm typecheck
-pnpm lint --max-warnings 0
-pnpm test
-pnpm build
-pnpm deploy:dry
+pnpm check
+pnpm types:check
+pnpm deploy:getbelki:dry
 ```
 
-Entity-extraction releases also have an offline gold-set gate. Keep the private
-or sanitized JSONL fixtures out of Git. `pnpm evaluate:entities` creates the
-private stratified sample, v1/v2 predictions, and local review page; after
-review, run `pnpm benchmark:entities --
---gold <gold.jsonl> --prediction v2=<predictions.jsonl>`; fixture shape, metrics,
-and acceptance thresholds are documented in `evaluation/entity-extraction`.
+`pnpm check` runs application and Worker type checking, strict linting, unit
+tests, Workers integration tests, and the production build. GitHub Actions uses
+Node.js 24 and pnpm 11.0.8 and runs on every pull request and push to `main`.
 
-CI runs type checking, linting, tests, and the production build for every pull
-request. Tests cover contracts, entity extraction and corroboration,
-URL/domain normalization, DST-aware schedules, analytics reporting, ads,
-product enrichment, provider costs, evidence parsing, and the React views used
-to render captured answers.
+Entity-extraction releases also have an offline gold-set gate. Keep private or
+sanitized JSONL fixtures out of Git. `pnpm evaluate:entities` creates the local
+stratified sample, v1/v2 predictions, and review page. After review, run:
+
+```bash
+pnpm benchmark:entities -- --gold <gold.jsonl> --prediction v2=<predictions.jsonl>
+```
+
+Fixture shape, metrics, and acceptance thresholds are documented in
+`evaluation/entity-extraction`.
 
 ## Repository map
 
-- `src/app`: Belki React dashboard and authenticated product experience
-- `src/worker`: Hono API, ingestion, analytics, automation, and scheduled work
-- `src/shared`: request schemas and queue contracts
-- `migrations/control`: tenancy, orchestration, analytics, entities, ads,
-  enrichment, billing, and project settings
+- `src/app`: React dashboard, onboarding, authentication, and product experience
+- `src/worker`: Hono API, source adapters, ingestion, analytics, automation, and scheduled work
+- `src/shared`: request schemas, source definitions, plan access, and queue contracts
+- `migrations/control`: tenancy, orchestration, analytics, entities, ads, enrichment, billing, and project settings
 - `migrations/snapshot`: detailed response, citation, product, and ad evidence
+- `deployment`: environment-specific deployment profiles
 - `infrastructure`: R2 lifecycle configuration
-- `scripts/migrate.mjs`: applies migrations to the control database and all 32
-  snapshot shards
+- `scripts/migrate.mjs`: control and 32-shard migration runner
+- `docs/deployment-and-migration.md`: production provisioning and migration runbook
+- `evaluation/entity-extraction`: offline entity quality workflow
 - `ai-tracker-prd.md`: original product and architecture requirements
 
 ## License
