@@ -13,22 +13,21 @@ import {
   Sparkles,
   Trash2,
 } from "lucide-react";
-import { useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useState, type FormEvent } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import {
-  CartesianGrid,
-  Line,
-  LineChart,
   ReferenceLine,
-  ResponsiveContainer,
-  Tooltip,
   type TooltipPayload,
-  XAxis,
-  YAxis,
 } from "recharts";
 import { NoProject, PageHeader } from "../components/layout";
 import { CountryFlag } from "../components/country-flag";
 import { CompletedRunsIcon } from "../components/navigation-icons";
+import {
+  BelkiTrendChart,
+  TrendChartInsight,
+  TrendChartLegend,
+  type TrendSeriesDefinition,
+} from "../components/trend-chart";
 import { TrackingSourceMark } from "../components/tracking-source-mark";
 import { PromptRowActions } from "../components/prompt-row-actions";
 import {
@@ -70,6 +69,14 @@ import {
   promptSetEventLabel,
   type AlignedPromptSetEvent,
 } from "../lib/overview";
+import {
+  mobileHiddenTrendSeries,
+  previousTrendValue,
+  shortChartDate,
+  toggleTrendSeries,
+  trendWindowSummary,
+  type TrendDatum,
+} from "../lib/trend-chart";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 import type { RunStatus } from "../../shared/contracts";
 import {
@@ -293,6 +300,21 @@ const PROMPT_EVENT_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
   timeZone: "UTC",
 });
 
+function useMobileChartLayout(): boolean {
+  const query = "(max-width: 620px)";
+  const [matches, setMatches] = useState(() =>
+    typeof window !== "undefined" ? window.matchMedia(query).matches : false,
+  );
+  useEffect(() => {
+    const media = window.matchMedia(query);
+    const update = () => setMatches(media.matches);
+    update();
+    media.addEventListener("change", update);
+    return () => media.removeEventListener("change", update);
+  }, []);
+  return matches;
+}
+
 function PromptSetEventMarker({
   event,
   viewBox,
@@ -304,6 +326,12 @@ function PromptSetEventMarker({
   const y = viewBox?.y;
   if (x === undefined || y === undefined) return null;
   const description = promptSetEventDescription(event);
+  const label = event.addedCount && event.removedCount
+    ? `±${event.addedCount + event.removedCount}`
+    : event.addedCount
+      ? `+${event.addedCount}`
+      : `−${event.removedCount}`;
+  const width = Math.max(24, label.length * 6 + 10);
   return (
     <g
       aria-label={description}
@@ -312,8 +340,25 @@ function PromptSetEventMarker({
       tabIndex={0}
     >
       <title>{description}</title>
-      <circle className="prompt-set-event-hit-area" cx={x} cy={y + 3} r={9} />
-      <circle className="prompt-set-event-dot" cx={x} cy={y + 3} r={3.25} />
+      <rect
+        className="prompt-set-event-hit-area"
+        height={24}
+        rx={12}
+        width={width + 8}
+        x={x - (width + 8) / 2}
+        y={y - 10}
+      />
+      <rect
+        className="prompt-set-event-flag"
+        height={16}
+        rx={8}
+        width={width}
+        x={x - width / 2}
+        y={y - 6}
+      />
+      <text className="prompt-set-event-label" textAnchor="middle" x={x} y={y + 5}>
+        {label}
+      </text>
     </g>
   );
 }
@@ -340,11 +385,13 @@ function OverviewChartTooltip({
   label,
   payload,
   promptEvents,
+  data,
 }: {
-  active: boolean;
+  active?: boolean;
   label?: string | number;
-  payload: TooltipPayload;
+  payload?: TooltipPayload;
   promptEvents: readonly AlignedPromptSetEvent[];
+  data: readonly TrendDatum[];
 }) {
   if (!active || label === undefined) return null;
   const chartDate = String(label);
@@ -357,9 +404,15 @@ function OverviewChartTooltip({
       promptEvent.sourceEvents.some(
         (source) => source.metric_date !== chartDate,
       ));
+  const entries = [...(payload ?? [])]
+    .filter((entry) => entry.value !== undefined)
+    .sort((left, right) => Number(right.value) - Number(left.value));
+  const responseCount = data.find(
+    (point) => point.metric_date === chartDate,
+  )?.completedRuns;
   return (
     <div className="overview-chart-tooltip">
-      <strong>{chartDate}</strong>
+      <strong>{shortChartDate(chartDate)}</strong>
       {promptEvent && (
         <div className="overview-chart-tooltip-event">
           <span>
@@ -376,16 +429,31 @@ function OverviewChartTooltip({
         </div>
       )}
       <div className="overview-chart-tooltip-series">
-        {payload
-          .filter((entry) => entry.value !== undefined)
-          .map((entry, index) => (
+        {entries.map((entry, index) => {
+          const seriesKey = String(entry.dataKey ?? "");
+          const previousValue = previousTrendValue(data, chartDate, seriesKey);
+          const change = previousValue === null
+            ? null
+            : Number(entry.value) - previousValue;
+          return (
             <div key={`${String(entry.dataKey ?? entry.name)}-${index}`}>
               <i style={{ background: entry.color ?? entry.stroke }} />
               <span>{entry.name ?? String(entry.dataKey)}</span>
               <b>{percent(Number(entry.value))}</b>
+              {change === null ? null : (
+                <small>
+                  {change > 0 ? "+" : change < 0 ? "−" : ""}{Math.abs(change).toFixed(1)} pp
+                </small>
+              )}
             </div>
-          ))}
+          );
+        })}
       </div>
+      {typeof responseCount === "number" ? (
+        <small className="overview-chart-tooltip-responses">
+          {pluralize(responseCount, "completed response")}
+        </small>
+      ) : null}
     </div>
   );
 }
@@ -408,6 +476,17 @@ export function OverviewPage() {
   const [brandMetric, setBrandMetric] = useState<"visibility" | "shareOfVoice">(
     "visibility",
   );
+  const isMobileChartLayout = useMobileChartLayout();
+  const [brandSeriesVisibility, setBrandSeriesVisibility] = useState<{
+    context: string;
+    hidden: Set<string>;
+  }>(() => ({ context: "", hidden: new Set() }));
+  const [citationSeriesVisibility, setCitationSeriesVisibility] = useState<{
+    context: string;
+    hidden: Set<string>;
+  }>(() => ({ context: "", hidden: new Set() }));
+  const [highlightedBrandSeries, setHighlightedBrandSeries] = useState<string | null>(null);
+  const [highlightedCitationSeries, setHighlightedCitationSeries] = useState<string | null>(null);
   const overview = useQuery({
     queryKey: ["overview", projectId, overviewSource],
     queryFn: () => api<Overview>(`/analytics/overview?projectId=${projectId}&source=${overviewSource}`),
@@ -432,6 +511,7 @@ export function OverviewPage() {
   const brandComparisonSeries = useMemo(
     () => (brandComparison?.series ?? []).map((point) => ({
       metric_date: point.metric_date,
+      completedRuns: point.completedRuns,
       ...Object.fromEntries(
         comparisonBrands.map((brand) => [
           brand.key,
@@ -441,22 +521,96 @@ export function OverviewPage() {
     })),
     [brandComparison?.series, brandMetric, comparisonBrands],
   );
+  const brandTrendSeries = useMemo<TrendSeriesDefinition[]>(
+    () => comparisonBrands.map((brand, index) => ({
+      key: brand.key,
+      label: brand.name,
+      color: BRAND_TREND_COLORS[index % BRAND_TREND_COLORS.length] ?? "#18181b",
+      primary: brand.kind === "owned",
+      badge: brand.kind === "owned" ? "Your brand" : undefined,
+    })),
+    [comparisonBrands],
+  );
   const citationSources = useMemo(
     () => overview.data?.citationSourceTrends.sources ?? [],
     [overview.data?.citationSourceTrends.sources],
   );
   const citationSourceSeries = useMemo(
-    () => (overview.data?.citationSourceTrends.series ?? []).map((point) => ({
-      metric_date: point.metric_date,
-      ...Object.fromEntries(
-        citationSources.map((source, index) => [
-          `source_${index}`,
-          point.rates[source.domain] ?? 0,
+    () => {
+      const completedRuns = new Map(
+        (overview.data?.series ?? []).map((point) => [
+          point.metric_date,
+          point.completed_runs,
         ]),
-      ),
-    })),
-    [citationSources, overview.data?.citationSourceTrends.series],
+      );
+      return (overview.data?.citationSourceTrends.series ?? []).map((point) => ({
+        metric_date: point.metric_date,
+        completedRuns: completedRuns.get(point.metric_date),
+        ...Object.fromEntries(
+          citationSources.map((source, index) => [
+            `source_${index}`,
+            point.rates[source.domain] ?? 0,
+          ]),
+        ),
+      }));
+    },
+    [citationSources, overview.data?.citationSourceTrends.series, overview.data?.series],
   );
+  const citationTrendSeries = useMemo<TrendSeriesDefinition[]>(
+    () => citationSources.map((source, index) => ({
+      key: `source_${index}`,
+      label: source.domain,
+      color: SOURCE_TREND_COLORS[
+        source.isProjectDomain
+          ? SOURCE_TREND_COLORS.length - 1
+          : index % (SOURCE_TREND_COLORS.length - 1)
+      ] ?? "#18181b",
+      primary: source.isProjectDomain,
+      badge: source.isProjectDomain ? "Project" : undefined,
+      detailHref: isConsolidated
+        ? undefined
+        : `/citations/${encodeURIComponent(source.domain)}`,
+      connectNulls: true,
+    })),
+    [citationSources, isConsolidated],
+  );
+  const mobileBrandHiddenSeries = useMemo(
+    () => mobileHiddenTrendSeries(brandTrendSeries),
+    [brandTrendSeries],
+  );
+  const mobileCitationHiddenSeries = useMemo(
+    () => mobileHiddenTrendSeries(citationTrendSeries),
+    [citationTrendSeries],
+  );
+  const brandVisibilityContext = `${isMobileChartLayout}:${brandTrendSeries.map(({ key }) => key).join("|")}`;
+  const citationVisibilityContext = `${isMobileChartLayout}:${citationTrendSeries.map(({ key }) => key).join("|")}`;
+  const hiddenBrandSeries = brandSeriesVisibility.context === brandVisibilityContext
+    ? brandSeriesVisibility.hidden
+    : isMobileChartLayout
+      ? mobileBrandHiddenSeries
+      : new Set<string>();
+  const hiddenCitationSeries = citationSeriesVisibility.context === citationVisibilityContext
+    ? citationSeriesVisibility.hidden
+    : isMobileChartLayout
+      ? mobileCitationHiddenSeries
+      : new Set<string>();
+  const visibleBrandTrendSeries = brandTrendSeries.filter(
+    ({ key }) => !hiddenBrandSeries.has(key),
+  );
+  const visibleCitationTrendSeries = citationTrendSeries.filter(
+    ({ key }) => !hiddenCitationSeries.has(key),
+  );
+  const ownedTrendSeries = brandTrendSeries.find(({ primary }) => primary);
+  const brandTrendSummary = ownedTrendSeries
+    ? trendWindowSummary(brandComparisonSeries, ownedTrendSeries.key)
+    : null;
+  const leadingCitationTrend = citationTrendSeries
+    .map((definition) => ({
+      definition,
+      summary: trendWindowSummary(citationSourceSeries, definition.key),
+    }))
+    .filter((entry) => entry.summary !== null)
+    .sort((left, right) => (right.summary?.value ?? 0) - (left.summary?.value ?? 0))[0];
   const chartDates = (overview.data?.series ?? []).map(
     (point) => point.metric_date,
   );
@@ -567,19 +721,30 @@ export function OverviewPage() {
                 </div>
               )}
             />
+            <TrendChartInsight
+              change={brandTrendSummary?.change}
+              detail={ownedTrendSeries?.label}
+              label="7-day average"
+              value={brandTrendSummary?.value}
+            />
             {comparisonSummary?.trackedCompetitorCount ? (
               <>
-                <div className="brand-comparison-legend">
-                  {comparisonBrands.map((brand, index) => (
-                    <span key={brand.key}>
-                      <i style={{ background: BRAND_TREND_COLORS[index] }} />
-                      {brand.name}
-                      {brand.kind === "owned" && <small>Your brand</small>}
-                    </span>
-                  ))}
-                </div>
+                <TrendChartLegend
+                  highlightedKey={highlightedBrandSeries}
+                  hiddenKeys={hiddenBrandSeries}
+                  items={brandTrendSeries}
+                  onHighlightedKeyChange={setHighlightedBrandSeries}
+                  onToggle={(key) => setBrandSeriesVisibility({
+                    context: brandVisibilityContext,
+                    hidden: toggleTrendSeries(
+                      hiddenBrandSeries,
+                      key,
+                      brandTrendSeries.map((item) => item.key),
+                    ),
+                  })}
+                />
                 <p className="brand-comparison-note">
-                  Share of Voice includes all {comparisonSummary.trackedCompetitorCount} tracked {comparisonSummary.trackedCompetitorCount === 1 ? "competitor" : "competitors"}{comparisonSummary.trackedCompetitorCount > 4 ? "; the chart shows the top four." : "."}
+                  Select a brand to show or hide it. Share of Voice includes all {comparisonSummary.trackedCompetitorCount} tracked {comparisonSummary.trackedCompetitorCount === 1 ? "competitor" : "competitors"}{comparisonSummary.trackedCompetitorCount > 4 ? "; the chart shows the top four." : "."}
                 </p>
               </>
             ) : null}
@@ -593,46 +758,22 @@ export function OverviewPage() {
                   action={<Button asChild variant="secondary"><Link to="/entities">Manage competitors</Link></Button>}
                 />
               ) : brandComparisonSeries.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <LineChart
-                    data={brandComparisonSeries}
-                    margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
-                    <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
-                    <YAxis
-                      width={42}
-                      domain={[0, 100]}
-                      ticks={[0, 25, 50, 75, 100]}
-                      tickFormatter={(value) => `${value}%`}
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ fill: "#71717a", fontSize: 11 }}
+                <BelkiTrendChart
+                  annotations={promptEventReferenceLines(promptSetEvents)}
+                  ariaLabel={`${brandMetric === "visibility" ? "Visibility" : "Share of Voice"} trend for ${ownedBrandName} and tracked competitors`}
+                  data={brandComparisonSeries}
+                  highlightedKey={highlightedBrandSeries}
+                  series={visibleBrandTrendSeries}
+                  tooltipContent={(props) => (
+                    <OverviewChartTooltip
+                      active={props.active}
+                      data={brandComparisonSeries}
+                      label={props.label}
+                      payload={props.payload}
+                      promptEvents={promptSetEvents}
                     />
-                    <Tooltip
-                      content={(props) => (
-                        <OverviewChartTooltip
-                          active={props.active}
-                          label={props.label}
-                          payload={props.payload}
-                          promptEvents={promptSetEvents}
-                        />
-                      )}
-                    />
-                    {comparisonBrands.map((brand, index) => (
-                      <Line
-                        dataKey={brand.key}
-                        dot={{ r: 2 }}
-                        key={brand.key}
-                        name={brand.name}
-                        stroke={BRAND_TREND_COLORS[index]}
-                        strokeWidth={brand.kind === "owned" ? 2.5 : 2}
-                        type="monotone"
-                      />
-                    ))}
-                    {promptEventReferenceLines(promptSetEvents)}
-                  </LineChart>
-                </ResponsiveContainer>
+                  )}
+                />
               ) : <EmptyState title="No trend data yet" description="Your first completed tracking run will appear here." />}
             </div>
           </Card>
@@ -642,94 +783,49 @@ export function OverviewPage() {
               title="Citation source trend"
               description="Daily share of completed runs citing each leading source"
             />
-            {citationSources.length > 0 && (
-              <div className="source-comparison-legend">
-                {citationSources.map((source, index) => {
-                  const label = (
-                    <>
-                    <span
-                      className="source-comparison-swatch"
-                      style={{
-                        background:
-                          SOURCE_TREND_COLORS[
-                            source.isProjectDomain
-                              ? SOURCE_TREND_COLORS.length - 1
-                              : index % (SOURCE_TREND_COLORS.length - 1)
-                          ],
-                      }}
-                    />
-                    {source.domain}
-                    {source.isProjectDomain && <small>Project</small>}
-                    </>
-                  );
-                  return isConsolidated ? (
-                    <span className="source-comparison-label" key={source.domain}>
-                      {label}
-                    </span>
-                  ) : (
-                    <Link
-                      key={source.domain}
-                      to={`/citations/${encodeURIComponent(source.domain)}`}
-                    >
-                      {label}
-                    </Link>
-                  );
+            <TrendChartInsight
+              change={leadingCitationTrend?.summary?.change}
+              detail={leadingCitationTrend?.definition.label}
+              label="Leading source · 7-day average"
+              value={leadingCitationTrend?.summary?.value}
+            />
+            {citationSources.length > 0 ? (
+              <TrendChartLegend
+                highlightedKey={highlightedCitationSeries}
+                hiddenKeys={hiddenCitationSeries}
+                items={citationTrendSeries}
+                onHighlightedKeyChange={setHighlightedCitationSeries}
+                onToggle={(key) => setCitationSeriesVisibility({
+                  context: citationVisibilityContext,
+                  hidden: toggleTrendSeries(
+                    hiddenCitationSeries,
+                    key,
+                    citationTrendSeries.map((item) => item.key),
+                  ),
                 })}
-              </div>
-            )}
+              />
+            ) : null}
             <div className="chart source-comparison-chart">
               {overview.isPending ? (
                 <Skeleton className="chart-skeleton" />
               ) : citationSources.length > 0 &&
                 citationSourceSeries.length > 0 ? (
-                <ResponsiveContainer width="100%" height="100%" minWidth={0}>
-                  <LineChart
-                    data={citationSourceSeries}
-                    margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
-                  >
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e4e4e7" />
-                    <XAxis dataKey="metric_date" tickLine={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 11 }} />
-                    <YAxis
-                      width={42}
-                      domain={[0, 100]}
-                      ticks={[0, 25, 50, 75, 100]}
-                      tickFormatter={(value) => `${value}%`}
-                      tickLine={false}
-                      axisLine={false}
-                      tick={{ fill: "#71717a", fontSize: 11 }}
+                <BelkiTrendChart
+                  annotations={promptEventReferenceLines(promptSetEvents)}
+                  ariaLabel="Citation frequency trend for leading sources"
+                  data={citationSourceSeries}
+                  highlightedKey={highlightedCitationSeries}
+                  series={visibleCitationTrendSeries}
+                  tooltipContent={(props) => (
+                    <OverviewChartTooltip
+                      active={props.active}
+                      data={citationSourceSeries}
+                      label={props.label}
+                      payload={props.payload}
+                      promptEvents={promptSetEvents}
                     />
-                    <Tooltip
-                      content={(props) => (
-                        <OverviewChartTooltip
-                          active={props.active}
-                          label={props.label}
-                          payload={props.payload}
-                          promptEvents={promptSetEvents}
-                        />
-                      )}
-                    />
-                    {citationSources.map((source, index) => (
-                      <Line
-                        connectNulls
-                        dataKey={`source_${index}`}
-                        dot={{ r: 2 }}
-                        isAnimationActive={false}
-                        key={source.domain}
-                        name={source.domain}
-                        stroke={
-                          SOURCE_TREND_COLORS[
-                            source.isProjectDomain
-                              ? SOURCE_TREND_COLORS.length - 1
-                              : index % (SOURCE_TREND_COLORS.length - 1)
-                          ]
-                        }
-                        strokeWidth={source.isProjectDomain ? 2.5 : 2}
-                        type="monotone"
-                      />
-                    ))}
-                    {promptEventReferenceLines(promptSetEvents)}
-                  </LineChart>
-                </ResponsiveContainer>
+                  )}
+                />
               ) : (
                 <EmptyState
                   title="No citation source data yet"
