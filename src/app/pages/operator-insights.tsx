@@ -335,41 +335,45 @@ function TrendChart({
           />
         ) : (
           <ResponsiveContainer height="100%" minWidth={0} width="100%">
-            <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
+            <AreaChart accessibilityLayer data={data} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
               <defs>
                 <linearGradient id={`operator-${title.replaceAll(" ", "-")}`} x1="0" x2="0" y1="0" y2="1">
                   <stop offset="5%" stopColor="#18181b" stopOpacity={0.12} />
                   <stop offset="95%" stopColor="#18181b" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid stroke="#ececf0" vertical={false} />
               <XAxis
                 axisLine={false}
                 dataKey="date"
-                minTickGap={24}
-                tick={{ fill: "#71717a", fontSize: 11 }}
+                interval="preserveStartEnd"
+                minTickGap={38}
+                tick={{ fill: "#71717a", fontSize: 10 }}
                 tickFormatter={dateLabel}
                 tickLine={false}
               />
               <YAxis
                 axisLine={false}
                 domain={[0, yAxisMax]}
-                tick={{ fill: "#71717a", fontSize: 11 }}
+                tick={{ fill: "#71717a", fontSize: 10 }}
                 tickFormatter={(value) => axisPercent(Number(value))}
                 tickLine={false}
                 ticks={insightYAxisTicks(yAxisMax)}
                 width={42}
               />
-              <Tooltip content={TrendTooltip} />
+              <Tooltip content={TrendTooltip} cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} isAnimationActive={false} />
               <Area
+                activeDot={{ fill: "#fff", r: 4, stroke: "#18181b", strokeWidth: 2 }}
                 dataKey="share"
-                dot={{ fill: "#fff", r: 2.5, stroke: "#18181b", strokeWidth: 2 }}
+                dot={false}
                 fill={`url(#operator-${title.replaceAll(" ", "-")})`}
                 isAnimationActive={false}
                 name="Share"
                 stroke="#18181b"
+                strokeLinecap="round"
+                strokeLinejoin="round"
                 strokeWidth={2.25}
-                type="monotone"
+                type="linear"
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -415,41 +419,46 @@ export function YearsChart({
           />
         ) : (
           <ResponsiveContainer height="100%" minWidth={0} width="100%">
-            <LineChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
-              <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+            <LineChart accessibilityLayer data={data} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+              <CartesianGrid stroke="#ececf0" vertical={false} />
               <XAxis
                 axisLine={false}
                 dataKey="date"
-                minTickGap={24}
-                tick={{ fill: "#71717a", fontSize: 11 }}
+                interval="preserveStartEnd"
+                minTickGap={38}
+                tick={{ fill: "#71717a", fontSize: 10 }}
                 tickFormatter={dateLabel}
                 tickLine={false}
               />
               <YAxis
                 axisLine={false}
                 domain={[0, yAxisMax]}
-                tick={{ fill: "#71717a", fontSize: 11 }}
+                tick={{ fill: "#71717a", fontSize: 10 }}
                 tickFormatter={(value) => axisPercent(Number(value))}
                 tickLine={false}
                 ticks={insightYAxisTicks(yAxisMax)}
                 width={42}
               />
               <Tooltip
-                contentStyle={{ border: "1px solid #d4d4d8", borderRadius: 8 }}
+                cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }}
                 formatter={(value, name) => [percent(Number(value)), String(name)]}
+                isAnimationActive={false}
                 labelFormatter={tooltipDateLabel}
               />
-              <Legend />
+              <Legend iconSize={10} iconType="line" />
               {years.map(({ year }, index) => (
                 <Line
                   dataKey={String(year)}
-                  dot={{ r: 2 }}
+                  activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }}
+                  dot={false}
                   isAnimationActive={false}
                   key={year}
                   name={String(year)}
                   stroke={YEAR_COLORS[index % YEAR_COLORS.length]}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                   strokeWidth={2.25}
-                  type="monotone"
+                  type="linear"
                 />
               ))}
             </LineChart>
@@ -534,26 +543,27 @@ function FanOutActivityChart({
           />
         ) : (
           <ResponsiveContainer height="100%" minWidth={0} width="100%">
-            <AreaChart data={data} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
+            <AreaChart accessibilityLayer data={data} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
               <defs>
                 <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
                   <stop offset="5%" stopColor="#18181b" stopOpacity={0.12} />
                   <stop offset="95%" stopColor="#18181b" stopOpacity={0} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+              <CartesianGrid stroke="#ececf0" vertical={false} />
               <XAxis
                 axisLine={false}
                 dataKey="date"
-                minTickGap={24}
-                tick={{ fill: "#71717a", fontSize: 11 }}
+                interval="preserveStartEnd"
+                minTickGap={38}
+                tick={{ fill: "#71717a", fontSize: 10 }}
                 tickFormatter={dateLabel}
                 tickLine={false}
               />
               <YAxis
                 axisLine={false}
                 domain={[0, yAxisMax]}
-                tick={{ fill: "#71717a", fontSize: 11 }}
+                tick={{ fill: "#71717a", fontSize: 10 }}
                 tickFormatter={(value) => isShare
                   ? axisPercent(Number(value))
                   : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -563,16 +573,21 @@ function FanOutActivityChart({
               />
               <Tooltip
                 content={(props) => <ActivityTooltip {...props} metric={metric} />}
+                cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }}
+                isAnimationActive={false}
               />
               <Area
+                activeDot={{ fill: "#fff", r: 4, stroke: "#18181b", strokeWidth: 2 }}
                 dataKey={metric}
-                dot={{ fill: "#fff", r: 2.5, stroke: "#18181b", strokeWidth: 2 }}
+                dot={false}
                 fill={`url(#${gradientId})`}
                 isAnimationActive={false}
                 name={title}
                 stroke="#18181b"
+                strokeLinecap="round"
+                strokeLinejoin="round"
                 strokeWidth={2.25}
-                type="monotone"
+                type="linear"
               />
             </AreaChart>
           </ResponsiveContainer>
@@ -707,20 +722,21 @@ export function FanOutSignalExplorer({
           />
         ) : (
           <ResponsiveContainer height="100%" minWidth={0} width="100%">
-            <LineChart data={chartData} margin={{ top: 8, right: 12, bottom: 0, left: 4 }}>
-              <CartesianGrid stroke="#e4e4e7" strokeDasharray="3 3" vertical={false} />
+            <LineChart accessibilityLayer data={chartData} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+              <CartesianGrid stroke="#ececf0" vertical={false} />
               <XAxis
                 axisLine={false}
                 dataKey="date"
-                minTickGap={24}
-                tick={{ fill: "#71717a", fontSize: 11 }}
+                interval="preserveStartEnd"
+                minTickGap={38}
+                tick={{ fill: "#71717a", fontSize: 10 }}
                 tickFormatter={dateLabel}
                 tickLine={false}
               />
               <YAxis
                 axisLine={false}
                 domain={[0, yAxisMax]}
-                tick={{ fill: "#71717a", fontSize: 11 }}
+                tick={{ fill: "#71717a", fontSize: 10 }}
                 tickFormatter={(value) => metricCopy.percentage
                   ? axisPercent(Number(value))
                   : Number(value).toLocaleString(undefined, { maximumFractionDigits: 2 })}
@@ -730,18 +746,23 @@ export function FanOutSignalExplorer({
               />
               <Tooltip
                 content={(props) => <SignalTooltip {...props} metric={metric} />}
+                cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }}
+                isAnimationActive={false}
               />
-              <Legend />
+              <Legend iconSize={10} iconType="line" />
               {series.map(({ id, label }, index) => (
                 <Line
                   dataKey={id}
-                  dot={{ r: 2 }}
+                  activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }}
+                  dot={false}
                   isAnimationActive={false}
                   key={id}
                   name={label}
                   stroke={YEAR_COLORS[index % YEAR_COLORS.length]}
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                   strokeWidth={2.25}
-                  type="monotone"
+                  type="linear"
                 />
               ))}
             </LineChart>
