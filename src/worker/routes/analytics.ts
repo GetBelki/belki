@@ -75,6 +75,19 @@ const PaginatedDateRangeSchema = DateRangeSchema.extend({
   offset: z.coerce.number().int().min(0).optional(),
   limit: z.coerce.number().int().min(1).max(100).default(10),
 });
+const TrackedBrandAnalyticsSchema = DateRangeSchema.extend({
+  search: z.string().trim().max(200).optional(),
+  kind: z.enum(["owned", "competitor"]).optional(),
+  cursor: z.string().max(4096).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
+const EntityAnalyticsSchema = DateRangeSchema.extend({
+  search: z.string().trim().max(200).optional(),
+  group: z.enum(["brands", "companies", "places", "other"]).optional(),
+  status: z.enum(["candidate", "ignored", "all"]).default("candidate"),
+  cursor: z.string().max(4096).optional(),
+  limit: z.coerce.number().int().min(1).max(100).default(25),
+});
 const CitationSourceParamSchema = z.object({
   domain: z.string().trim().min(1).max(253).transform((value) => value.toLowerCase()),
 });
@@ -4141,7 +4154,7 @@ analyticsRoutes.patch(
 
 analyticsRoutes.get(
   "/analytics/brands",
-  zValidator("query", DateRangeSchema),
+  zValidator("query", TrackedBrandAnalyticsSchema),
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
@@ -4152,45 +4165,121 @@ analyticsRoutes.get(
       c.get("timing"),
     );
     const dates = range(input);
-    const [rows, verifiedBrandMentions] = await Promise.all([
-      c.env.CONTROL_DB.prepare(
-        `SELECT id, name, kind
-         FROM tracked_brands
-         WHERE project_id = ?
-         ORDER BY kind DESC, name`,
-      )
-        .bind(input.projectId)
-        .all<{ id: string; name: string; kind: "owned" | "competitor" }>(),
-      verifyStoredBrandMentions(
-        c.env,
-        input.projectId,
-        dates.from,
-        dates.to,
-        [],
-        false,
-        input.source,
-      ),
-    ]);
-    return c.json({
-      data: rows.results
-        .map((brand) => ({
-          ...brand,
-          mentioned_snapshot_count:
-            verifiedBrandMentions.byBrand.get(brand.id) ?? 0,
-        }))
-        .sort(
-          (left, right) =>
-            right.kind.localeCompare(left.kind) ||
-            right.mentioned_snapshot_count - left.mentioned_snapshot_count ||
-            left.name.localeCompare(right.name),
+    const clauses = ["brand.project_id = ?"];
+    const filterBindings: Array<string | number> = [input.projectId];
+    if (input.search) {
+      clauses.push("LOWER(brand.name) LIKE ?");
+      filterBindings.push(`%${input.search.toLocaleLowerCase()}%`);
+    }
+    if (input.kind) {
+      clauses.push("brand.kind = ?");
+      filterBindings.push(input.kind);
+    }
+    const brandCursor = decodeCursor<{
+      kindRank: number;
+      mentionedSnapshotCount: number;
+      name: string;
+      id: string;
+    }>(input.cursor, "analytics-brands");
+    if (
+      brandCursor &&
+      (typeof brandCursor.kindRank !== "number" ||
+        typeof brandCursor.mentionedSnapshotCount !== "number" ||
+        typeof brandCursor.name !== "string" ||
+        typeof brandCursor.id !== "string")
+    ) {
+      throw new ApiError(400, "invalid_cursor", "The tracked entity cursor is invalid.");
+    }
+    const cursorClause = brandCursor
+      ? `WHERE kind_rank > ?
+          OR (kind_rank = ? AND mentioned_snapshot_count < ?)
+          OR (kind_rank = ? AND mentioned_snapshot_count = ? AND name > ?)
+          OR (kind_rank = ? AND mentioned_snapshot_count = ? AND name = ? AND id > ?)`
+      : "";
+    const cursorBindings = brandCursor
+      ? [
+          brandCursor.kindRank,
+          brandCursor.kindRank,
+          brandCursor.mentionedSnapshotCount,
+          brandCursor.kindRank,
+          brandCursor.mentionedSnapshotCount,
+          brandCursor.name,
+          brandCursor.kindRank,
+          brandCursor.mentionedSnapshotCount,
+          brandCursor.name,
+          brandCursor.id,
+        ]
+      : [];
+    const [totalResult, pageResult] = await c.get("timing").measureD1(
+      "brand_metrics_page_db",
+      () => c.env.CONTROL_DB.batch([
+        c.env.CONTROL_DB.prepare(
+          `SELECT COUNT(*) AS total FROM tracked_brands AS brand
+           WHERE ${clauses.join(" AND ")}`,
+        ).bind(...filterBindings),
+        c.env.CONTROL_DB.prepare(
+          `WITH brand_page AS (
+             SELECT brand.id, brand.name, brand.kind,
+               CASE brand.kind WHEN 'owned' THEN 0 ELSE 1 END AS kind_rank,
+               COALESCE(SUM(metric.mentioned_snapshot_count), 0) AS mentioned_snapshot_count
+             FROM tracked_brands AS brand
+             LEFT JOIN daily_source_brand_metrics AS metric
+               ON metric.project_id = brand.project_id
+              AND metric.tracking_source = ?
+              AND metric.tracked_brand_id = brand.id
+              AND metric.metric_date BETWEEN ? AND ?
+             WHERE ${clauses.join(" AND ")}
+             GROUP BY brand.id, brand.name, brand.kind
+           )
+           SELECT id, name, kind, kind_rank, mentioned_snapshot_count
+           FROM brand_page
+           ${cursorClause}
+           ORDER BY kind_rank, mentioned_snapshot_count DESC, name, id
+           LIMIT ?`,
+        ).bind(
+          input.source,
+          dates.from,
+          dates.to,
+          ...filterBindings,
+          ...cursorBindings,
+          input.limit + 1,
         ),
+      ]),
+    );
+    const total = Number(
+      (totalResult?.results[0] as { total?: number } | undefined)?.total ?? 0,
+    );
+    if (!pageResult) throw new Error("Tracked entity query returned no page result.");
+    const candidates = pageResult.results as Array<{
+      id: string;
+      name: string;
+      kind: "owned" | "competitor";
+      kind_rank: number;
+      mentioned_snapshot_count: number;
+    }>;
+    const hasMore = candidates.length > input.limit;
+    const rows = candidates.slice(0, input.limit);
+    const last = rows.at(-1);
+    return c.json({
+      data: rows,
+      page: {
+        nextCursor: hasMore && last
+          ? encodeCursor("analytics-brands", {
+              kindRank: Number(last.kind_rank),
+              mentionedSnapshotCount: Number(last.mentioned_snapshot_count),
+              name: last.name,
+              id: last.id,
+            })
+          : null,
+        total,
+      },
     });
   },
 );
 
 analyticsRoutes.get(
   "/analytics/entities",
-  zValidator("query", DateRangeSchema),
+  zValidator("query", EntityAnalyticsSchema),
   async (c) => {
     const principal = c.get("principal");
     const input = c.req.valid("query");
@@ -4201,8 +4290,90 @@ analyticsRoutes.get(
       c.get("timing"),
     );
     const dates = range(input);
-    const rows = await c.env.CONTROL_DB.prepare(
-      `SELECT entity.id, entity.canonical_name, entity.entity_type,
+    const clauses = [
+      "entity.project_id = ?",
+      "entity.status != 'merged'",
+      input.status === "all"
+        ? "entity.status IN ('candidate', 'ignored')"
+        : "entity.status = ?",
+      `(entity.status = 'ignored' OR EXISTS (
+         SELECT 1 FROM entity_mentions active_mention
+         WHERE active_mention.entity_id = entity.id
+           AND active_mention.extractor_version = project.active_entity_extractor_version
+       ))`,
+    ];
+    const filterBindings: Array<string | number> = [input.projectId];
+    if (input.status !== "all") filterBindings.push(input.status);
+    if (input.search) {
+      clauses.push("LOWER(entity.canonical_name) LIKE ?");
+      filterBindings.push(`%${input.search.toLocaleLowerCase()}%`);
+    }
+    if (input.group === "brands") clauses.push("entity.entity_type = 'brand'");
+    if (input.group === "companies") {
+      clauses.push("entity.entity_type IN ('company', 'organization')");
+    }
+    if (input.group === "places") clauses.push("entity.entity_type = 'place'");
+    if (input.group === "other") {
+      clauses.push(
+        "entity.entity_type NOT IN ('brand', 'company', 'organization', 'place')",
+      );
+    }
+    const entityCursor = decodeCursor<{
+      groupRank: number;
+      periodSnapshotCount: number;
+      name: string;
+      id: string;
+    }>(input.cursor, "analytics-entities");
+    if (
+      entityCursor &&
+      (typeof entityCursor.groupRank !== "number" ||
+        typeof entityCursor.periodSnapshotCount !== "number" ||
+        typeof entityCursor.name !== "string" ||
+        typeof entityCursor.id !== "string")
+    ) {
+      throw new ApiError(400, "invalid_cursor", "The discovered entity cursor is invalid.");
+    }
+    const cursorClause = entityCursor
+      ? `WHERE group_rank > ?
+          OR (group_rank = ? AND period_snapshot_count < ?)
+          OR (group_rank = ? AND period_snapshot_count = ? AND canonical_name > ?)
+          OR (group_rank = ? AND period_snapshot_count = ? AND canonical_name = ? AND id > ?)`
+      : "";
+    const cursorBindings = entityCursor
+      ? [
+          entityCursor.groupRank,
+          entityCursor.groupRank,
+          entityCursor.periodSnapshotCount,
+          entityCursor.groupRank,
+          entityCursor.periodSnapshotCount,
+          entityCursor.name,
+          entityCursor.groupRank,
+          entityCursor.periodSnapshotCount,
+          entityCursor.name,
+          entityCursor.id,
+        ]
+      : [];
+    const start = `${dates.from}T00:00:00.000Z`;
+    const end = exclusiveDateEnd(dates.to);
+    const [totalResult, pageResult] = await c.get("timing").measureD1(
+      "entities_page_db",
+      () => c.env.CONTROL_DB.batch([
+        c.env.CONTROL_DB.prepare(
+          `SELECT COUNT(*) AS total
+           FROM project_entities entity
+           JOIN projects project ON project.id = entity.project_id
+           WHERE ${clauses.join(" AND ")}`,
+        ).bind(...filterBindings),
+        c.env.CONTROL_DB.prepare(
+          `WITH entity_page AS (
+           SELECT entity.id, entity.canonical_name, entity.entity_type,
+        CASE entity.entity_type
+          WHEN 'brand' THEN 0
+          WHEN 'company' THEN 1
+          WHEN 'organization' THEN 1
+          WHEN 'place' THEN 2
+          ELSE 3
+        END AS group_rank,
         COALESCE((
           SELECT latest_relationship.relationship FROM entity_mentions latest_relationship
           WHERE latest_relationship.entity_id = entity.id
@@ -4251,40 +4422,47 @@ analyticsRoutes.get(
        LEFT JOIN entity_mentions mention ON mention.entity_id = entity.id
          AND mention.extractor_version = project.active_entity_extractor_version
          AND mention.captured_at >= ? AND mention.captured_at < ?
-       WHERE entity.project_id = ? AND entity.status != 'merged'
-         AND (
-           entity.status IN ('tracked', 'auto_tracked', 'ignored')
-           OR EXISTS (
-             SELECT 1 FROM entity_mentions active_mention
-             WHERE active_mention.entity_id = entity.id
-               AND active_mention.extractor_version = project.active_entity_extractor_version
-           )
-         )
+       WHERE ${clauses.join(" AND ")}
        GROUP BY entity.id
-       ORDER BY
-         CASE entity.status WHEN 'candidate' THEN 0 WHEN 'auto_tracked' THEN 1
-           WHEN 'tracked' THEN 2 ELSE 3 END,
-         period_snapshot_count DESC, entity.last_seen_at DESC, entity.canonical_name`,
-    )
-      .bind(
-        `${dates.from}T00:00:00.000Z`,
-        exclusiveDateEnd(dates.to),
-        `${dates.from}T00:00:00.000Z`,
-        exclusiveDateEnd(dates.to),
-        `${dates.from}T00:00:00.000Z`,
-        exclusiveDateEnd(dates.to),
-        `${dates.from}T00:00:00.000Z`,
-        exclusiveDateEnd(dates.to),
-        input.projectId,
-      )
-      .all<Record<string, unknown> & {
-        aliases_json: string;
-        domains_json: string;
-        latest_evidence_json: string | null;
-        latest_sources_json: string | null;
-      }>();
+       )
+       SELECT * FROM entity_page
+       ${cursorClause}
+       ORDER BY group_rank, period_snapshot_count DESC, canonical_name, id
+       LIMIT ?`,
+        ).bind(
+          start,
+          end,
+          start,
+          end,
+          start,
+          end,
+          start,
+          end,
+          ...filterBindings,
+          ...cursorBindings,
+          input.limit + 1,
+        ),
+      ]),
+    );
+    const total = Number(
+      (totalResult?.results[0] as { total?: number } | undefined)?.total ?? 0,
+    );
+    if (!pageResult) throw new Error("Discovered entity query returned no page result.");
+    const candidates = pageResult.results as Array<Record<string, unknown> & {
+      id: string;
+      canonical_name: string;
+      group_rank: number;
+      period_snapshot_count: number;
+      aliases_json: string;
+      domains_json: string;
+      latest_evidence_json: string | null;
+      latest_sources_json: string | null;
+    }>;
+    const hasMore = candidates.length > input.limit;
+    const rows = candidates.slice(0, input.limit);
+    const last = rows.at(-1);
     return c.json({
-      data: rows.results.map((entity) => ({
+      data: rows.map((entity) => ({
         ...entity,
         aliases: jsonParse<string[]>(entity.aliases_json, []),
         domains: jsonParse<string[]>(entity.domains_json, []),
@@ -4293,6 +4471,17 @@ analyticsRoutes.get(
         relationshipReason: entity.relationship_reason,
         latestSources: jsonParse<string[]>(entity.latest_sources_json, []),
       })),
+      page: {
+        nextCursor: hasMore && last
+          ? encodeCursor("analytics-entities", {
+              groupRank: Number(last.group_rank),
+              periodSnapshotCount: Number(last.period_snapshot_count),
+              name: last.canonical_name,
+              id: last.id,
+            })
+          : null,
+        total,
+      },
     });
   },
 );

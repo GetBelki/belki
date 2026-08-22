@@ -64,6 +64,10 @@ export const SpanExtractionResponseSchema = z.object({
   entities: z.array(SpanEntitySchema).max(100).default([]),
 });
 
+const SpanExtractionEnvelopeSchema = z.object({
+  entities: z.array(z.unknown()).default([]),
+});
+
 export const SPAN_EXTRACTION_JSON_SCHEMA = {
   type: "object",
   additionalProperties: false,
@@ -104,6 +108,10 @@ export type RelationshipAssessment = z.infer<typeof RelationshipAssessmentSchema
 
 export const RelationshipResponseSchema = z.object({
   assessments: z.array(RelationshipAssessmentSchema).max(100).default([]),
+});
+
+const RelationshipEnvelopeSchema = z.object({
+  assessments: z.array(z.unknown()).default([]),
 });
 
 export const RELATIONSHIP_JSON_SCHEMA = {
@@ -310,13 +318,25 @@ function structuredJson(value: unknown): unknown {
 export function parsedSpanAiResponse(
   value: unknown,
 ): z.infer<typeof SpanExtractionResponseSchema> {
-  return SpanExtractionResponseSchema.parse(structuredJson(value));
+  const envelope = SpanExtractionEnvelopeSchema.parse(structuredJson(value));
+  return {
+    entities: envelope.entities.slice(0, 100).flatMap((entity) => {
+      const parsed = SpanEntitySchema.safeParse(entity);
+      return parsed.success ? [parsed.data] : [];
+    }),
+  };
 }
 
 export function parsedRelationshipAiResponse(
   value: unknown,
 ): z.infer<typeof RelationshipResponseSchema> {
-  return RelationshipResponseSchema.parse(structuredJson(value));
+  const envelope = RelationshipEnvelopeSchema.parse(structuredJson(value));
+  return {
+    assessments: envelope.assessments.slice(0, 100).flatMap((assessment) => {
+      const parsed = RelationshipAssessmentSchema.safeParse(assessment);
+      return parsed.success ? [parsed.data] : [];
+    }),
+  };
 }
 
 function knownBrandForSurface(

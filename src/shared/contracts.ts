@@ -136,8 +136,11 @@ export const InviteSchema = z.object({
   sendEmail: z.boolean().default(false),
 });
 
-export const AcceptInviteSchema = z.object({
+export const InvitationTokenSchema = z.object({
   token: z.string().min(32),
+});
+
+export const AcceptInviteSchema = InvitationTokenSchema.extend({
   displayName: z.string().trim().min(2).max(120),
   password: z.string().min(12).max(256),
 });

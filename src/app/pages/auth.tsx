@@ -1,5 +1,5 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { ArrowRight, CheckCircle2, Radar } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { AlertTriangle, ArrowRight, CheckCircle2, Radar } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { useSearchParams } from "react-router-dom";
 import { post } from "../lib/api";
@@ -178,6 +178,16 @@ export function AcceptInvitePage() {
   const [params] = useSearchParams();
   const [complete, setComplete] = useState(false);
   const [error, setError] = useState("");
+  const token = params.get("token") ?? "";
+  const malformedToken = token.length < 32;
+  const validation = useQuery({
+    queryKey: ["invitation-validation", token],
+    queryFn: () => post<{ valid: boolean }>("/auth/invitations/validate", { token }),
+    enabled: !malformedToken,
+    retry: false,
+  });
+  const unavailable = malformedToken || validation.data?.valid === false;
+  const checking = !malformedToken && validation.isPending;
   const accept = useMutation({
     mutationFn: (body: Record<string, string>) => post("/auth/invitations/accept", body),
     onSuccess: () => setComplete(true),
@@ -187,15 +197,45 @@ export function AcceptInvitePage() {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
     accept.mutate({
-      token: params.get("token") ?? "",
+      token,
       displayName: formText(data, "displayName"),
       password: formText(data, "password"),
     });
   };
+  const title = complete
+    ? "You’re in"
+    : unavailable
+      ? "Invitation unavailable"
+      : validation.isError
+        ? "Couldn’t verify invitation"
+        : "Accept your invitation";
+  const description = complete
+    ? "Your account is ready."
+    : unavailable
+      ? "This invitation has expired, was already used, or is no longer available."
+      : validation.isError
+        ? "We couldn’t check this invitation right now."
+        : checking
+          ? "Checking whether this invitation is still available."
+          : "Choose your name and a secure password.";
   return (
-    <AuthShell title={complete ? "You’re in" : "Accept your invitation"} description={complete ? "Your account is ready." : "Choose your name and a secure password."}>
+    <AuthShell title={title} description={description}>
       {complete ? (
         <div className="success-panel"><CheckCircle2 /><p>You can now open the workspace.</p><Button onClick={() => window.location.assign("/")}>Continue</Button></div>
+      ) : checking ? (
+        <div className="success-panel auth-invitation-state"><p>Checking invitation…</p></div>
+      ) : validation.isError ? (
+        <div className="success-panel auth-invitation-state auth-invitation-problem">
+          <AlertTriangle />
+          <p>Please check your connection and try again.</p>
+          <Button onClick={() => void validation.refetch()}>Try again</Button>
+        </div>
+      ) : unavailable ? (
+        <div className="success-panel auth-invitation-state auth-invitation-problem">
+          <AlertTriangle />
+          <p>Ask the workspace owner to send you a new invitation.</p>
+          <Button onClick={() => window.location.assign("/login")}>Go to sign in</Button>
+        </div>
       ) : (
         <form className="form-stack" onSubmit={submit}>
           <Label>Your name</Label><Input name="displayName" required />

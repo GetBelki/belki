@@ -52,6 +52,7 @@ import {
   XAxis,
   YAxis,
 } from "recharts";
+import { WORKSPACE_INVITATION_TTL_DAYS } from "../../shared/invitations";
 import { NoProject, PageHeader } from "../components/layout";
 import { CountryFlag } from "../components/country-flag";
 import { DomainFavicon } from "../components/domain-favicon";
@@ -715,8 +716,41 @@ function entitySourceLabel(source: string): string {
   return labels[source] ?? source;
 }
 
+function useDebouncedValue<T>(value: T, delay = 300): T {
+  const [debouncedValue, setDebouncedValue] = useState(value);
+  useEffect(() => {
+    const timer = window.setTimeout(() => setDebouncedValue(value), delay);
+    return () => window.clearTimeout(timer);
+  }, [delay, value]);
+  return debouncedValue;
+}
+
+interface TrackedEntityRow {
+  id: string;
+  name: string;
+  kind: "owned" | "competitor";
+  mentioned_snapshot_count: number;
+}
+
+interface DiscoveredEntityRow {
+  id: string;
+  canonical_name: string;
+  entity_type: string;
+  relationship: string;
+  status: "candidate" | "ignored";
+  period_snapshot_count: number;
+  period_prompt_count: number;
+  confidence: number | null;
+  provider_corroborated: number;
+  domain_corroborated: number;
+  evidenceTier: "strong" | "moderate" | "weak";
+  relationshipReason: string | null;
+  latestSources: string[];
+  latestEvidence: string[];
+}
+
 export function BrandsPage() {
-  const { projectId, session } = useApp();
+  const { projectId, session, trackingSource } = useApp();
   const queryClient = useQueryClient();
   const [view, setView] = useState<"tracked" | "discovered">("tracked");
   const [trackedSearch, setTrackedSearch] = useState("");
@@ -724,24 +758,84 @@ export function BrandsPage() {
   const [discoveredSearch, setDiscoveredSearch] = useState("");
   const [discoveredGroup, setDiscoveredGroup] = useState<"all" | EntityGroupKey>("all");
   const [discoveredStatus, setDiscoveredStatus] = useState("candidate");
+  const pageSize = 25;
+  const debouncedTrackedSearch = useDebouncedValue(trackedSearch.trim());
+  const debouncedDiscoveredSearch = useDebouncedValue(discoveredSearch.trim());
+  const trackedScope = [
+    projectId,
+    trackingSource,
+    debouncedTrackedSearch,
+    trackedKind,
+  ].join("\u0000");
+  const discoveredScope = [
+    projectId,
+    trackingSource,
+    debouncedDiscoveredSearch,
+    discoveredGroup,
+    discoveredStatus,
+  ].join("\u0000");
+  const [trackedPagination, setTrackedPagination] = useState({
+    scope: "",
+    cursors: [] as string[],
+  });
+  const [discoveredPagination, setDiscoveredPagination] = useState({
+    scope: "",
+    cursors: [] as string[],
+  });
+  const trackedCursors =
+    trackedPagination.scope === trackedScope ? trackedPagination.cursors : [];
+  const discoveredCursors =
+    discoveredPagination.scope === discoveredScope
+      ? discoveredPagination.cursors
+      : [];
+  const trackedCursor = trackedCursors.at(-1);
+  const discoveredCursor = discoveredCursors.at(-1);
+  const trackedParams = new URLSearchParams({
+    projectId: projectId ?? "",
+    source: trackingSource,
+    limit: String(pageSize),
+  });
+  if (debouncedTrackedSearch) trackedParams.set("search", debouncedTrackedSearch);
+  if (trackedKind !== "all") trackedParams.set("kind", trackedKind);
+  if (trackedCursor) trackedParams.set("cursor", trackedCursor);
+  const discoveredParams = new URLSearchParams({
+    projectId: projectId ?? "",
+    source: trackingSource,
+    limit: String(pageSize),
+    status: discoveredStatus,
+  });
+  if (debouncedDiscoveredSearch) {
+    discoveredParams.set("search", debouncedDiscoveredSearch);
+  }
+  if (discoveredGroup !== "all") discoveredParams.set("group", discoveredGroup);
+  if (discoveredCursor) discoveredParams.set("cursor", discoveredCursor);
   const canEdit = session.user.role !== "viewer";
-  const query = useProjectAnalytics<Array<Record<string, string | number>>>("brands");
-  const discovered = useProjectAnalytics<Array<{
-    id: string;
-    canonical_name: string;
-    entity_type: string;
-    relationship: string;
-    status: "candidate" | "auto_tracked" | "tracked" | "ignored";
-    period_snapshot_count: number;
-    period_prompt_count: number;
-    confidence: number | null;
-    provider_corroborated: number;
-    domain_corroborated: number;
-    evidenceTier: "strong" | "moderate" | "weak";
-    relationshipReason: string | null;
-    latestSources: string[];
-    latestEvidence: string[];
-  }>>("entities");
+  const query = useQuery({
+    queryKey: [
+      "brands",
+      projectId,
+      trackingSource,
+      debouncedTrackedSearch,
+      trackedKind,
+      trackedCursor ?? "",
+    ],
+    queryFn: () => apiPage<TrackedEntityRow[]>(`/analytics/brands?${trackedParams}`),
+    enabled: Boolean(projectId),
+  });
+  const discovered = useQuery({
+    queryKey: [
+      "entities",
+      projectId,
+      trackingSource,
+      debouncedDiscoveredSearch,
+      discoveredGroup,
+      discoveredStatus,
+      discoveredCursor ?? "",
+    ],
+    queryFn: () =>
+      apiPage<DiscoveredEntityRow[]>(`/analytics/entities?${discoveredParams}`),
+    enabled: Boolean(projectId),
+  });
   const updateEntity = useMutation({
     mutationFn: ({ id, action }: { id: string; action: "track" | "ignore" | "restore" }) =>
       patch(`/entities/${id}`, { action }),
@@ -753,26 +847,17 @@ export function BrandsPage() {
     },
   });
   if (!projectId) return <NoProject />;
-  const candidates = discovered.data?.filter(
-    (entity) => entity.status === "candidate" || entity.status === "ignored",
-  ) ?? [];
-  const tracked = (query.data ?? [])
-    .filter((brand) => trackedKind === "all" || brand.kind === trackedKind)
-    .filter((brand) => String(brand.name).toLowerCase().includes(trackedSearch.trim().toLowerCase()))
-    .sort((left, right) => {
-      const kindDifference = (left.kind === "owned" ? 0 : 1) - (right.kind === "owned" ? 0 : 1);
-      if (kindDifference) return kindDifference;
-      return Number(right.mentioned_snapshot_count) - Number(left.mentioned_snapshot_count);
-    });
-  const filteredCandidates = candidates
-    .filter((entity) => discoveredStatus === "all" || entity.status === discoveredStatus)
-    .filter((entity) => discoveredGroup === "all" || entityGroup(entity.entity_type) === discoveredGroup)
-    .filter((entity) => entity.canonical_name.toLowerCase().includes(discoveredSearch.trim().toLowerCase()));
+  const tracked = query.data?.data ?? [];
+  const candidates = discovered.data?.data ?? [];
+  const trackedTotal = query.data?.page.total ?? 0;
+  const discoveredTotal = discovered.data?.page.total ?? 0;
+  const trackedOffset = trackedCursors.length * pageSize;
+  const discoveredOffset = discoveredCursors.length * pageSize;
   const groupedCandidates = ENTITY_GROUPS.map((group) => ({
     ...group,
-    entities: filteredCandidates
-      .filter((entity) => entityGroup(entity.entity_type) === group.key)
-      .sort((left, right) => right.period_snapshot_count - left.period_snapshot_count),
+    entities: candidates.filter(
+      (entity) => entityGroup(entity.entity_type) === group.key,
+    ),
   })).filter((group) => group.entities.length);
   return (
     <div className="page">
@@ -791,8 +876,8 @@ export function BrandsPage() {
         }
       />
       <div className="entity-tabs" role="tablist" aria-label="Entity views">
-        <button aria-selected={view === "tracked"} className={view === "tracked" ? "active" : undefined} onClick={() => setView("tracked")} role="tab" type="button">Tracked <span>{query.data?.length ?? 0}</span></button>
-        <button aria-selected={view === "discovered"} className={view === "discovered" ? "active" : undefined} onClick={() => setView("discovered")} role="tab" type="button">Discovered <span>{candidates.length}</span></button>
+        <button aria-selected={view === "tracked"} className={view === "tracked" ? "active" : undefined} onClick={() => setView("tracked")} role="tab" type="button">Tracked <span>{trackedTotal}</span></button>
+        <button aria-selected={view === "discovered"} className={view === "discovered" ? "active" : undefined} onClick={() => setView("discovered")} role="tab" type="button">Discovered <span>{discoveredTotal}</span></button>
       </div>
       {view === "tracked" ? (
         <Card className="tracked-entities-card">
@@ -800,6 +885,7 @@ export function BrandsPage() {
           <div className="entity-filter-bar">
             <Input
               aria-label="Search tracked entities"
+              maxLength={200}
               onChange={(event) => setTrackedSearch(event.target.value)}
               placeholder="Search entities"
               type="search"
@@ -816,21 +902,54 @@ export function BrandsPage() {
               value={trackedKind}
             />
           </div>
-          {query.isPending ? <TableSkeleton rows={6} columns={3} /> : tracked.length ? (
-            <DataTable
-              columns={[
-                { key: "entity", label: "Entity" },
-                { key: "role", label: "Role" },
-                { key: "mentions", label: "Mentioning snapshots" },
-              ]}
-              rows={tracked.map((brand) => ({
-                id: brand.id,
-                entity: <strong>{brand.name}</strong>,
-                role: <Badge tone={brand.kind === "owned" ? "info" : "neutral"}>{brand.kind === "owned" ? "Owned" : "Competitor"}</Badge>,
-                mentions: <strong>{compact(Number(brand.mentioned_snapshot_count))}</strong>,
-              }))}
-            />
-          ) : query.data?.length ? (
+          {query.isPending ? <TableSkeleton rows={pageSize} columns={3} /> : tracked.length ? (
+            <>
+              <DataTable
+                columns={[
+                  { key: "entity", label: "Entity" },
+                  { key: "role", label: "Role" },
+                  { key: "mentions", label: "Mentioning snapshots" },
+                ]}
+                rows={tracked.map((brand) => ({
+                  id: brand.id,
+                  entity: <strong>{brand.name}</strong>,
+                  role: <Badge tone={brand.kind === "owned" ? "info" : "neutral"}>{brand.kind === "owned" ? "Owned" : "Competitor"}</Badge>,
+                  mentions: <strong>{compact(Number(brand.mentioned_snapshot_count))}</strong>,
+                }))}
+              />
+              {trackedTotal > pageSize ? (
+                <div className="table-pagination">
+                  <span>{trackedOffset + 1}–{Math.min(trackedOffset + tracked.length, trackedTotal)} of {trackedTotal} entities</span>
+                  <div>
+                    <Button
+                      disabled={!trackedCursors.length || query.isFetching}
+                      onClick={() => setTrackedPagination({
+                        scope: trackedScope,
+                        cursors: trackedCursors.slice(0, -1),
+                      })}
+                      variant="secondary"
+                    >
+                      <ChevronLeft size={14} /> Previous
+                    </Button>
+                    <Button
+                      disabled={!query.data?.page.nextCursor || query.isFetching}
+                      onClick={() => {
+                        const nextCursor = query.data?.page.nextCursor;
+                        if (!nextCursor) return;
+                        setTrackedPagination({
+                          scope: trackedScope,
+                          cursors: [...trackedCursors, nextCursor],
+                        });
+                      }}
+                      variant="secondary"
+                    >
+                      Next <ChevronRight size={14} />
+                    </Button>
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : trackedSearch.trim() || trackedKind !== "all" ? (
             <EmptyState title="No matching entities" description="Adjust the search or role filter." />
           ) : (
             <EmptyState title="No tracked entities" description="Configure an owned brand or track a discovered competitor." />
@@ -842,6 +961,7 @@ export function BrandsPage() {
           <div className="entity-filter-bar entity-discovery-filters">
             <Input
               aria-label="Search discovered entities"
+              maxLength={200}
               onChange={(event) => setDiscoveredSearch(event.target.value)}
               placeholder="Search entities"
               type="search"
@@ -864,13 +984,14 @@ export function BrandsPage() {
               value={discoveredStatus}
             />
           </div>
-          {discovered.isPending ? <TableSkeleton rows={5} /> : groupedCandidates.length ? (
-            <div className="entity-discovery-groups">
-              {groupedCandidates.map((group) => (
-                <section className="entity-discovery-group" key={group.key}>
-                  <header><h4>{group.label}</h4><span>{group.entities.length}</span></header>
-                  <div className="entity-discovery-list">
-                    {group.entities.map((entity) => (
+          {discovered.isPending ? <TableSkeleton rows={pageSize} /> : groupedCandidates.length ? (
+            <>
+              <div className="entity-discovery-groups">
+                {groupedCandidates.map((group) => (
+                  <section className="entity-discovery-group" key={group.key}>
+                    <header><h4>{group.label}</h4><span>{group.entities.length} on this page</span></header>
+                    <div className="entity-discovery-list">
+                      {group.entities.map((entity) => (
                       <div className={entity.status === "ignored" ? "ignored" : undefined} key={entity.id}>
                         <div className="entity-discovery-copy">
                           <div>
@@ -909,13 +1030,49 @@ export function BrandsPage() {
                           )}
                         </div> : null}
                       </div>
-                    ))}
+                      ))}
+                    </div>
+                  </section>
+                ))}
+              </div>
+              {discoveredTotal > pageSize ? (
+                <div className="table-pagination">
+                  <span>{discoveredOffset + 1}–{Math.min(discoveredOffset + candidates.length, discoveredTotal)} of {discoveredTotal} entities</span>
+                  <div>
+                    <Button
+                      disabled={!discoveredCursors.length || discovered.isFetching}
+                      onClick={() => setDiscoveredPagination({
+                        scope: discoveredScope,
+                        cursors: discoveredCursors.slice(0, -1),
+                      })}
+                      variant="secondary"
+                    >
+                      <ChevronLeft size={14} /> Previous
+                    </Button>
+                    <Button
+                      disabled={!discovered.data?.page.nextCursor || discovered.isFetching}
+                      onClick={() => {
+                        const nextCursor = discovered.data?.page.nextCursor;
+                        if (!nextCursor) return;
+                        setDiscoveredPagination({
+                          scope: discoveredScope,
+                          cursors: [...discoveredCursors, nextCursor],
+                        });
+                      }}
+                      variant="secondary"
+                    >
+                      Next <ChevronRight size={14} />
+                    </Button>
                   </div>
-                </section>
-              ))}
-            </div>
-          ) : candidates.length ? (
+                </div>
+              ) : null}
+            </>
+          ) : debouncedDiscoveredSearch || discoveredGroup !== "all" ? (
             <EmptyState title="No matching entities" description="Adjust the search, type, or status filters." />
+          ) : discoveredStatus === "ignored" ? (
+            <EmptyState title="No ignored entities" description="Entities you ignore will appear here." />
+          ) : discoveredStatus === "candidate" ? (
+            <EmptyState title="No candidate entities" description="Newly discovered entities will appear after extraction completes." />
           ) : <EmptyState title="No discovered entities yet" description="Entity extraction runs asynchronously after captured responses are normalized." />}
         </Card>
       )}
@@ -2669,7 +2826,7 @@ export function UsersPage() {
         }))} /> : <EmptyState title="No pending invitations" description="New invitations will appear here until they are accepted or expire." />}
         </section>
       </Card>
-      <Dialog open={open} onOpenChange={setOpen} title="Invite workspace user" description="Invite links expire after 24 hours and are always shown once.">
+      <Dialog open={open} onOpenChange={setOpen} title="Invite workspace user" description={`Invite links expire after ${WORKSPACE_INVITATION_TTL_DAYS} days and are always shown once.`}>
         {invitation ? (
           <div className="success-panel">
             <CheckCircle2/>

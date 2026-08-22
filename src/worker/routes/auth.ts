@@ -5,12 +5,14 @@ import {
   AcceptInviteSchema,
   CompletePasswordResetSchema,
   InviteSchema,
+  InvitationTokenSchema,
   LoginSchema,
   MembershipUpdateSchema,
   PasswordResetRequestSchema,
   SetupSchema,
   WorkspaceSelectionSchema,
 } from "../../shared/contracts";
+import { workspaceInvitationExpiresAt } from "../../shared/invitations";
 import type { AppEnv } from "../lib/app";
 import {
   checkLoginRateLimit,
@@ -305,7 +307,7 @@ authRoutes.post(
     const token = randomToken();
     const id = crypto.randomUUID();
     const now = nowIso();
-    const expires = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const expires = workspaceInvitationExpiresAt();
     await c.env.CONTROL_DB.prepare(
       `INSERT INTO auth_tokens (
         id, workspace_id, email, role, purpose, token_hash, expires_at,
@@ -427,6 +429,28 @@ authRoutes.delete(
       metadata: invitation,
     });
     return c.json({ data: { id, revoked: true } });
+  },
+);
+
+authRoutes.post(
+  "/auth/invitations/validate",
+  zValidator("json", InvitationTokenSchema),
+  async (c) => {
+    const { token } = c.req.valid("json");
+    const invitation = await c.env.CONTROL_DB.prepare(
+      `SELECT expires_at, consumed_at
+       FROM auth_tokens
+       WHERE token_hash = ? AND purpose = 'invite'
+       LIMIT 1`,
+    )
+      .bind(await sha256(token))
+      .first<{ expires_at: string; consumed_at: string | null }>();
+    const valid = Boolean(
+      invitation &&
+      !invitation.consumed_at &&
+      Date.parse(invitation.expires_at) > Date.now(),
+    );
+    return c.json({ data: { valid } });
   },
 );
 

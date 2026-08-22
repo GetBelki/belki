@@ -1263,6 +1263,8 @@ tbody tr:hover { background: #fcfbfd; }
 .auth-success-panel { align-items: flex-start; gap: 18px; }
 .auth-success-panel > div { display: block !important; }
 .auth-success-panel strong { display: block; margin-bottom: 5px; }
+.auth-invitation-state { padding-bottom: 0; }
+.auth-invitation-problem > svg { color: #a83d50; }
 
 .operator-security-note { align-items: center; background: #fffbeb; border: 1px solid #fde68a; border-radius: 10px; color: #92400e; display: flex; gap: 10px; padding: 14px 18px; }
 .operator-security-note span { color: #a16207; font-size: 12px; }

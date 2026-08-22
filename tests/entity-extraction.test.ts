@@ -35,6 +35,27 @@ describe("entity extraction validation", () => {
     )).toEqual({ entities: [{ surface: "Contoso", entity_type: "brand" }] });
   });
 
+  it("discards malformed model items without failing the entire response", () => {
+    expect(parsedSpanAiResponse({
+      entities: [
+        { surface: "X", entity_type: "brand" },
+        { surface: "Canon", entity_type: "company" },
+      ],
+    })).toEqual({ entities: [{ surface: "Canon", entity_type: "company" }] });
+    expect(parsedRelationshipAiResponse({
+      assessments: [
+        { surface: "X", relationship: "competitor", reason: "explicit_rival" },
+        { surface: "Canon", relationship: "mentioned", reason: "incidental_mention" },
+      ],
+    })).toEqual({
+      assessments: [{
+        surface: "Canon",
+        relationship: "mentioned",
+        reason: "incidental_mention",
+      }],
+    });
+  });
+
   it("rejects model entities whose surface text is absent", () => {
     expect(validateExtractedEntities({
       entities: [{
