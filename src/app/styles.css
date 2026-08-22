@@ -4034,6 +4034,14 @@ a.evidence-source:hover strong {
   object-fit: contain;
 }
 
+.domain-favicon-monogram {
+  align-items: center;
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  line-height: 1;
+}
+
 .evidence-source > .domain-favicon {
   background: #f4f4f5;
   border: 1px solid #e4e4e7;
