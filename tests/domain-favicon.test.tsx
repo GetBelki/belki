@@ -13,7 +13,7 @@ describe("DomainFavicon", () => {
     const image = container.querySelector("img");
     expect(image).toHaveAttribute(
       "src",
-      "/api/v1/favicon?domain=example.com",
+      "/api/v1/favicon?domain=example.com&v=2",
     );
 
     fireEvent.error(image!);
@@ -35,7 +35,7 @@ describe("DomainFavicon", () => {
 
     expect(container.querySelector("img")).toHaveAttribute(
       "src",
-      "/api/v1/favicon?domain=belki.example",
+      "/api/v1/favicon?domain=belki.example&v=2",
     );
   });
 

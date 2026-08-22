@@ -31,40 +31,37 @@ describe("favicon proxy", () => {
     ]);
   });
 
-  it("rejects DuckDuckGo's 404 image and tries Favicon.im", async () => {
+  it("rejects DuckDuckGo's 404 image and redirects to Favicon.im", async () => {
     const calls: string[] = [];
     const fetcher: FaviconFetcher = (input) => {
       const url = requestUrl(input);
       calls.push(url);
       return Promise.resolve(
-        url.includes("duckduckgo")
-          ? new Response("placeholder", {
-              status: 404,
-              headers: { "content-type": "image/png" },
-            })
-          : new Response("fallback-icon", {
-              headers: { "content-type": "image/x-icon" },
-            }),
+        new Response("placeholder", {
+          status: 404,
+          headers: { "content-type": "image/png" },
+        }),
       );
     };
 
     const response = await fetchDomainFavicon("logiscenter.com", fetcher);
 
-    expect(response.status).toBe(200);
-    expect(await response.text()).toBe("fallback-icon");
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe(
+      "https://favicon.im/logiscenter.com?larger=true&throw-error-on-404=true",
+    );
     expect(calls).toEqual([
       "https://icons.duckduckgo.com/ip3/logiscenter.com.ico",
-      "https://favicon.im/logiscenter.com?larger=true&throw-error-on-404=true",
     ]);
   });
 
-  it("returns 404 when no provider has an icon", async () => {
+  it("redirects when DuckDuckGo has no icon", async () => {
     const response = await fetchDomainFavicon(
       "logiscenter.com",
       () => Promise.resolve(new Response(null, { status: 404 })),
     );
 
-    expect(response.status).toBe(404);
+    expect(response.status).toBe(302);
     expect(response.headers.get("cache-control")).toContain("max-age=3600");
   });
 
@@ -79,25 +76,26 @@ describe("favicon proxy", () => {
     expect(called).toBe(false);
   });
 
-  it("rejects oversized and non-image provider responses", async () => {
-    let calls = 0;
-    const response = await fetchDomainFavicon("example.com", () => {
-      calls += 1;
-      return Promise.resolve(
-        calls === 1
-          ? new Response("large", {
-              headers: {
-                "content-length": String(1024 * 1024 + 1),
-                "content-type": "image/png",
-              },
-            })
-          : new Response("html", {
-              headers: { "content-type": "text/html" },
-            }),
-      );
-    });
+  it("redirects after oversized and non-image provider responses", async () => {
+    for (const response of [
+      new Response("large", {
+        headers: {
+          "content-length": String(1024 * 1024 + 1),
+          "content-type": "image/png",
+        },
+      }),
+      new Response("html", {
+        headers: { "content-type": "text/html" },
+      }),
+    ]) {
+      let calls = 0;
+      const result = await fetchDomainFavicon("example.com", () => {
+        calls += 1;
+        return Promise.resolve(response);
+      });
 
-    expect(response.status).toBe(404);
-    expect(calls).toBe(2);
+      expect(result.status).toBe(302);
+      expect(calls).toBe(1);
+    }
   });
 });

@@ -34,7 +34,7 @@ export function DomainFavicon({
           loading="lazy"
           onError={() => setFailedDomain(normalizedDomain)}
           referrerPolicy="no-referrer"
-          src={`/api/v1/favicon?domain=${encodeURIComponent(normalizedDomain)}`}
+          src={`/api/v1/favicon?domain=${encodeURIComponent(normalizedDomain)}&v=2`}
           width={size}
         />
       ) : normalizedDomain ? (
