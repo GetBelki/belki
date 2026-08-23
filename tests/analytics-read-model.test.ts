@@ -21,8 +21,8 @@ describe("analytics read-model compatibility", () => {
     ).toBe(true);
   });
 
-  it("uses version 8 for fan-out model and telemetry availability", () => {
-    expect(ANALYTICS_READ_MODEL_SCHEMA_VERSION).toBe(8);
+  it("uses version 9 for aggregated brand position availability", () => {
+    expect(ANALYTICS_READ_MODEL_SCHEMA_VERSION).toBe(9);
   });
 
   it("requires the requested schema capability and a completed backfill", () => {
@@ -34,7 +34,7 @@ describe("analytics read-model compatibility", () => {
   });
 
   it("accepts later compatible schema versions", () => {
-    expect(analyticsReadModelSupports({ status: "ready", schema_version: 8 }))
+    expect(analyticsReadModelSupports({ status: "ready", schema_version: 9 }))
       .toBe(true);
   });
 

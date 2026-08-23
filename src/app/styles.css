@@ -5475,6 +5475,12 @@ a.evidence-source:hover strong {
   color: #18181b;
 }
 
+.metric-toggle button:disabled {
+  color: #a1a1aa;
+  cursor: not-allowed;
+  opacity: 0.65;
+}
+
 .brand-comparison-legend {
   display: flex;
   flex-wrap: wrap;

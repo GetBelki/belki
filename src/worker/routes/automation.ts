@@ -16,6 +16,7 @@ import { writeAudit } from "../lib/audit";
 import { hmac } from "../lib/crypto";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
 import { projectTrackingSources } from "../lib/tracking-sources";
+import { markBrandMetricsStale } from "../lib/brand-metrics-state";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 
@@ -335,6 +336,7 @@ automationRoutes.patch(
             tracked_brand_id = ?, updated_at = ? WHERE id = ?`,
         ).bind(entity.id, now, entity.id),
       ]);
+      await markBrandMetricsStale(c.env.CONTROL_DB, entity.project_id);
     } else if (input.action === "ignore") {
       await c.env.CONTROL_DB.prepare(
         "UPDATE project_entities SET status = 'ignored', updated_at = ? WHERE id = ?",

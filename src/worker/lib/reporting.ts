@@ -562,6 +562,10 @@ export interface BrandMentionDailyRow {
   extracted_responses: number;
   overlap_responses: number;
   owned_mentioned_responses: number;
+  position_sum?: number;
+  position_sample_count?: number;
+  owned_position_sum?: number;
+  owned_position_sample_count?: number;
 }
 
 export interface SourceBrandMentionDailyRow extends BrandMentionDailyRow {
@@ -577,6 +581,10 @@ export function aggregateBrandMentionDays(
 ): BrandMentionDailyRow[] {
   const mentions = new Map<string, BrandMentionDailyRow>();
   const ownedBySourceDate = new Map<string, number>();
+  const ownedPositionBySourceDate = new Map<
+    string,
+    { sum: number; samples: number }
+  >();
 
   for (const row of rows) {
     const key = `${row.metric_date}\u0000${row.brand_id}`;
@@ -593,6 +601,16 @@ export function aggregateBrandMentionDays(
     );
     current.extracted_responses += nonNegativeCount(row.extracted_responses);
     current.overlap_responses += nonNegativeCount(row.overlap_responses);
+    if (
+      row.position_sum !== undefined ||
+      row.position_sample_count !== undefined
+    ) {
+      current.position_sum =
+        (current.position_sum ?? 0) + nonNegativeCount(row.position_sum ?? 0);
+      current.position_sample_count =
+        (current.position_sample_count ?? 0) +
+        nonNegativeCount(row.position_sample_count ?? 0);
+    }
     mentions.set(key, current);
 
     const sourceDateKey = `${row.tracking_source}\u0000${row.metric_date}`;
@@ -603,15 +621,44 @@ export function aggregateBrandMentionDays(
         nonNegativeCount(row.owned_mentioned_responses),
       ),
     );
+    if (
+      !ownedPositionBySourceDate.has(sourceDateKey) &&
+      (row.owned_position_sum !== undefined ||
+        row.owned_position_sample_count !== undefined)
+    ) {
+      ownedPositionBySourceDate.set(sourceDateKey, {
+        sum: nonNegativeCount(row.owned_position_sum ?? 0),
+        samples: nonNegativeCount(row.owned_position_sample_count ?? 0),
+      });
+    }
   }
 
   const ownedByDate = new Map<string, number>();
+  const ownedPositionByDate = new Map<
+    string,
+    { sum: number; samples: number }
+  >();
   for (const [sourceDateKey, count] of ownedBySourceDate) {
     const metricDate = sourceDateKey.split("\u0000")[1]!;
     ownedByDate.set(metricDate, (ownedByDate.get(metricDate) ?? 0) + count);
   }
+  for (const [sourceDateKey, position] of ownedPositionBySourceDate) {
+    const metricDate = sourceDateKey.split("\u0000")[1]!;
+    const current = ownedPositionByDate.get(metricDate) ?? {
+      sum: 0,
+      samples: 0,
+    };
+    current.sum += position.sum;
+    current.samples += position.samples;
+    ownedPositionByDate.set(metricDate, current);
+  }
   for (const row of mentions.values()) {
     row.owned_mentioned_responses = ownedByDate.get(row.metric_date) ?? 0;
+    const ownedPosition = ownedPositionByDate.get(row.metric_date);
+    if (ownedPosition) {
+      row.owned_position_sum = ownedPosition.sum;
+      row.owned_position_sample_count = ownedPosition.samples;
+    }
   }
   return [...mentions.values()].sort(
     (left, right) =>
@@ -625,6 +672,8 @@ interface BrandMetric {
   appearances: number;
   visibility: number;
   shareOfVoice: number | null;
+  averagePosition: number | null;
+  positionSamples: number;
 }
 
 export interface BrandComparisonBrand extends BrandMetric {
@@ -663,6 +712,14 @@ export function buildBrandComparison(
   const trackedById = new Map(trackedBrands.map((brand) => [brand.id, brand]));
   const countsByDate = new Map<string, Map<string, number>>();
   const ownedMentionsByDate = new Map<string, number>();
+  const positionsByDate = new Map<
+    string,
+    Map<string, { sum: number; samples: number }>
+  >();
+  const ownedPositionsByDate = new Map<
+    string,
+    { sum: number; samples: number }
+  >();
 
   for (const row of mentionDays) {
     if (!trackedById.has(row.brand_id)) continue;
@@ -672,6 +729,18 @@ export function buildBrandComparison(
       (values.get(row.brand_id) ?? 0) + deduplicatedMentions(row),
     );
     countsByDate.set(row.metric_date, values);
+    if (
+      row.position_sum !== undefined ||
+      row.position_sample_count !== undefined
+    ) {
+      const positions = positionsByDate.get(row.metric_date) ??
+        new Map<string, { sum: number; samples: number }>();
+      const current = positions.get(row.brand_id) ?? { sum: 0, samples: 0 };
+      current.sum += nonNegativeCount(row.position_sum ?? 0);
+      current.samples += nonNegativeCount(row.position_sample_count ?? 0);
+      positions.set(row.brand_id, current);
+      positionsByDate.set(row.metric_date, positions);
+    }
     ownedMentionsByDate.set(
       row.metric_date,
       Math.max(
@@ -679,6 +748,16 @@ export function buildBrandComparison(
         nonNegativeCount(row.owned_mentioned_responses),
       ),
     );
+    if (
+      !ownedPositionsByDate.has(row.metric_date) &&
+      (row.owned_position_sum !== undefined ||
+        row.owned_position_sample_count !== undefined)
+    ) {
+      ownedPositionsByDate.set(row.metric_date, {
+        sum: nonNegativeCount(row.owned_position_sum ?? 0),
+        samples: nonNegativeCount(row.owned_position_sample_count ?? 0),
+      });
+    }
   }
 
   const completedRuns = completedDays.reduce(
@@ -686,11 +765,25 @@ export function buildBrandComparison(
     0,
   );
   const totalsByBrand = new Map(trackedBrands.map((brand) => [brand.id, 0]));
+  const positionTotalsByBrand = new Map(
+    trackedBrands.map((brand) => [brand.id, { sum: 0, samples: 0 }]),
+  );
   let ownedMentionedResponses = 0;
+  let ownedPositionSum = 0;
+  let ownedPositionSamples = 0;
   for (const day of completedDays) {
     ownedMentionedResponses += ownedMentionsByDate.get(day.metric_date) ?? 0;
+    const ownedPosition = ownedPositionsByDate.get(day.metric_date);
+    ownedPositionSum += ownedPosition?.sum ?? 0;
+    ownedPositionSamples += ownedPosition?.samples ?? 0;
     for (const [brandId, count] of countsByDate.get(day.metric_date) ?? []) {
       totalsByBrand.set(brandId, (totalsByBrand.get(brandId) ?? 0) + count);
+    }
+    for (const [brandId, position] of positionsByDate.get(day.metric_date) ?? []) {
+      const total = positionTotalsByBrand.get(brandId) ?? { sum: 0, samples: 0 };
+      total.sum += position.sum;
+      total.samples += position.samples;
+      positionTotalsByBrand.set(brandId, total);
     }
   }
 
@@ -705,6 +798,10 @@ export function buildBrandComparison(
   const competitorMetrics = competitors
     .map((brand) => {
       const appearances = totalsByBrand.get(brand.id) ?? 0;
+      const position = positionTotalsByBrand.get(brand.id) ?? {
+        sum: 0,
+        samples: 0,
+      };
       return {
         key: `competitor_${brand.id}`,
         id: brand.id,
@@ -716,6 +813,10 @@ export function buildBrandComparison(
         shareOfVoice: totalBrandAppearances
           ? rate(appearances, totalBrandAppearances)
           : null,
+        averagePosition: position.samples
+          ? position.sum / position.samples
+          : null,
+        positionSamples: position.samples,
       } satisfies BrandComparisonBrand;
     })
     .sort(
@@ -743,6 +844,10 @@ export function buildBrandComparison(
       appearances: ownedAppearances,
       visibility: ownedVisibility,
       shareOfVoice: ownedShareOfVoice,
+      averagePosition: ownedPositionSamples
+        ? ownedPositionSum / ownedPositionSamples
+        : null,
+      positionSamples: ownedPositionSamples,
     },
     ...competitorMetrics.slice(0, 4),
   ];
@@ -753,6 +858,10 @@ export function buildBrandComparison(
       ownedAppearances,
       ownedVisibility,
       ownedShareOfVoice,
+      ownedAveragePosition: ownedPositionSamples
+        ? ownedPositionSum / ownedPositionSamples
+        : null,
+      ownedPositionSamples,
       totalBrandAppearances,
       trackedCompetitorCount: competitors.length,
       competitiveGap: leadingCompetitor
@@ -778,6 +887,12 @@ export function buildBrandComparison(
         0,
       );
       const ownedDailyMentions = ownedMentionsByDate.get(day.metric_date) ?? 0;
+      const dailyPositions = positionsByDate.get(day.metric_date) ??
+        new Map<string, { sum: number; samples: number }>();
+      const ownedDailyPosition = ownedPositionsByDate.get(day.metric_date) ?? {
+        sum: 0,
+        samples: 0,
+      };
       return {
         metric_date: day.metric_date,
         completedRuns: completed,
@@ -790,6 +905,9 @@ export function buildBrandComparison(
                 : counts.get(brand.id ?? "") ?? 0;
             const mentionedResponses =
               brand.kind === "owned" ? ownedDailyMentions : appearances;
+            const position = brand.kind === "owned"
+              ? ownedDailyPosition
+              : dailyPositions.get(brand.id ?? "") ?? { sum: 0, samples: 0 };
             return [
               brand.key,
               {
@@ -800,6 +918,10 @@ export function buildBrandComparison(
                   hasCompetitors && totalAppearances
                     ? rate(appearances, totalAppearances)
                     : null,
+                averagePosition: position.samples
+                  ? position.sum / position.samples
+                  : null,
+                positionSamples: position.samples,
               } satisfies BrandMetric,
             ];
           }),

@@ -97,6 +97,21 @@ describe("control database migrations", () => {
     expect(`${controlSql}\n${snapshotSql}`).not.toMatch(/DROP TABLE/i);
   });
 
+  it("adds versioned aggregate brand position metrics without rebuilding analytics facts", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0024_brand_position_metrics.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/ADD COLUMN brand_metrics_revision/i);
+    expect(sql).toMatch(/CREATE TABLE analytics_brand_snapshot_metrics/i);
+    expect(sql).toMatch(/CREATE TABLE analytics_daily_brand_metrics/i);
+    expect(sql).toMatch(/CREATE TABLE analytics_daily_owned_brand_metrics/i);
+    expect(sql).toMatch(/schema_version\s*=\s*9/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
+
   it("versions entity extraction without disabling foreign-key enforcement", () => {
     const sql = readFileSync(
       resolve("migrations/control/0023_entity_extraction_v2.sql"),

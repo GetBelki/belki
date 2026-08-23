@@ -86,7 +86,8 @@ for every enabled source. It includes:
 - owned-brand visibility, Share of Voice, visibility gap, and completed capture
   counts;
 - AI Overview appearance counts when Google AI Overviews is selected;
-- daily owned-brand and competitor visibility or Share of Voice trends;
+- daily owned-brand and competitor visibility, Share of Voice, or average
+  first-mention position trends;
 - prompt-set change annotations so changes in the monitored sample are visible;
 - leading citation-source trends, with the project domain identified separately;
 - leading competitors, top products, and recently detected products when the
@@ -278,6 +279,7 @@ Managed cloud adds:
 |---|---|
 | Visibility | Completed responses mentioning the tracked brand ÷ all completed responses |
 | Share of Voice | Tracked-brand appearances ÷ appearances across the owned brand and every tracked competitor |
+| Average position | Mean first-mention rank among tracked brands that appear in a completed response; lower is better |
 | Visibility gap | Owned-brand visibility minus the visibility of the leading tracked competitor, in percentage points |
 | Citation rate | Completed responses containing at least one citation ÷ all completed responses |
 | Ad appearance rate | Completed responses containing at least one sponsored result ÷ all completed responses |

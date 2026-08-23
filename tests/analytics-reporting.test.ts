@@ -831,6 +831,52 @@ describe("competitive brand reporting", () => {
       report.series[0]?.metrics[`competitor_${competitor.id}`]?.shareOfVoice,
     ).toBeNull();
   });
+
+  it("aggregates conditional first-mention position with owned response weighting", () => {
+    const report = buildBrandComparison(
+      [owned, competitor],
+      day,
+      [
+        {
+          metric_date: "2026-08-10",
+          brand_id: owned.id,
+          deterministic_responses: 3,
+          extracted_responses: 0,
+          overlap_responses: 0,
+          owned_mentioned_responses: 3,
+          position_sum: 5,
+          position_sample_count: 3,
+          owned_position_sum: 5,
+          owned_position_sample_count: 3,
+        },
+        {
+          metric_date: "2026-08-10",
+          brand_id: competitor.id,
+          deterministic_responses: 2,
+          extracted_responses: 0,
+          overlap_responses: 0,
+          owned_mentioned_responses: 3,
+          position_sum: 3,
+          position_sample_count: 2,
+          owned_position_sum: 5,
+          owned_position_sample_count: 3,
+        },
+      ],
+    );
+
+    expect(report.summary).toMatchObject({
+      ownedAveragePosition: 5 / 3,
+      ownedPositionSamples: 3,
+    });
+    expect(report.brands[1]).toMatchObject({
+      averagePosition: 1.5,
+      positionSamples: 2,
+    });
+    expect(report.series[0]?.metrics.owned).toMatchObject({
+      averagePosition: 5 / 3,
+      positionSamples: 3,
+    });
+  });
 });
 
 describe("overview product visibility", () => {

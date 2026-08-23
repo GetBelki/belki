@@ -37,6 +37,7 @@ import {
 import { calculateNextRun } from "../lib/schedule";
 import { manualJobDelivery } from "../lib/job-delivery";
 import { fetchDomainFavicon } from "../lib/favicon";
+import { markBrandMetricsStale } from "../lib/brand-metrics-state";
 import {
   promptTagKey,
   uniquePromptTagNames,
@@ -592,6 +593,7 @@ coreRoutes.post(
         now,
       )
       .run();
+    await markBrandMetricsStale(c.env.CONTROL_DB, projectId);
     return c.json({ data: { id } }, 201);
   },
 );
@@ -605,12 +607,13 @@ coreRoutes.patch(
     const { id } = c.req.valid("param");
     const input = c.req.valid("json");
     const current = await c.env.CONTROL_DB.prepare(
-      `SELECT b.kind, b.name, b.aliases_json, b.domains_json
+      `SELECT b.project_id, b.kind, b.name, b.aliases_json, b.domains_json
        FROM tracked_brands b JOIN projects p ON p.id = b.project_id
        WHERE b.id = ? AND p.workspace_id = ? AND p.deleted_at IS NULL`,
     )
       .bind(id, principal.workspaceId)
       .first<{
+        project_id: string;
         kind: "owned" | "competitor";
         name: string;
         aliases_json: string;
@@ -634,6 +637,7 @@ coreRoutes.patch(
         id,
       )
       .run();
+    await markBrandMetricsStale(c.env.CONTROL_DB, current.project_id);
     return c.json({ data: { id } });
   },
 );
@@ -644,6 +648,16 @@ coreRoutes.delete(
   async (c) => {
     const principal = requireRole(c, "editor");
     const { id } = c.req.valid("param");
+    const brand = await c.env.CONTROL_DB.prepare(
+      `SELECT brand.project_id
+       FROM tracked_brands brand
+       JOIN projects project ON project.id = brand.project_id
+       WHERE brand.id = ? AND project.workspace_id = ?
+         AND project.deleted_at IS NULL`,
+    ).bind(id, principal.workspaceId).first<{ project_id: string }>();
+    if (!brand) {
+      throw new ApiError(404, "brand_not_found", "Tracked brand not found.");
+    }
     const result = await c.env.CONTROL_DB.prepare(
       `DELETE FROM tracked_brands
        WHERE id = ? AND project_id IN (
@@ -655,6 +669,7 @@ coreRoutes.delete(
     if (result.meta.changes === 0) {
       throw new ApiError(404, "brand_not_found", "Tracked brand not found.");
     }
+    await markBrandMetricsStale(c.env.CONTROL_DB, brand.project_id);
     return c.json({ data: { deleted: true } });
   },
 );

@@ -6,9 +6,11 @@ import {
   chartDateLabel,
   mobileHiddenTrendSeries,
   percentageChartScale,
+  rankChartScale,
   previousTrendValue,
   toggleTrendSeries,
   trendWindowSummary,
+  weightedTrendWindowSummary,
 } from "../src/app/lib/trend-chart";
 
 describe("trend chart dates", () => {
@@ -38,6 +40,22 @@ describe("trend chart scales", () => {
       { metric_date: "2026-08-22", source: 100 },
     ], ["source"]).domain).toEqual([0, 100]);
   });
+
+  it("builds an integer rank scale that can be reversed by the chart", () => {
+    expect(rankChartScale([
+      { metric_date: "2026-08-21", owned: 1.4 },
+      { metric_date: "2026-08-22", owned: 3.2 },
+    ], ["owned"])).toEqual({
+      domain: [1, 4],
+      ticks: [1, 2, 3, 4],
+    });
+    expect(rankChartScale([
+      { metric_date: "2026-08-22", owned: 1 },
+    ], ["owned"])).toEqual({
+      domain: [1, 2],
+      ticks: [1, 2],
+    });
+  });
 });
 
 describe("trend summaries", () => {
@@ -63,6 +81,32 @@ describe("trend summaries", () => {
   it("finds the previous recorded value for tooltip deltas", () => {
     expect(previousTrendValue(points, "2026-08-08", "owned")).toBe(7);
     expect(previousTrendValue(points, "2026-08-01", "owned")).toBeNull();
+  });
+
+  it("weights average position by ranked responses", () => {
+    expect(weightedTrendWindowSummary([
+      { metric_date: "2026-08-21", owned: 1, ownedSamples: 1 },
+      { metric_date: "2026-08-22", owned: 3, ownedSamples: 3 },
+    ], "owned", "ownedSamples")).toEqual({
+      value: 2.5,
+      change: null,
+    });
+  });
+
+  it("keeps missing rank samples inside their calendar window", () => {
+    const positionPoints = Array.from({ length: 14 }, (_, index) => ({
+      metric_date: `2026-08-${String(index + 1).padStart(2, "0")}`,
+      owned: index === 0 ? 5 : index === 7 ? null : index < 7 ? 3 : 1,
+      ownedSamples: index === 7 ? 0 : 1,
+    }));
+    expect(weightedTrendWindowSummary(
+      positionPoints,
+      "owned",
+      "ownedSamples",
+    )).toEqual({
+      value: 1,
+      change: -16 / 7,
+    });
   });
 });
 
