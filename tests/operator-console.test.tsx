@@ -76,6 +76,10 @@ describe("operator console presentation", () => {
     expect(container.querySelector(".operator-status-dot")).not.toBeInTheDocument();
     expect(container.querySelector(".operator-status-active")).toHaveTextContent("Active");
 
+    fireEvent.click(screen.getByRole("button", { name: "Create invitation" }));
+    expect(await screen.findByRole("dialog")).toHaveClass("operator-invite-dialog");
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+
     fireEvent.click(screen.getByRole("button", { name: "Manage Torito IO" }));
     expect(await screen.findByRole("dialog")).toHaveTextContent(
       "Manage Torito IO",

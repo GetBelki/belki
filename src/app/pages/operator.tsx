@@ -189,6 +189,7 @@ export default function OperatorPage() {
       </section>
 
       <Dialog
+        contentClassName="operator-invite-dialog"
         open={inviteOpen}
         onOpenChange={setInviteOpen}
         title={signupUrl ? "Invitation ready" : "Invite a managed customer"}
@@ -204,8 +205,8 @@ export default function OperatorPage() {
             </div>
           </div>
         ) : (
-          <form className="form-stack" onSubmit={submit}>
-            <div><Label>Customer email</Label><Input name="email" type="email" placeholder="customer@company.com" autoFocus required /></div>
+          <form className="form-stack operator-invite-form" onSubmit={submit}>
+            <div className="operator-invite-field"><Label>Customer email</Label><Input name="email" type="email" placeholder="customer@company.com" autoFocus required /></div>
             {createCode.isError ? <p className="form-error">{createCode.error.message}</p> : null}
             <div className="dialog-actions">
               <Button type="button" variant="ghost" onClick={() => setInviteOpen(false)}>Cancel</Button>
