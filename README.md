@@ -499,8 +499,8 @@ IDs, the action-only Customer Portal, and both Stripe secrets. `stripe_managed`
 remains an unsupported preview for plan changes.
 
 Signup is email-bound and one-use. A platform operator creates a URL through the
-operator console or `POST /api/v1/operator/signup-codes`. A workspace remains
-pending until a verified Stripe webhook activates it. Protect
+Platform operations page or `POST /api/v1/operator/signup-codes`. A workspace
+remains pending until a verified Stripe webhook activates it. Protect
 both `/operator*` and `/api/v1/operator/*` with the same Cloudflare Access
 policy. Operator navigation intentionally performs a full document request so
 Access can issue or renew its authorization cookie before protected API data is
