@@ -119,6 +119,28 @@ describe("entity extraction validation", () => {
     });
   });
 
+  it("maps Markdown-decorated model spans to the existing tracked brand", () => {
+    const [entity] = validateExtractedEntities({
+      entities: [{ surface: "**dLocal**", entity_type: "brand" }],
+    }, "Rebill is commonly compared with **dLocal** for LATAM payments.", {
+      trackedBrands: [{
+        id: "brand-dlocal",
+        kind: "competitor",
+        name: "dLocal",
+        aliases_json: "[]",
+        domains_json: "[]",
+      }],
+    });
+
+    expect(entity).toMatchObject({
+      surface: "dLocal",
+      canonical_name: "dLocal",
+      normalizedName: "dlocal",
+      relationship: "competitor",
+      trackedBrand: { id: "brand-dlocal" },
+    });
+  });
+
   it("recovers exact provider entities even when the span model misses them", () => {
     const [entity] = validateExtractedEntities(
       { entities: [] },

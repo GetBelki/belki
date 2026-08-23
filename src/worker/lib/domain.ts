@@ -92,6 +92,33 @@ export function normalizeBrand(value: string): string {
     .replace(/\s+/gu, " ");
 }
 
+const MARKDOWN_ENTITY_WRAPPERS = ["***", "___", "**", "__", "~~", "*", "_"] as const;
+
+export function stripMarkdownEntityDecoration(value: string): string {
+  let surface = value.trim();
+  let changed = true;
+
+  while (changed) {
+    changed = false;
+    for (const wrapper of MARKDOWN_ENTITY_WRAPPERS) {
+      if (
+        surface.length > wrapper.length * 2 &&
+        surface.startsWith(wrapper) &&
+        surface.endsWith(wrapper)
+      ) {
+        const unwrapped = surface.slice(wrapper.length, -wrapper.length).trim();
+        if (unwrapped) {
+          surface = unwrapped;
+          changed = true;
+          break;
+        }
+      }
+    }
+  }
+
+  return surface;
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
