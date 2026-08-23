@@ -6,7 +6,6 @@ import {
   operatorLimitUsage,
   operatorPlanLabel,
   operatorStatusLabel,
-  operatorStatusTone,
 } from "../src/app/lib/operator-console";
 import OperatorPage from "../src/app/pages/operator";
 
@@ -21,7 +20,6 @@ describe("operator console formatting", () => {
     expect(operatorLimitUsage(5, 1_000_000)).toBe("Unlimited");
     expect(operatorLimitUsage(12, 75)).toBe("12/75");
     expect(operatorStatusLabel("pending_payment")).toBe("Pending Payment");
-    expect(operatorStatusTone("suspended")).toBe("danger");
   });
 });
 
@@ -59,7 +57,7 @@ describe("operator console presentation", () => {
       defaultOptions: { queries: { retry: false } },
     });
 
-    render(
+    const { container } = render(
       <QueryClientProvider client={queryClient}>
         <MemoryRouter>
           <OperatorPage />
@@ -70,11 +68,13 @@ describe("operator console presentation", () => {
     expect(await screen.findByRole("heading", {
       name: "Platform operations",
     })).toBeInTheDocument();
-    expect(screen.getByText("Access protected")).toBeInTheDocument();
     expect(await screen.findByText("Internal")).toBeInTheDocument();
     expect(screen.getAllByText("Unlimited")).toHaveLength(2);
     expect(screen.queryByText("self_hosted")).not.toBeInTheDocument();
     expect(screen.queryByText(/1000000/u)).not.toBeInTheDocument();
+    expect(screen.getAllByRole("button", { name: "Create invitation" })).toHaveLength(1);
+    expect(container.querySelector(".operator-status-dot")).not.toBeInTheDocument();
+    expect(container.querySelector(".operator-status-active")).toHaveTextContent("Active");
 
     fireEvent.click(screen.getByRole("button", { name: "Manage Torito IO" }));
     expect(await screen.findByRole("dialog")).toHaveTextContent(
