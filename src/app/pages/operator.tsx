@@ -1,15 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Copy, MailPlus, Settings2, ShieldCheck } from "lucide-react";
+import { Copy, MailPlus, Settings2 } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { PageHeader } from "../components/layout";
 import { OperatorDataFailure } from "../components/operator-access";
-import { Badge, Button, DataTable, Dialog, EmptyState, Input, Label, Select, Skeleton } from "../components/ui";
+import { Button, DataTable, Dialog, EmptyState, Input, Label, Select, Skeleton } from "../components/ui";
 import { api, patch, post, remove } from "../lib/api";
 import {
   operatorLimitUsage,
   operatorPlanLabel,
   operatorStatusLabel,
-  operatorStatusTone,
   type OperatorWorkspaceStatus,
 } from "../lib/operator-console";
 import { formText } from "../lib/utils";
@@ -139,10 +138,7 @@ export default function OperatorPage() {
         title="Platform operations"
         description="Manage customer workspaces, service access, plans, and onboarding."
         action={(
-          <div className="operator-header-actions">
-            <span className="operator-access-chip"><ShieldCheck size={14} /> Access protected</span>
-            <Button onClick={openInviteDialog}><MailPlus size={16} /> Create invitation</Button>
-          </div>
+          <Button onClick={openInviteDialog}><MailPlus size={16} /> Create invitation</Button>
         )}
       />
       <div aria-label="Operations summary" className="operator-summary-strip">
@@ -153,21 +149,18 @@ export default function OperatorPage() {
       </div>
       <section className="operator-section">
         <div className="operator-section-heading">
-          <div>
-            <h2>Workspace operations</h2>
-            <p>Customer access, subscriptions, usage, and service state.</p>
-          </div>
-          <span>{workspaceData.length} {workspaceData.length === 1 ? "workspace" : "workspaces"}</span>
+          <h2>Workspaces</h2>
+          <p>Customer access, subscriptions, usage, and service state.</p>
         </div>
         {workspaces.isPending ? <Skeleton className="settings-feature-skeleton" /> : workspaces.data?.length ? (
           <DataTable
-            columns={[{ key: "workspace", label: "Workspace" }, { key: "subscription", label: "Subscription" }, { key: "usage", label: "Usage" }, { key: "status", label: "Status" }, { key: "actions", label: "" }]}
+            columns={[{ key: "workspace", label: "Workspace", className: "operator-workspace-column" }, { key: "subscription", label: "Subscription", className: "operator-subscription-column" }, { key: "usage", label: "Usage", className: "operator-usage-column" }, { key: "status", label: "Status", className: "operator-status-column" }, { key: "actions", label: "", className: "operator-actions-column" }]}
             rows={workspaceData.map((workspace) => ({
               id: workspace.id,
               workspace: <div className="primary-cell operator-workspace-cell"><strong>{workspace.name}</strong><span>{workspace.seats} {workspace.seats === 1 ? "seat" : "seats"} · {workspace.projects} {workspace.projects === 1 ? "project" : "projects"}</span></div>,
               subscription: <div className="primary-cell operator-subscription-cell"><strong>{operatorPlanLabel(workspace.plan_key)}</strong><span>{workspace.plan_key === "self_hosted" ? "Belki workspace" : workspace.stripe_livemode === 1 ? "Stripe production" : workspace.stripe_livemode === 0 ? "Stripe sandbox" : operatorPlanLabel(workspace.subscription_status)}</span></div>,
-              usage: <div className="operator-usage-cell"><span><strong>{operatorLimitUsage(workspace.prompts, workspace.prompt_limit)}</strong> prompts</span><span><strong>{operatorLimitUsage(workspace.projects, workspace.project_limit)}</strong> projects</span><span><strong>{workspace.source_limit}</strong> sources/project</span></div>,
-              status: <Badge tone={operatorStatusTone(workspace.status)}><span className="operator-status-dot" />{operatorStatusLabel(workspace.status)}</Badge>,
+              usage: <div className="operator-usage-cell"><span><strong>{operatorLimitUsage(workspace.prompts, workspace.prompt_limit)}</strong><small>Prompts</small></span><span><strong>{operatorLimitUsage(workspace.projects, workspace.project_limit)}</strong><small>Projects</small></span><span><strong>{workspace.source_limit}</strong><small>Sources / project</small></span></div>,
+              status: <span className={`operator-status-text operator-status-${workspace.status}`}>{operatorStatusLabel(workspace.status)}</span>,
               actions: <Button aria-label={`Manage ${workspace.name}`} className="operator-manage-button" onClick={() => openWorkspaceManager(workspace)} variant="secondary"><Settings2 size={14} /> Manage</Button>,
             }))}
           />
@@ -175,11 +168,8 @@ export default function OperatorPage() {
       </section>
       <section className="operator-section operator-invitations-section">
         <div className="operator-section-heading">
-          <div>
-            <h2>Customer invitations</h2>
-            <p>Email-bound, single-use invitations that expire after seven days.</p>
-          </div>
-          <span>{openInvitations} open</span>
+          <h2>Customer invitations</h2>
+          <p>Email-bound, single-use invitations that expire after seven days.</p>
         </div>
         {codes.isPending ? <Skeleton className="settings-feature-skeleton" /> : codes.data?.length ? (
           <DataTable
@@ -187,7 +177,7 @@ export default function OperatorPage() {
             rows={signupCodes.map((code) => ({
               id: code.id,
               email: <div className="primary-cell"><strong>{code.email}</strong><span>Managed customer invitation</span></div>,
-              state: <Badge tone={code.consumed_at ? "success" : code.revoked_at || Date.parse(code.expires_at) < renderedAt ? "danger" : "info"}>{code.consumed_at ? "Used" : code.revoked_at ? "Revoked" : Date.parse(code.expires_at) < renderedAt ? "Expired" : "Pending"}</Badge>,
+              state: <span className={`operator-status-text operator-invitation-${code.consumed_at ? "used" : code.revoked_at ? "revoked" : Date.parse(code.expires_at) < renderedAt ? "expired" : "pending"}`}>{code.consumed_at ? "Used" : code.revoked_at ? "Revoked" : Date.parse(code.expires_at) < renderedAt ? "Expired" : "Pending"}</span>,
               created: new Date(code.created_at).toLocaleDateString(),
               expires: new Date(code.expires_at).toLocaleString(),
               actions: !code.consumed_at && !code.revoked_at && Date.parse(code.expires_at) >= renderedAt
@@ -195,7 +185,7 @@ export default function OperatorPage() {
                 : null,
             }))}
           />
-        ) : <EmptyState action={<Button onClick={openInviteDialog} variant="secondary"><MailPlus size={15} /> Create invitation</Button>} title="No open invitations" description="Create an invitation when a managed customer is ready to join." />}
+        ) : <EmptyState title="No open invitations" description="New customer invitations will appear here after they are created." />}
       </section>
 
       <Dialog
