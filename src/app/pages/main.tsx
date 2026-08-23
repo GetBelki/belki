@@ -75,6 +75,7 @@ import {
   shortChartDate,
   toggleTrendSeries,
   trendWindowSummary,
+  weightedTrendWindowSummary,
   type TrendDatum,
 } from "../lib/trend-chart";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
@@ -144,11 +145,14 @@ interface Overview {
     }>;
   };
   brandComparison: {
+    positionStatus: "ready" | "backfilling" | "failed";
     summary: {
       ownedMentionedResponses: number;
       ownedAppearances: number;
       ownedVisibility: number;
       ownedShareOfVoice: number | null;
+      ownedAveragePosition: number | null;
+      ownedPositionSamples: number;
       totalBrandAppearances: number;
       trackedCompetitorCount: number;
       competitiveGap: {
@@ -167,6 +171,8 @@ interface Overview {
       appearances: number;
       visibility: number;
       shareOfVoice: number | null;
+      averagePosition: number | null;
+      positionSamples: number;
     }>;
     series: Array<{
       metric_date: string;
@@ -179,6 +185,8 @@ interface Overview {
           appearances: number;
           visibility: number;
           shareOfVoice: number | null;
+          averagePosition: number | null;
+          positionSamples: number;
         }
       >;
     }>;
@@ -386,12 +394,14 @@ function OverviewChartTooltip({
   payload,
   promptEvents,
   data,
+  metric = "percentage",
 }: {
   active?: boolean;
   label?: string | number;
   payload?: TooltipPayload;
   promptEvents: readonly AlignedPromptSetEvent[];
   data: readonly TrendDatum[];
+  metric?: "percentage" | "rank";
 }) {
   if (!active || label === undefined) return null;
   const chartDate = String(label);
@@ -406,7 +416,11 @@ function OverviewChartTooltip({
       ));
   const entries = [...(payload ?? [])]
     .filter((entry) => entry.value !== undefined)
-    .sort((left, right) => Number(right.value) - Number(left.value));
+    .sort((left, right) =>
+      metric === "rank"
+        ? Number(left.value) - Number(right.value)
+        : Number(right.value) - Number(left.value),
+    );
   const responseCount = data.find(
     (point) => point.metric_date === chartDate,
   )?.completedRuns;
@@ -435,16 +449,24 @@ function OverviewChartTooltip({
           const change = previousValue === null
             ? null
             : Number(entry.value) - previousValue;
+          const positionSamples = data.find(
+            (point) => point.metric_date === chartDate,
+          )?.[`${seriesKey}__positionSamples`];
           return (
             <div key={`${String(entry.dataKey ?? entry.name)}-${index}`}>
               <i style={{ background: entry.color ?? entry.stroke }} />
               <span>{entry.name ?? String(entry.dataKey)}</span>
-              <b>{percent(Number(entry.value))}</b>
+              <b>{metric === "rank"
+                ? `#${Number(entry.value).toFixed(Number(entry.value) % 1 === 0 ? 0 : 1)}`
+                : percent(Number(entry.value))}</b>
               {change === null ? null : (
                 <small>
-                  {change > 0 ? "+" : change < 0 ? "−" : ""}{Math.abs(change).toFixed(1)} pp
+                  {change > 0 ? "+" : change < 0 ? "−" : ""}{Math.abs(change).toFixed(1)}{metric === "rank" ? " positions" : " pp"}
                 </small>
               )}
+              {metric === "rank" && typeof positionSamples === "number" ? (
+                <small>{pluralize(positionSamples, "ranked response")}</small>
+              ) : null}
             </div>
           );
         })}
@@ -473,9 +495,9 @@ export function OverviewPage() {
       ? (requestedSource as TrackingSource | "all")
       : "all";
   const isConsolidated = overviewSource === "all";
-  const [brandMetric, setBrandMetric] = useState<"visibility" | "shareOfVoice">(
-    "visibility",
-  );
+  const [brandMetric, setBrandMetric] = useState<
+    "visibility" | "shareOfVoice" | "averagePosition"
+  >("visibility");
   const isMobileChartLayout = useMobileChartLayout();
   const [brandSeriesVisibility, setBrandSeriesVisibility] = useState<{
     context: string;
@@ -499,6 +521,11 @@ export function OverviewPage() {
     if (source !== "all") setTrackingSource(source);
   };
   const brandComparison = overview.data?.brandComparison;
+  const positionReady = brandComparison?.positionStatus === "ready";
+  const displayedBrandMetric =
+    !positionReady && brandMetric === "averagePosition"
+      ? "visibility"
+      : brandMetric;
   const comparisonSummary = brandComparison?.summary;
   const comparisonBrands = useMemo(
     () => brandComparison?.brands ?? [],
@@ -512,14 +539,15 @@ export function OverviewPage() {
     () => (brandComparison?.series ?? []).map((point) => ({
       metric_date: point.metric_date,
       completedRuns: point.completedRuns,
-      ...Object.fromEntries(
-        comparisonBrands.map((brand) => [
-          brand.key,
-          point.metrics[brand.key]?.[brandMetric] ?? null,
-        ]),
-      ),
+      ...Object.fromEntries(comparisonBrands.flatMap((brand) => [
+        [brand.key, point.metrics[brand.key]?.[displayedBrandMetric] ?? null],
+        [
+          `${brand.key}__positionSamples`,
+          point.metrics[brand.key]?.positionSamples ?? 0,
+        ],
+      ])),
     })),
-    [brandComparison?.series, brandMetric, comparisonBrands],
+    [brandComparison?.series, displayedBrandMetric, comparisonBrands],
   );
   const brandTrendSeries = useMemo<TrendSeriesDefinition[]>(
     () => comparisonBrands.map((brand, index) => ({
@@ -602,7 +630,13 @@ export function OverviewPage() {
   );
   const ownedTrendSeries = brandTrendSeries.find(({ primary }) => primary);
   const brandTrendSummary = ownedTrendSeries
-    ? trendWindowSummary(brandComparisonSeries, ownedTrendSeries.key)
+    ? displayedBrandMetric === "averagePosition"
+      ? weightedTrendWindowSummary(
+          brandComparisonSeries,
+          ownedTrendSeries.key,
+          `${ownedTrendSeries.key}__positionSamples`,
+        )
+      : trendWindowSummary(brandComparisonSeries, ownedTrendSeries.key)
     : null;
   const leadingCitationTrend = citationTrendSeries
     .map((definition) => ({
@@ -696,27 +730,44 @@ export function OverviewPage() {
         <div className="overview-charts-row">
           <Card className="chart-card brand-comparison-card">
             <CardHeader
-              title={brandMetric === "visibility"
+              title={displayedBrandMetric === "visibility"
                 ? "Brand visibility vs competitors"
-                : "Share of Voice vs competitors"}
-              description={brandMetric === "visibility"
+                : displayedBrandMetric === "shareOfVoice"
+                  ? "Share of Voice vs competitors"
+                  : "Average position vs competitors"}
+              description={displayedBrandMetric === "visibility"
                 ? "Daily share of completed responses mentioning each brand"
-                : "Daily share of appearances across all tracked brands"}
+                : displayedBrandMetric === "shareOfVoice"
+                  ? "Daily share of appearances across all tracked brands"
+                  : "First-mention order when a tracked brand appears; lower is better"}
               action={(
                 <div className="metric-toggle" aria-label="Comparison metric">
                   <button
-                    className={brandMetric === "visibility" ? "is-active" : undefined}
+                    className={displayedBrandMetric === "visibility" ? "is-active" : undefined}
                     onClick={() => setBrandMetric("visibility")}
                     type="button"
                   >
                     Visibility
                   </button>
                   <button
-                    className={brandMetric === "shareOfVoice" ? "is-active" : undefined}
+                    className={displayedBrandMetric === "shareOfVoice" ? "is-active" : undefined}
                     onClick={() => setBrandMetric("shareOfVoice")}
                     type="button"
                   >
                     Share of Voice
+                  </button>
+                  <button
+                    className={displayedBrandMetric === "averagePosition" ? "is-active" : undefined}
+                    disabled={!positionReady}
+                    onClick={() => setBrandMetric("averagePosition")}
+                    title={positionReady
+                      ? "Show average first-mention position"
+                      : brandComparison?.positionStatus === "failed"
+                        ? "Position history is temporarily unavailable"
+                        : "Position history is being prepared"}
+                    type="button"
+                  >
+                    Average position
                   </button>
                 </div>
               )}
@@ -724,7 +775,10 @@ export function OverviewPage() {
             <TrendChartInsight
               change={brandTrendSummary?.change}
               detail={ownedTrendSeries?.label}
-              label="7-day average"
+              label={displayedBrandMetric === "averagePosition"
+                ? "7-day weighted average"
+                : "7-day average"}
+              metric={displayedBrandMetric === "averagePosition" ? "rank" : "percentage"}
               value={brandTrendSummary?.value}
             />
             {comparisonSummary?.trackedCompetitorCount ? (
@@ -744,7 +798,14 @@ export function OverviewPage() {
                   })}
                 />
                 <p className="brand-comparison-note">
-                  Select a brand to show or hide it. Share of Voice includes all {comparisonSummary.trackedCompetitorCount} tracked {comparisonSummary.trackedCompetitorCount === 1 ? "competitor" : "competitors"}{comparisonSummary.trackedCompetitorCount > 4 ? "; the chart shows the top four." : "."}
+                  {brandComparison?.positionStatus === "backfilling"
+                    ? "Average position history is being prepared in the background. "
+                    : brandComparison?.positionStatus === "failed"
+                      ? "Average position history is temporarily unavailable. "
+                      : displayedBrandMetric === "averagePosition"
+                        ? "Position is conditional on a brand being mentioned; lower is better. "
+                        : ""}
+                  Select a brand to show or hide it. Share of Voice and position include all {comparisonSummary.trackedCompetitorCount} tracked {comparisonSummary.trackedCompetitorCount === 1 ? "competitor" : "competitors"}{comparisonSummary.trackedCompetitorCount > 4 ? "; the chart shows the top four." : "."}
                 </p>
               </>
             ) : null}
@@ -760,9 +821,14 @@ export function OverviewPage() {
               ) : brandComparisonSeries.length > 0 ? (
                 <BelkiTrendChart
                   annotations={promptEventReferenceLines(promptSetEvents)}
-                  ariaLabel={`${brandMetric === "visibility" ? "Visibility" : "Share of Voice"} trend for ${ownedBrandName} and tracked competitors`}
+                  ariaLabel={`${displayedBrandMetric === "visibility"
+                    ? "Visibility"
+                    : displayedBrandMetric === "shareOfVoice"
+                      ? "Share of Voice"
+                      : "Average position"} trend for ${ownedBrandName} and tracked competitors`}
                   data={brandComparisonSeries}
                   highlightedKey={highlightedBrandSeries}
+                  metric={displayedBrandMetric === "averagePosition" ? "rank" : "percentage"}
                   series={visibleBrandTrendSeries}
                   tooltipContent={(props) => (
                     <OverviewChartTooltip
@@ -771,6 +837,7 @@ export function OverviewPage() {
                       label={props.label}
                       payload={props.payload}
                       promptEvents={promptSetEvents}
+                      metric={displayedBrandMetric === "averagePosition" ? "rank" : "percentage"}
                     />
                   )}
                 />

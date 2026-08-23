@@ -11,6 +11,8 @@ import { matchedBrandTerms, normalizeBrand, normalizeHostname } from "../lib/dom
 import { normalizeAdItem } from "../lib/ads";
 import { ANALYTICS_READ_MODEL_SCHEMA_VERSION } from "../lib/analytics-read-model";
 import { registerAdAssetSources } from "../automation/ad-assets";
+import { syncSnapshotBrandMetrics } from "./brand-metrics";
+import type { TrackingSource } from "../../shared/contracts";
 
 interface SnapshotReadModelRow {
   id: string;
@@ -22,7 +24,7 @@ interface SnapshotReadModelRow {
   fan_out_queries_json: string;
   fan_out_telemetry_status: "reported" | "unavailable" | "unknown";
   model: string | null;
-  tracking_source: string;
+  tracking_source: TrackingSource;
   surface_present: number;
 }
 
@@ -219,10 +221,13 @@ export async function syncAnalyticsReadModel(
         .bind(payload.projectId)
         .all<OwnedBrandRow>(),
       env.CONTROL_DB.prepare(
-        "SELECT primary_domain FROM projects WHERE id = ?",
+        "SELECT primary_domain, brand_metrics_revision FROM projects WHERE id = ?",
       )
         .bind(payload.projectId)
-        .first<{ primary_domain: string | null }>(),
+        .first<{
+          primary_domain: string | null;
+          brand_metrics_revision: number;
+        }>(),
       loadSnapshotAds(shard, payload.snapshotId),
     ]);
   if (!snapshot) {
@@ -537,6 +542,20 @@ export async function syncAnalyticsReadModel(
   for (let index = 0; index < statements.length; index += 100) {
     await env.CONTROL_DB.batch(statements.slice(index, index + 100));
   }
+  await syncSnapshotBrandMetrics(env.CONTROL_DB, {
+    snapshotId: payload.snapshotId,
+    projectId: payload.projectId,
+    trackingSource: snapshot.tracking_source,
+    metricDate: payload.metricDate,
+    answer: snapshot.answer_markdown ?? "",
+    revision: Number(project?.brand_metrics_revision ?? 1),
+    brands: trackedBrands.results.map((brand) => ({
+      id: brand.id,
+      kind: brand.kind,
+      name: brand.name,
+      aliases: jsonParse<string[]>(brand.aliases_json, []),
+    })),
+  });
   await registerAdAssetSources(
     env,
     ads.flatMap((ad) => [

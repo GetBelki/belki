@@ -336,6 +336,59 @@ function rebuildMetricStatements(
         brand.value, contribution.metric_date`,
     ).bind(now, projectId, datesJson),
     env.CONTROL_DB.prepare(
+      `DELETE FROM analytics_daily_brand_metrics
+       WHERE project_id = ?
+         AND metric_date IN (SELECT value FROM json_each(?))
+         AND brand_metrics_revision = (
+           SELECT brand_metrics_revision FROM projects WHERE id = ?
+         )`,
+    ).bind(projectId, datesJson, projectId),
+    env.CONTROL_DB.prepare(
+      `DELETE FROM analytics_daily_owned_brand_metrics
+       WHERE project_id = ?
+         AND metric_date IN (SELECT value FROM json_each(?))
+         AND brand_metrics_revision = (
+           SELECT brand_metrics_revision FROM projects WHERE id = ?
+         )`,
+    ).bind(projectId, datesJson, projectId),
+    env.CONTROL_DB.prepare(
+      `INSERT INTO analytics_daily_brand_metrics (
+        project_id, tracking_source, metric_date, brand_metrics_revision,
+        tracked_brand_id, mentioned_response_count, position_sum,
+        position_sample_count, updated_at
+      )
+      SELECT contribution.project_id, contribution.tracking_source,
+        contribution.metric_date, contribution.brand_metrics_revision,
+        CAST(json_extract(brand.value, '$.brandId') AS TEXT), COUNT(*),
+        SUM(CAST(json_extract(brand.value, '$.position') AS REAL)), COUNT(*), ?
+      FROM analytics_brand_snapshot_metrics contribution
+      JOIN projects project ON project.id = contribution.project_id,
+        json_each(contribution.brands_json) brand
+      WHERE contribution.project_id = ?
+        AND contribution.brand_metrics_revision = project.brand_metrics_revision
+        AND contribution.metric_date IN (SELECT value FROM json_each(?))
+      GROUP BY contribution.project_id, contribution.tracking_source,
+        contribution.metric_date, contribution.brand_metrics_revision,
+        CAST(json_extract(brand.value, '$.brandId') AS TEXT)`,
+    ).bind(now, projectId, datesJson),
+    env.CONTROL_DB.prepare(
+      `INSERT INTO analytics_daily_owned_brand_metrics (
+        project_id, tracking_source, metric_date, brand_metrics_revision,
+        mentioned_response_count, position_sum, position_sample_count, updated_at
+      )
+      SELECT contribution.project_id, contribution.tracking_source,
+        contribution.metric_date, contribution.brand_metrics_revision,
+        COUNT(*), SUM(contribution.owned_position), COUNT(*), ?
+      FROM analytics_brand_snapshot_metrics contribution
+      JOIN projects project ON project.id = contribution.project_id
+      WHERE contribution.project_id = ?
+        AND contribution.brand_metrics_revision = project.brand_metrics_revision
+        AND contribution.owned_mentioned = 1
+        AND contribution.metric_date IN (SELECT value FROM json_each(?))
+      GROUP BY contribution.project_id, contribution.tracking_source,
+        contribution.metric_date, contribution.brand_metrics_revision`,
+    ).bind(now, projectId, datesJson),
+    env.CONTROL_DB.prepare(
       `DELETE FROM daily_project_metrics
        WHERE project_id = ? AND metric_date IN (SELECT value FROM json_each(?))`,
     ).bind(projectId, datesJson),

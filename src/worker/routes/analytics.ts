@@ -1709,6 +1709,7 @@ analyticsRoutes.get(
     const readModelReady =
       (allSources || input.source === "chatgpt") &&
       analyticsReadModelSupports(readModelState);
+    const brandReadModelReady = analyticsReadModelSupports(readModelState);
     const [
       summary,
       productCoverage,
@@ -1912,7 +1913,42 @@ analyticsRoutes.get(
       )
         .bind(input.projectId)
         .all<TrackedBrandReportRow>(),
-      c.env.CONTROL_DB.prepare(
+      brandReadModelReady
+        ? c.env.CONTROL_DB.prepare(
+            `SELECT
+              metric.metric_date,
+              metric.tracking_source,
+              metric.tracked_brand_id AS brand_id,
+              metric.mentioned_response_count AS deterministic_responses,
+              0 AS extracted_responses,
+              0 AS overlap_responses,
+              COALESCE(owned.mentioned_response_count, 0) AS owned_mentioned_responses,
+              metric.position_sum,
+              metric.position_sample_count,
+              COALESCE(owned.position_sum, 0) AS owned_position_sum,
+              COALESCE(owned.position_sample_count, 0) AS owned_position_sample_count
+            FROM analytics_daily_brand_metrics metric
+            JOIN projects project ON project.id = metric.project_id
+            LEFT JOIN analytics_daily_owned_brand_metrics owned
+              ON owned.project_id = metric.project_id
+             AND owned.tracking_source = metric.tracking_source
+             AND owned.metric_date = metric.metric_date
+             AND owned.brand_metrics_revision = metric.brand_metrics_revision
+            WHERE metric.project_id = ?
+              AND metric.tracking_source IN (${sourcePlaceholders})
+              AND metric.metric_date BETWEEN ? AND ?
+              AND metric.brand_metrics_revision = project.brand_metrics_revision
+            ORDER BY metric.metric_date, metric.tracking_source,
+              metric.tracked_brand_id`,
+          )
+            .bind(
+              input.projectId,
+              ...includedSources,
+              dates.from,
+              dates.to,
+            )
+            .all<SourceBrandMentionDailyRow>()
+        : c.env.CONTROL_DB.prepare(
         `WITH mention_candidates AS (
           SELECT
             contribution.metric_date,
@@ -2162,6 +2198,11 @@ analyticsRoutes.get(
       series.results,
       consolidatedBrandMentionDays,
     );
+    const positionStatus = brandReadModelReady
+      ? "ready"
+      : readModelState?.status === "failed"
+        ? "failed"
+        : "backfilling";
     const platformSummaries = new Map<TrackingSource, {
       completedRuns: number;
       surfacePresentRuns: number;
@@ -2260,7 +2301,10 @@ analyticsRoutes.get(
             };
           }),
         },
-        brandComparison,
+        brandComparison: {
+          ...brandComparison,
+          positionStatus,
+        },
         promptSetEvents: buildPromptSetEvents(
           promptSetAuditRows.results,
           input.projectId,

@@ -44,6 +44,42 @@ export interface FanOutTelemetryBackfillResult {
 }
 
 const FAN_OUT_TELEMETRY_SHARD_CONCURRENCY = 5;
+const STALE_BRAND_METRIC_CLEANUP_BATCH_SIZE = 500;
+
+async function cleanupStaleBrandMetricRevisions(db: D1Database): Promise<void> {
+  await db.batch([
+    db.prepare(
+      `DELETE FROM analytics_brand_snapshot_metrics
+       WHERE rowid IN (
+         SELECT metric.rowid
+         FROM analytics_brand_snapshot_metrics metric
+         JOIN projects project ON project.id = metric.project_id
+         WHERE metric.brand_metrics_revision != project.brand_metrics_revision
+         LIMIT ?
+       )`,
+    ).bind(STALE_BRAND_METRIC_CLEANUP_BATCH_SIZE),
+    db.prepare(
+      `DELETE FROM analytics_daily_brand_metrics
+       WHERE rowid IN (
+         SELECT metric.rowid
+         FROM analytics_daily_brand_metrics metric
+         JOIN projects project ON project.id = metric.project_id
+         WHERE metric.brand_metrics_revision != project.brand_metrics_revision
+         LIMIT ?
+       )`,
+    ).bind(STALE_BRAND_METRIC_CLEANUP_BATCH_SIZE),
+    db.prepare(
+      `DELETE FROM analytics_daily_owned_brand_metrics
+       WHERE rowid IN (
+         SELECT metric.rowid
+         FROM analytics_daily_owned_brand_metrics metric
+         JOIN projects project ON project.id = metric.project_id
+         WHERE metric.brand_metrics_revision != project.brand_metrics_revision
+         LIMIT ?
+       )`,
+    ).bind(STALE_BRAND_METRIC_CLEANUP_BATCH_SIZE),
+  ]);
+}
 
 export async function backfillFanOutTelemetryReadModel(
   env: Env,
@@ -131,6 +167,10 @@ export async function backfillFanOutTelemetryReadModel(
            AND (
              fact.snapshot_id IS NULL
              OR fact.related_query_signal_counts_indexed_at IS NULL
+             OR fact.brand_metrics_revision != (
+               SELECT brand_metrics_revision FROM projects
+               WHERE id = snapshot.project_id
+             )
              OR (
                snapshot.tracking_source IN ('chatgpt', 'gemini')
                AND fact.fan_out_telemetry_indexed_at IS NULL
@@ -148,6 +188,7 @@ export async function backfillAnalyticsReadModel(
   env: Env,
 ): Promise<AnalyticsBackfillResult> {
   const updatedAt = nowIso();
+  await cleanupStaleBrandMetricRevisions(env.CONTROL_DB);
   await env.CONTROL_DB.prepare(
     `INSERT INTO analytics_read_model_projects (
       project_id, status, schema_version, updated_at
@@ -188,6 +229,10 @@ export async function backfillAnalyticsReadModel(
            AND (
              fact.snapshot_id IS NULL
              OR fact.related_query_signal_counts_indexed_at IS NULL
+             OR fact.brand_metrics_revision != (
+               SELECT brand_metrics_revision FROM projects
+               WHERE id = snapshot.project_id
+             )
              OR (
                snapshot.tracking_source IN ('chatgpt', 'gemini')
                AND fact.fan_out_telemetry_indexed_at IS NULL
@@ -235,7 +280,14 @@ export async function backfillAnalyticsReadModel(
        FROM snapshot_index snapshot
        LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
        WHERE snapshot.project_id = ?
-         AND (fact.snapshot_id IS NULL OR fact.related_query_signal_counts_indexed_at IS NULL)
+         AND (
+           fact.snapshot_id IS NULL
+           OR fact.related_query_signal_counts_indexed_at IS NULL
+           OR fact.brand_metrics_revision != (
+             SELECT brand_metrics_revision FROM projects
+             WHERE id = snapshot.project_id
+           )
+         )
        ORDER BY snapshot.captured_at, snapshot.id
        LIMIT ?`,
     )
@@ -261,6 +313,10 @@ export async function backfillAnalyticsReadModel(
           AND (
             fact.snapshot_id IS NULL
             OR fact.related_query_signal_counts_indexed_at IS NULL
+            OR fact.brand_metrics_revision != (
+              SELECT brand_metrics_revision FROM projects
+              WHERE id = snapshot.project_id
+            )
             OR (
               snapshot.tracking_source IN ('chatgpt', 'gemini')
               AND fact.fan_out_telemetry_indexed_at IS NULL

@@ -13,6 +13,7 @@ import {
 } from "recharts";
 import {
   percentageChartScale,
+  rankChartScale,
   shortChartDate,
   type TrendDatum,
 } from "../lib/trend-chart";
@@ -28,26 +29,34 @@ export interface TrendSeriesDefinition {
   connectNulls?: boolean;
 }
 
+export type TrendMetric = "percentage" | "rank";
+
+function trendValue(value: number, metric: TrendMetric): string {
+  return metric === "rank" ? `#${value.toFixed(value % 1 === 0 ? 0 : 1)}` : percent(value);
+}
+
 export function TrendChartInsight({
   label,
   value,
   change,
   detail,
+  metric = "percentage",
 }: {
   label: string;
   value: number | null | undefined;
   change: number | null | undefined;
   detail?: string;
+  metric?: TrendMetric;
 }) {
   const changeLabel = change === null || change === undefined
     ? null
-    : `${change > 0 ? "+" : change < 0 ? "−" : ""}${Math.abs(change).toFixed(1)} pp`;
-  const changeDirection = change ?? 0;
+    : `${change > 0 ? "+" : change < 0 ? "−" : ""}${Math.abs(change).toFixed(1)}${metric === "rank" ? " positions" : " pp"}`;
+  const changeDirection = metric === "rank" ? -(change ?? 0) : change ?? 0;
   return (
     <div className="trend-chart-insight">
       <span>{label}</span>
       <div>
-        <strong>{value === null || value === undefined ? "—" : percent(value)}</strong>
+        <strong>{value === null || value === undefined ? "—" : trendValue(value, metric)}</strong>
         {changeLabel ? (
           <small className={cn(changeDirection > 0 && "is-positive", changeDirection < 0 && "is-negative")}>
             {changeLabel} <span>vs previous 7 days</span>
@@ -121,6 +130,7 @@ export function BelkiTrendChart({
   highlightedKey,
   tooltipContent,
   annotations,
+  metric = "percentage",
 }: {
   ariaLabel: string;
   data: readonly TrendDatum[];
@@ -128,14 +138,23 @@ export function BelkiTrendChart({
   highlightedKey: string | null;
   tooltipContent: (props: TooltipContentProps) => ReactNode;
   annotations?: ReactNode;
+  metric?: TrendMetric;
 }) {
-  const scale = percentageChartScale(data, series.map(({ key }) => key));
+  const scale = metric === "rank"
+    ? rankChartScale(data, series.map(({ key }) => key))
+    : percentageChartScale(data, series.map(({ key }) => key));
   const latest = data.at(-1);
   return (
     <div aria-label={ariaLabel} className="trend-chart-plot" role="group">
       <p className="sr-only">
-        Latest recorded values: {series.map((item) =>
-          `${item.label} ${percent(Number(latest?.[item.key] ?? 0))}`).join(", ")}.
+        Latest recorded values: {series.map((item) => {
+          const value = latest?.[item.key];
+          return `${item.label} ${
+            typeof value === "number" && Number.isFinite(value)
+              ? trendValue(value, metric)
+              : "—"
+          }`;
+        }).join(", ")}.
       </p>
       <ResponsiveContainer height="100%" minWidth={0} width="100%">
         <LineChart
@@ -156,8 +175,9 @@ export function BelkiTrendChart({
           <YAxis
             axisLine={false}
             domain={scale.domain}
+            reversed={metric === "rank"}
             tick={{ fill: "#71717a", fontSize: 10 }}
-            tickFormatter={(value) => `${value}%`}
+            tickFormatter={(value) => metric === "rank" ? `#${value}` : `${value}%`}
             tickLine={false}
             ticks={scale.ticks}
             width={40}

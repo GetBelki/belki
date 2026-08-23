@@ -5,6 +5,7 @@ import { writeAudit } from "../lib/audit";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
 import { commitUsage, releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 import { getShard } from "../lib/shards";
+import { markBrandMetricsStale } from "../lib/brand-metrics-state";
 import {
   ENTITY_EXTRACTION_MODEL,
   ENTITY_EXTRACTOR_VERSION,
@@ -590,6 +591,9 @@ async function autoTrackEligibleCompetitors(
         extractorVersion: job.extractor_version,
       },
     });
+  }
+  if (tracked > 0) {
+    await markBrandMetricsStale(env.CONTROL_DB, job.project_id);
   }
   return tracked;
 }

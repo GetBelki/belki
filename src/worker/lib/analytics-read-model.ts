@@ -1,5 +1,5 @@
-// Version 8 records provider models and whether fan-out telemetry was reported.
-export const ANALYTICS_READ_MODEL_SCHEMA_VERSION = 8;
+// Version 9 materializes verified brand appearances and first-mention position.
+export const ANALYTICS_READ_MODEL_SCHEMA_VERSION = 9;
 export const ANALYTICS_BACKFILL_BATCH_SIZE = 50;
 export const FAN_OUT_TELEMETRY_BACKFILL_BATCH_SIZE = 400;
 // Related-query tables and indexing were complete in version 4. Later additive

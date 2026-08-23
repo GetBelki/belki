@@ -5,6 +5,11 @@ export interface PercentageChartScale {
   ticks: number[];
 }
 
+export interface RankChartScale {
+  domain: [number, number];
+  ticks: number[];
+}
+
 export interface TrendWindowSummary {
   value: number;
   change: number | null;
@@ -41,6 +46,38 @@ export function percentageChartScale(
   ) ?? PERCENTAGE_SCALES[PERCENTAGE_SCALES.length - 1]!;
 }
 
+export function rankChartScale(
+  data: readonly TrendDatum[],
+  seriesKeys: readonly string[],
+): RankChartScale {
+  const maximum = Math.max(
+    2,
+    Math.ceil(
+      Math.max(
+        1,
+        ...data.flatMap((point) =>
+          seriesKeys
+            .map((key) => finiteNumber(point[key]))
+            .filter((value): value is number => value !== null),
+        ),
+      ),
+    ),
+  );
+  if (maximum <= 6) {
+    return {
+      domain: [1, maximum],
+      ticks: Array.from({ length: maximum }, (_, index) => index + 1),
+    };
+  }
+  const step = Math.ceil((maximum - 1) / 5);
+  const ticks = Array.from(
+    { length: Math.floor((maximum - 1) / step) + 1 },
+    (_, index) => 1 + index * step,
+  );
+  if (ticks.at(-1) !== maximum) ticks.push(maximum);
+  return { domain: [1, maximum], ticks };
+}
+
 function average(values: readonly number[]): number {
   return values.reduce((total, value) => total + value, 0) / values.length;
 }
@@ -63,6 +100,44 @@ export function trendWindowSummary(
     change:
       currentValues.length === windowSize && previousValues.length === windowSize
         ? value - average(previousValues)
+        : null,
+  };
+}
+
+export function weightedTrendWindowSummary(
+  data: readonly TrendDatum[],
+  seriesKey: string,
+  weightKey: string,
+  windowSize = 7,
+): TrendWindowSummary | null {
+  if (!Number.isInteger(windowSize) || windowSize < 1) return null;
+  const weightedPoints = (points: readonly TrendDatum[]) => points.flatMap((point) => {
+    const value = finiteNumber(point[seriesKey]);
+    const weight = finiteNumber(point[weightKey]);
+    return value !== null && weight !== null && weight > 0
+      ? [{ value, weight }]
+      : [];
+  });
+  const currentWindow = data.slice(-windowSize);
+  const previousWindow = data.slice(-windowSize * 2, -windowSize);
+  const currentValues = weightedPoints(currentWindow);
+  const previousValues = weightedPoints(previousWindow);
+  if (!currentValues.length) return null;
+  const weightedAverage = (points: typeof currentValues) => {
+    const weight = points.reduce((total, point) => total + point.weight, 0);
+    return points.reduce(
+      (total, point) => total + point.value * point.weight,
+      0,
+    ) / weight;
+  };
+  const value = weightedAverage(currentValues);
+  return {
+    value,
+    change:
+      currentWindow.length === windowSize &&
+        previousWindow.length === windowSize &&
+        previousValues.length > 0
+        ? value - weightedAverage(previousValues)
         : null,
   };
 }
