@@ -17,6 +17,7 @@ import {
   type TooltipContentProps,
 } from "recharts";
 import { PageHeader } from "../components/layout";
+import { OperatorDataFailure } from "../components/operator-access";
 import {
   Card,
   CardHeader,
@@ -1071,6 +1072,17 @@ export function OperatorCitationTrendsPage() {
   }, [domain, domains.data]);
   const selectedDomain = domainOptions.find((option) => option.value === domain)
     ?? ALL_DOMAINS_OPTION;
+  if (report.isError) {
+    return (
+      <OperatorDataFailure
+        error={report.error}
+        onRetry={() => {
+          void report.refetch();
+          void domains.refetch();
+        }}
+      />
+    );
+  }
   return (
     <div className="page operator-insights-page">
       <PageHeader
@@ -1143,6 +1155,14 @@ export function OperatorFanOutTrendsPage() {
     (total, point) => total + point.unavailableResponses,
     0,
   );
+  if (report.isError) {
+    return (
+      <OperatorDataFailure
+        error={report.error}
+        onRetry={() => void report.refetch()}
+      />
+    );
+  }
   return (
     <div className="page operator-insights-page">
       <PageHeader

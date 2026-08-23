@@ -501,9 +501,12 @@ remains an unsupported preview for plan changes.
 Signup is email-bound and one-use. A platform operator creates a URL through the
 operator console or `POST /api/v1/operator/signup-codes`. A workspace remains
 pending until a verified Stripe webhook activates it. Protect
-`/api/v1/operator/*` with Cloudflare Access; the Worker also verifies that the
-Access-authenticated email belongs to `platform_operators`. Disable `workers.dev`
-and attach a custom production route before launch.
+both `/operator*` and `/api/v1/operator/*` with the same Cloudflare Access
+policy. Operator navigation intentionally performs a full document request so
+Access can issue or renew its authorization cookie before protected API data is
+requested. The Worker also verifies that the Access-authenticated email belongs
+to `platform_operators`. Disable `workers.dev` and attach a custom production
+route before launch.
 
 Belki maintains internal workload budgets for cost and abuse protection. Those
 weights are implementation details, not a customer-facing credit balance.

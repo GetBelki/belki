@@ -46,6 +46,38 @@ const NAVIGATION = [
   { to: "/shopping", label: "Shopping", icon: ShoppingBag },
 ] as const;
 
+export function OperatorNavigation({ pathname }: { pathname: string }) {
+  const consoleActive = pathname === "/operator";
+  const citationsActive = pathname.startsWith("/operator/insights/citations");
+  const fanOutActive = pathname.startsWith("/operator/insights/fan-out");
+  return (
+    <>
+      <p>Operator</p>
+      <a
+        aria-current={consoleActive ? "page" : undefined}
+        className={cn("nav-item", "operator-nav-item", consoleActive && "active")}
+        href="/operator"
+      >
+        <ShieldCheck size={17} /> <span>Console</span>
+      </a>
+      <a
+        aria-current={citationsActive ? "page" : undefined}
+        className={cn("nav-item", "operator-nav-item", citationsActive && "active")}
+        href="/operator/insights/citations"
+      >
+        <SourcesIcon size={17} /> <span>Citation trends</span>
+      </a>
+      <a
+        aria-current={fanOutActive ? "page" : undefined}
+        className={cn("nav-item", "operator-nav-item", fanOutActive && "active")}
+        href="/operator/insights/fan-out"
+      >
+        <RelatedQueriesIcon size={17} /> <span>Fan-out trends</span>
+      </a>
+    </>
+  );
+}
+
 export function AppLayout() {
   const {
     session,
@@ -195,28 +227,7 @@ export function AppLayout() {
             <Settings size={17} /> <span>Settings</span>
           </NavLink>
           {session.isPlatformOperator ? (
-            <>
-              <p>Operator</p>
-              <NavLink
-                end
-                to="/operator"
-                className={({ isActive }) => cn("nav-item", "operator-nav-item", isActive && "active")}
-              >
-                <ShieldCheck size={17} /> <span>Console</span>
-              </NavLink>
-              <NavLink
-                to="/operator/insights/citations"
-                className={({ isActive }) => cn("nav-item", "operator-nav-item", isActive && "active")}
-              >
-                <SourcesIcon size={17} /> <span>Citation trends</span>
-              </NavLink>
-              <NavLink
-                to="/operator/insights/fan-out"
-                className={({ isActive }) => cn("nav-item", "operator-nav-item", isActive && "active")}
-              >
-                <RelatedQueriesIcon size={17} /> <span>Fan-out trends</span>
-              </NavLink>
-            </>
+            <OperatorNavigation pathname={location.pathname} />
           ) : null}
         </nav>
         <div className="sidebar-user">
