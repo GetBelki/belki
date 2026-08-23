@@ -2,7 +2,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Copy, MailPlus } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { PageHeader } from "../components/layout";
-import { Badge, Button, CardHeader, DataTable, Dialog, Input, Label, Select, Skeleton } from "../components/ui";
+import { OperatorDataFailure } from "../components/operator-access";
+import { Badge, Button, CardHeader, DataTable, Dialog, EmptyState, Input, Label, Select, Skeleton } from "../components/ui";
 import { api, patch, post, remove } from "../lib/api";
 import { formText } from "../lib/utils";
 
@@ -72,6 +73,18 @@ export default function OperatorPage() {
     event.preventDefault();
     createCode.mutate(formText(new FormData(event.currentTarget), "email"));
   };
+  const queryError = workspaces.error ?? codes.error;
+  if (queryError) {
+    return (
+      <OperatorDataFailure
+        error={queryError}
+        onRetry={() => {
+          void workspaces.refetch();
+          void codes.refetch();
+        }}
+      />
+    );
+  }
   return (
     <div className="page operator-page page-flow">
       <PageHeader
@@ -85,7 +98,7 @@ export default function OperatorPage() {
       </div>
       <section className="operator-section">
         <CardHeader title="Managed workspaces" description="Subscription webhooks normally control these states; manual suspension is available for support and abuse response." />
-        {workspaces.isPending ? <Skeleton className="settings-feature-skeleton" /> : (
+        {workspaces.isPending ? <Skeleton className="settings-feature-skeleton" /> : workspaces.data?.length ? (
           <DataTable
             columns={[{ key: "workspace", label: "Workspace" }, { key: "plan", label: "Plan" }, { key: "usage", label: "Limits" }, { key: "status", label: "Status" }]}
             rows={(workspaces.data ?? []).map((workspace) => ({
@@ -101,11 +114,11 @@ export default function OperatorPage() {
               />,
             }))}
           />
-        )}
+        ) : <EmptyState title="No managed workspaces" description="Managed customer workspaces will appear here after their signup is completed." />}
       </section>
       <section className="operator-section">
         <CardHeader title="Recent signup codes" />
-        {codes.isPending ? <Skeleton className="settings-feature-skeleton" /> : (
+        {codes.isPending ? <Skeleton className="settings-feature-skeleton" /> : codes.data?.length ? (
           <DataTable
             columns={[{ key: "email", label: "Email" }, { key: "state", label: "State" }, { key: "expires", label: "Expires" }, { key: "actions", label: "" }]}
             rows={(codes.data ?? []).map((code) => ({
@@ -118,7 +131,7 @@ export default function OperatorPage() {
                 : null,
             }))}
           />
-        )}
+        ) : <EmptyState title="No signup codes" description="Create an invitation when a managed customer is ready to join." />}
       </section>
 
       <Dialog
