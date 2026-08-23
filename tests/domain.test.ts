@@ -6,6 +6,7 @@ import {
   normalizeBrand,
   normalizeHostname,
   normalizeUrl,
+  stripMarkdownEntityDecoration,
 } from "../src/worker/lib/domain";
 
 describe("domain normalization", () => {
@@ -43,6 +44,18 @@ describe("domain normalization", () => {
 
   it("normalizes brand matching without losing unicode", () => {
     expect(normalizeBrand("  Café   Déjà  ")).toBe("café déjà");
+  });
+
+  it("removes paired Markdown decoration from entity surfaces", () => {
+    expect(stripMarkdownEntityDecoration(" **dLocal** ")).toBe("dLocal");
+    expect(stripMarkdownEntityDecoration("***Rebill***")).toBe("Rebill");
+    expect(stripMarkdownEntityDecoration("__Canon__")).toBe("Canon");
+    expect(stripMarkdownEntityDecoration("~~Stripe~~")).toBe("Stripe");
+  });
+
+  it("preserves punctuation that is part of an entity name", () => {
+    expect(stripMarkdownEntityDecoration("A*B")).toBe("A*B");
+    expect(stripMarkdownEntityDecoration("C_Store")).toBe("C_Store");
   });
 
   it("matches brand names independently of letter case and markdown formatting", () => {

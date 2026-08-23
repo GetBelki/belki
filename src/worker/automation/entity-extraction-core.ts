@@ -4,6 +4,7 @@ import {
   containsBrandMention,
   normalizeBrand,
   normalizeUrl,
+  stripMarkdownEntityDecoration,
 } from "../lib/domain";
 import { jsonParse } from "../lib/http";
 
@@ -375,7 +376,8 @@ function candidate(
     source: "workers_ai" | "dataforseo_entity" | "tracked_brand";
   },
 ): ValidatedEntity | null {
-  const visibleSurface = exactSurface(chunk, span.surface);
+  const entitySurface = stripMarkdownEntityDecoration(span.surface);
+  const visibleSurface = exactSurface(chunk, entitySurface);
   if (!visibleSurface || !containsBrandMention(chunk, visibleSurface)) return null;
   const trackedBrand = knownBrandForSurface(visibleSurface, options.trackedBrands);
   const provider = providerForSurface(visibleSurface, options.providerEntities);
@@ -431,8 +433,12 @@ export function validateExtractedEntities(
   const spans = new Map<string, { span: SpanEntity; source: "workers_ai" | "dataforseo_entity" | "tracked_brand" }>();
 
   for (const span of parsed.entities) {
-    if (!containsBrandMention(chunk, span.surface)) continue;
-    spans.set(normalizeBrand(span.surface), { span, source: "workers_ai" });
+    const surface = stripMarkdownEntityDecoration(span.surface);
+    if (!surface || !containsBrandMention(chunk, surface)) continue;
+    spans.set(normalizeBrand(surface), {
+      span: { ...span, surface },
+      source: "workers_ai",
+    });
   }
   for (const provider of providerEntities) {
     const surface = exactSurface(chunk, provider.title);
@@ -488,7 +494,10 @@ export function applyRelationshipAssessments(
 ): ValidatedEntity[] {
   const assessments = RelationshipResponseSchema.parse(raw).assessments;
   const bySurface = new Map(
-    assessments.map((assessment) => [normalizeBrand(assessment.surface), assessment]),
+    assessments.map((assessment) => [
+      normalizeBrand(stripMarkdownEntityDecoration(assessment.surface)),
+      assessment,
+    ]),
   );
   return entities.map((entity) => {
     if (entity.trackedBrand) return entity;
