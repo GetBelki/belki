@@ -6,7 +6,6 @@ import {
   buildBrandComparison,
   buildFanOutActivityTrend,
   buildFanOutSignalTrend,
-  buildPromptSetEvents,
   buildResponseShareTrend,
   classifyRelatedQueries,
   mergeBillingReports,
@@ -25,12 +24,19 @@ import {
   summarizeProductPerformance,
 } from "../src/worker/lib/reporting";
 import {
-  alignPromptSetEvents,
-  clusterPromptSetEvents,
+  alignChartAnnotations,
+  chartAnnotationDescription,
+  chartAnnotationMarkerLabel,
+  clusterChartAnnotations,
   hasOverviewProducts,
-  promptSetEventDescription,
   promptSetEventLabel,
 } from "../src/app/lib/overview";
+import {
+  buildChartAnnotations,
+  normalizeProviderModel,
+  promptChangeFromAudit,
+  trackingSourceDelta,
+} from "../src/shared/project-event-helpers";
 
 const base = {
   provider_product_id: null,
@@ -894,83 +900,104 @@ describe("overview product visibility", () => {
   });
 });
 
-describe("prompt-set event reporting", () => {
-  it("aggregates prompt additions and removals by project and day", () => {
-    const report = buildPromptSetEvents(
-      [
-        {
-          action: "query.created",
-          metadata_json: JSON.stringify({ projectId: "project-a" }),
-          created_at: "2026-08-08T09:00:00.000Z",
-        },
-        {
-          action: "query.bulk_created",
-          metadata_json: JSON.stringify({
-            projectId: "project-a",
-            createdCount: 99,
-          }),
-          created_at: "2026-08-08T10:00:00.000Z",
-        },
-        {
-          action: "query.purge_requested",
-          metadata_json: JSON.stringify({ projectId: "project-a" }),
-          created_at: "2026-08-08T11:00:00.000Z",
-        },
-        {
-          action: "query.created",
-          metadata_json: JSON.stringify({ projectId: "project-b" }),
-          created_at: "2026-08-08T12:00:00.000Z",
-        },
-        {
-          action: "query.created",
-          metadata_json: JSON.stringify({ projectId: "project-a" }),
-          created_at: "2026-08-10T09:00:00.000Z",
-        },
-      ],
-      "project-a",
-    );
-
-    expect(report).toEqual([
-      { metric_date: "2026-08-08", addedCount: 100, removedCount: 1 },
-      { metric_date: "2026-08-10", addedCount: 1, removedCount: 0 },
+describe("project event reporting", () => {
+  it("aggregates prompt events while retaining typed platform and model events", () => {
+    expect(buildChartAnnotations([
+      {
+        id: "prompt-1",
+        event_type: "prompt_set_changed",
+        tracking_source: null,
+        event_date: "2026-08-08",
+        occurred_at: "2026-08-08T09:00:00.000Z",
+        payload_json: JSON.stringify({ addedCount: 3, removedCount: 0 }),
+      },
+      {
+        id: "prompt-2",
+        event_type: "prompt_set_changed",
+        tracking_source: null,
+        event_date: "2026-08-08",
+        occurred_at: "2026-08-08T10:00:00.000Z",
+        payload_json: JSON.stringify({ addedCount: 0, removedCount: 1 }),
+      },
+      {
+        id: "source-1",
+        event_type: "tracking_sources_changed",
+        tracking_source: null,
+        event_date: "2026-08-09",
+        occurred_at: "2026-08-09T09:00:00.000Z",
+        payload_json: JSON.stringify({
+          addedSources: ["gemini"],
+          removedSources: [],
+        }),
+      },
+      {
+        id: "model-1",
+        event_type: "model_detected",
+        tracking_source: "gemini",
+        event_date: "2026-08-10",
+        occurred_at: "2026-08-10T09:00:00.000Z",
+        payload_json: JSON.stringify({ model: "Gemini 2.5 Pro" }),
+      },
+      {
+        id: "malformed",
+        event_type: "prompt_set_changed",
+        tracking_source: null,
+        event_date: "2026-08-10",
+        occurred_at: "2026-08-10T10:00:00.000Z",
+        payload_json: "not-json",
+      },
+    ])).toEqual([
+      {
+        type: "prompt_set_changed",
+        metricDate: "2026-08-08",
+        addedCount: 3,
+        removedCount: 1,
+      },
+      {
+        type: "tracking_sources_changed",
+        id: "source-1",
+        metricDate: "2026-08-09",
+        occurredAt: "2026-08-09T09:00:00.000Z",
+        addedSources: ["gemini"],
+        removedSources: [],
+      },
+      {
+        type: "model_detected",
+        id: "model-1",
+        metricDate: "2026-08-10",
+        occurredAt: "2026-08-10T09:00:00.000Z",
+        trackingSource: "gemini",
+        model: "Gemini 2.5 Pro",
+      },
     ]);
   });
 
-  it("ignores malformed, zero, unsupported, and undated audit rows", () => {
-    expect(
-      buildPromptSetEvents(
-        [
-          {
-            action: "query.bulk_created",
-            metadata_json: "not-json",
-            created_at: "2026-08-08T09:00:00.000Z",
-          },
-          {
-            action: "query.bulk_created",
-            metadata_json: JSON.stringify({
-              projectId: "project-a",
-              createdCount: 0,
-            }),
-            created_at: "2026-08-08T09:00:00.000Z",
-          },
-          {
-            action: "query.updated",
-            metadata_json: JSON.stringify({ projectId: "project-a" }),
-            created_at: "2026-08-08T09:00:00.000Z",
-          },
-          {
-            action: "query.created",
-            metadata_json: JSON.stringify({ projectId: "project-a" }),
-            created_at: "invalid",
-          },
-        ],
-        "project-a",
-      ),
-    ).toEqual([]);
+  it("normalizes model identities and calculates ordered source deltas", () => {
+    expect(normalizeProviderModel("  GPT-5   Search ")).toEqual({
+      display: "GPT-5 Search",
+      key: "gpt-5 search",
+    });
+    expect(normalizeProviderModel("   ")).toBeNull();
+    expect(trackingSourceDelta(
+      ["chatgpt", "google_ai_mode"],
+      ["chatgpt", "gemini"],
+    )).toEqual({
+      addedSources: ["gemini"],
+      removedSources: ["google_ai_mode"],
+    });
+    expect(promptChangeFromAudit(
+      "query.bulk_created",
+      JSON.stringify({ createdCount: 8 }),
+    )).toEqual({ addedCount: 8, removedCount: 0 });
+    expect(promptChangeFromAudit("query.bulk_created", "not-json")).toBeNull();
+    expect(promptChangeFromAudit(
+      "query.bulk_created",
+      JSON.stringify({ createdCount: 0 }),
+    )).toBeNull();
   });
 });
 
-describe("prompt-set chart annotations", () => {
+describe("project chart annotations", () => {
   it("labels additions, removals, and mixed changes", () => {
     expect(promptSetEventLabel({ addedCount: 1, removedCount: 0 })).toBe(
       "+1 prompt",
@@ -984,12 +1011,12 @@ describe("prompt-set chart annotations", () => {
   });
 
   it("anchors missing dates to the next point and combines shared anchors", () => {
-    const annotations = alignPromptSetEvents(
+    const annotations = alignChartAnnotations(
       [
-        { metric_date: "2026-08-08", addedCount: 1, removedCount: 0 },
-        { metric_date: "2026-08-09", addedCount: 2, removedCount: 0 },
-        { metric_date: "2026-08-10", addedCount: 0, removedCount: 1 },
-        { metric_date: "2026-08-12", addedCount: 20, removedCount: 0 },
+        { type: "prompt_set_changed", metricDate: "2026-08-08", addedCount: 1, removedCount: 0 },
+        { type: "prompt_set_changed", metricDate: "2026-08-09", addedCount: 2, removedCount: 0 },
+        { type: "prompt_set_changed", metricDate: "2026-08-10", addedCount: 0, removedCount: 1 },
+        { type: "prompt_set_changed", metricDate: "2026-08-12", addedCount: 20, removedCount: 0 },
       ],
       ["2026-08-08", "2026-08-10", "2026-08-11"],
     );
@@ -1001,18 +1028,16 @@ describe("prompt-set chart annotations", () => {
     });
     expect(annotations[1]).toMatchObject({
       chartDate: "2026-08-10",
-      addedCount: 2,
-      removedCount: 1,
       label: "+2 / −1",
     });
-    expect(annotations[1]?.sourceEvents.map((event) => event.metric_date)).toEqual([
+    expect(annotations[1]?.sourceEvents.map((event) => event.metricDate)).toEqual([
       "2026-08-09",
       "2026-08-10",
     ]);
-    expect(promptSetEventDescription(annotations[1]!)).toContain(
+    expect(chartAnnotationDescription(annotations[1]!)).toContain(
       "2 prompts added on 2026-08-09",
     );
-    expect(promptSetEventDescription(annotations[1]!)).toContain(
+    expect(chartAnnotationDescription(annotations[1]!)).toContain(
       "next available chart point on 2026-08-10",
     );
   });
@@ -1030,25 +1055,23 @@ describe("prompt-set chart annotations", () => {
       "2026-08-06",
       "2026-08-07",
     ];
-    const aligned = alignPromptSetEvents(
+    const aligned = alignChartAnnotations(
       [
-        { metric_date: "2026-07-29", addedCount: 7, removedCount: 0 },
-        { metric_date: "2026-07-30", addedCount: 107, removedCount: 0 },
-        { metric_date: "2026-08-07", addedCount: 2, removedCount: 1 },
+        { type: "prompt_set_changed", metricDate: "2026-07-29", addedCount: 7, removedCount: 0 },
+        { type: "prompt_set_changed", metricDate: "2026-07-30", addedCount: 107, removedCount: 0 },
+        { type: "prompt_set_changed", metricDate: "2026-08-07", addedCount: 2, removedCount: 1 },
       ],
       chartDates,
     );
 
-    const clustered = clusterPromptSetEvents(aligned, chartDates);
+    const clustered = clusterChartAnnotations(aligned, chartDates);
 
     expect(clustered).toHaveLength(2);
     expect(clustered[0]).toMatchObject({
       chartDate: "2026-07-30",
-      addedCount: 114,
-      removedCount: 0,
       label: "+114 prompts",
     });
-    expect(clustered[0]?.sourceEvents.map((event) => event.metric_date)).toEqual([
+    expect(clustered[0]?.sourceEvents.map((event) => event.metricDate)).toEqual([
       "2026-07-29",
       "2026-07-30",
     ]);
@@ -1056,5 +1079,33 @@ describe("prompt-set chart annotations", () => {
       chartDate: "2026-08-07",
       label: "+2 / −1",
     });
+  });
+
+  it("labels mixed annotations and describes their platform context", () => {
+    const aligned = alignChartAnnotations([
+      {
+        type: "model_detected",
+        id: "model",
+        metricDate: "2026-08-08",
+        occurredAt: "2026-08-08T09:00:00.000Z",
+        trackingSource: "chatgpt",
+        model: "GPT-5 Search",
+      },
+      {
+        type: "tracking_sources_changed",
+        id: "source",
+        metricDate: "2026-08-08",
+        occurredAt: "2026-08-08T10:00:00.000Z",
+        addedSources: ["gemini"],
+        removedSources: [],
+      },
+    ], ["2026-08-08"]);
+
+    expect(aligned[0]?.label).toBe("2 events");
+    expect(chartAnnotationMarkerLabel(aligned[0]!)).toBe("2");
+    expect(chartAnnotationDescription(aligned[0]!)).toContain(
+      "GPT-5 Search first detected on ChatGPT",
+    );
+    expect(chartAnnotationDescription(aligned[0]!)).toContain("Gemini added");
   });
 });

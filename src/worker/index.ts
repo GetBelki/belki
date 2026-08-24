@@ -40,6 +40,7 @@ import {
   backfillAnalyticsReadModel,
   backfillFanOutTelemetryReadModel,
 } from "./ingestion/analytics-backfill";
+import { backfillProjectEvents } from "./ingestion/project-event-backfill";
 import {
   promptPurgeBatch,
   reconcilePromptPurges,
@@ -306,6 +307,11 @@ async function scheduled(
     metrics.analyticsBackfillSnapshots = backfill.snapshots;
     metrics.analyticsBackfillReady = backfill.ready;
     metrics.analyticsBackfillFailed = backfill.failed;
+    const projectEvents = await backfillProjectEvents(env);
+    metrics.projectEventAuditRows = projectEvents.auditRows;
+    metrics.projectEventModelProjects = projectEvents.modelProjects;
+    metrics.projectEventModelSnapshots = projectEvents.modelSnapshots;
+    metrics.projectEventBackfillFailed = projectEvents.failed;
   } else if (event.cron === "0 3 * * *") {
     await runRetention(env);
     metrics.retention = 1;

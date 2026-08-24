@@ -26,7 +26,6 @@ import {
   aggregateBrandMentionDays,
   buildBillingReport,
   buildBrandComparison,
-  buildPromptSetEvents,
   mergeBillingReports,
   positionDistribution,
   productAnalyticsComparisonDateRange,
@@ -42,9 +41,12 @@ import {
   summarizeProductPerformance,
   type BillingDailyRow,
   type SourceBrandMentionDailyRow,
-  type PromptSetAuditRow,
   type TrackedBrandReportRow,
 } from "../lib/reporting";
+import {
+  buildChartAnnotations,
+  type ProjectEventRow,
+} from "../../shared/project-event-helpers";
 import { projectTrackingSources } from "../lib/tracking-sources";
 import {
   googleProductIdentifiers,
@@ -1720,7 +1722,7 @@ analyticsRoutes.get(
       verifiedBrandMentionReports,
       trackedBrands,
       brandMentionDays,
-      promptSetAuditRows,
+      projectEventRows,
       platformSummaryRows,
     ] = await c.get("timing").measure("overview_primary_db", () => Promise.all([
       c.env.CONTROL_DB.prepare(
@@ -2042,24 +2044,29 @@ analyticsRoutes.get(
         )
         .all<SourceBrandMentionDailyRow>(),
       c.env.CONTROL_DB.prepare(
-        `SELECT action, metadata_json, created_at
-         FROM audit_log
-         WHERE workspace_id = ?
-           AND action IN (
-             'query.created',
-             'query.bulk_created',
-             'query.purge_requested'
+        `SELECT id, event_type, tracking_source, event_date, occurred_at,
+           payload_json
+         FROM project_events
+         WHERE project_id = ?
+           AND event_date BETWEEN ? AND ?
+           AND (
+             event_type = 'prompt_set_changed'
+             OR (? = 1 AND event_type = 'tracking_sources_changed')
+             OR (
+               event_type = 'model_detected'
+               AND tracking_source IN (${sourcePlaceholders})
+             )
            )
-           AND created_at >= ?
-           AND created_at < ?
-         ORDER BY created_at`,
+         ORDER BY event_date, occurred_at, id`,
       )
         .bind(
-          principal.workspaceId,
-          `${dates.from}T00:00:00.000Z`,
-          exclusiveDateEnd(dates.to),
+          input.projectId,
+          dates.from,
+          dates.to,
+          allSources ? 1 : 0,
+          ...includedSources,
         )
-        .all<PromptSetAuditRow>(),
+        .all<ProjectEventRow>(),
       c.env.CONTROL_DB.prepare(
         `SELECT
            tracking_source,
@@ -2308,10 +2315,7 @@ analyticsRoutes.get(
           ...brandComparison,
           positionStatus,
         },
-        promptSetEvents: buildPromptSetEvents(
-          promptSetAuditRows.results,
-          input.projectId,
-        ),
+        annotations: buildChartAnnotations(projectEventRows.results),
         topProducts: [...topProducts.values()]
           .sort(
             (left, right) =>

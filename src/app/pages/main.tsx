@@ -62,12 +62,13 @@ import {
   productDestination,
 } from "../lib/snapshot-evidence";
 import {
-  alignPromptSetEvents,
-  clusterPromptSetEvents,
+  alignChartAnnotations,
+  chartAnnotationDescription,
+  chartAnnotationItemLabel,
+  chartAnnotationMarkerLabel,
+  clusterChartAnnotations,
   hasOverviewProducts,
-  promptSetEventDescription,
-  promptSetEventLabel,
-  type AlignedPromptSetEvent,
+  type AlignedChartAnnotation,
 } from "../lib/overview";
 import {
   mobileHiddenTrendSeries,
@@ -80,6 +81,7 @@ import {
 } from "../lib/trend-chart";
 import { compact, dateTime, formText, percent, pluralize } from "../lib/utils";
 import type { RunStatus } from "../../shared/contracts";
+import type { ChartAnnotation } from "../../shared/project-events";
 import {
   TRACKING_SOURCE_LABELS,
   type TrackingSource,
@@ -192,11 +194,7 @@ interface Overview {
       >;
     }>;
   };
-  promptSetEvents: Array<{
-    metric_date: string;
-    addedCount: number;
-    removedCount: number;
-  }>;
+  annotations: ChartAnnotation[];
   topProducts: OverviewProduct[];
   recentProducts: OverviewProduct[];
 }
@@ -303,7 +301,7 @@ function percentagePoints(value: number | null | undefined): string {
   return `${value > 0 ? "+" : value < 0 ? "−" : ""}${formatted} pp`;
 }
 
-const PROMPT_EVENT_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
+const ANNOTATION_DATE_FORMAT = new Intl.DateTimeFormat(undefined, {
   day: "numeric",
   month: "short",
   timeZone: "UTC",
@@ -324,33 +322,29 @@ function useMobileChartLayout(): boolean {
   return matches;
 }
 
-function PromptSetEventMarker({
+function ChartAnnotationMarker({
   event,
   viewBox,
 }: {
-  event: AlignedPromptSetEvent;
+  event: AlignedChartAnnotation;
   viewBox?: { x?: number; y?: number };
 }) {
   const x = viewBox?.x;
   const y = viewBox?.y;
   if (x === undefined || y === undefined) return null;
-  const description = promptSetEventDescription(event);
-  const label = event.addedCount && event.removedCount
-    ? `±${event.addedCount + event.removedCount}`
-    : event.addedCount
-      ? `+${event.addedCount}`
-      : `−${event.removedCount}`;
+  const description = chartAnnotationDescription(event);
+  const label = chartAnnotationMarkerLabel(event);
   const width = Math.max(24, label.length * 6 + 10);
   return (
     <g
       aria-label={description}
-      className="prompt-set-event-marker"
+      className="chart-annotation-marker"
       role="img"
       tabIndex={0}
     >
       <title>{description}</title>
       <rect
-        className="prompt-set-event-hit-area"
+        className="chart-annotation-hit-area"
         height={24}
         rx={12}
         width={width + 8}
@@ -358,28 +352,28 @@ function PromptSetEventMarker({
         y={y - 10}
       />
       <rect
-        className="prompt-set-event-flag"
+        className="chart-annotation-flag"
         height={16}
         rx={8}
         width={width}
         x={x - width / 2}
         y={y - 6}
       />
-      <text className="prompt-set-event-label" textAnchor="middle" x={x} y={y + 5}>
+      <text className="chart-annotation-label" textAnchor="middle" x={x} y={y + 5}>
         {label}
       </text>
     </g>
   );
 }
 
-function promptEventReferenceLines(
-  events: readonly AlignedPromptSetEvent[],
+function chartAnnotationReferenceLines(
+  events: readonly AlignedChartAnnotation[],
 ) {
   return events.map((event) => (
     <ReferenceLine
       ifOverflow="visible"
       key={`${event.chartDate}-${event.label}`}
-      label={<PromptSetEventMarker event={event} />}
+      label={<ChartAnnotationMarker event={event} />}
       stroke="#a1a1aa"
       strokeDasharray="2 4"
       strokeOpacity={0.7}
@@ -393,28 +387,22 @@ function OverviewChartTooltip({
   active,
   label,
   payload,
-  promptEvents,
+  annotations,
   data,
   metric = "percentage",
 }: {
   active?: boolean;
   label?: string | number;
   payload?: TooltipPayload;
-  promptEvents: readonly AlignedPromptSetEvent[];
+  annotations: readonly AlignedChartAnnotation[];
   data: readonly TrendDatum[];
   metric?: "percentage" | "rank";
 }) {
   if (!active || label === undefined) return null;
   const chartDate = String(label);
-  const promptEvent = promptEvents.find(
+  const annotation = annotations.find(
     (event) => event.chartDate === chartDate,
   );
-  const showEventBreakdown =
-    promptEvent &&
-    (promptEvent.sourceEvents.length > 1 ||
-      promptEvent.sourceEvents.some(
-        (source) => source.metric_date !== chartDate,
-      ));
   const entries = [...(payload ?? [])]
     .filter((entry) => entry.value !== undefined)
     .sort((left, right) =>
@@ -428,17 +416,20 @@ function OverviewChartTooltip({
   return (
     <div className="overview-chart-tooltip">
       <strong>{shortChartDate(chartDate)}</strong>
-      {promptEvent && (
+      {annotation && (
         <div className="overview-chart-tooltip-event">
-          <span>
-            Prompt changes <b>{promptEvent.label}</b>
-          </span>
-          {showEventBreakdown && promptEvent.sourceEvents.map((source, index) => (
-            <small key={`${source.metric_date}-${index}`}>
-              {PROMPT_EVENT_DATE_FORMAT.format(
-                new Date(`${source.metric_date}T00:00:00.000Z`),
+          <span>Chart events <b>{annotation.label}</b></span>
+          {annotation.sourceEvents.map((source, index) => (
+            <small key={`${source.metricDate}-${source.type}-${index}`}>
+              {ANNOTATION_DATE_FORMAT.format(
+                new Date(`${source.metricDate}T00:00:00.000Z`),
               )}
-              : {promptSetEventLabel(source)}
+              : {chartAnnotationItemLabel(source)}
+              {source.metricDate !== annotation.chartDate
+                ? ` · shown on ${ANNOTATION_DATE_FORMAT.format(
+                    new Date(`${annotation.chartDate}T00:00:00.000Z`),
+                  )}`
+                : ""}
             </small>
           ))}
         </div>
@@ -649,8 +640,8 @@ export function OverviewPage() {
   const chartDates = (overview.data?.series ?? []).map(
     (point) => point.metric_date,
   );
-  const promptSetEvents = clusterPromptSetEvents(
-    alignPromptSetEvents(overview.data?.promptSetEvents ?? [], chartDates),
+  const chartAnnotations = clusterChartAnnotations(
+    alignChartAnnotations(overview.data?.annotations ?? [], chartDates),
     chartDates,
   );
   if (!projectId) return <NoProject />;
@@ -821,7 +812,7 @@ export function OverviewPage() {
                 />
               ) : brandComparisonSeries.length > 0 ? (
                 <BelkiTrendChart
-                  annotations={promptEventReferenceLines(promptSetEvents)}
+                  annotations={chartAnnotationReferenceLines(chartAnnotations)}
                   ariaLabel={`${displayedBrandMetric === "visibility"
                     ? "Visibility"
                     : displayedBrandMetric === "shareOfVoice"
@@ -837,7 +828,7 @@ export function OverviewPage() {
                       data={brandComparisonSeries}
                       label={props.label}
                       payload={props.payload}
-                      promptEvents={promptSetEvents}
+                      annotations={chartAnnotations}
                       metric={displayedBrandMetric === "averagePosition" ? "rank" : "percentage"}
                     />
                   )}
@@ -879,7 +870,7 @@ export function OverviewPage() {
               ) : citationSources.length > 0 &&
                 citationSourceSeries.length > 0 ? (
                 <BelkiTrendChart
-                  annotations={promptEventReferenceLines(promptSetEvents)}
+                  annotations={chartAnnotationReferenceLines(chartAnnotations)}
                   ariaLabel="Citation frequency trend for leading sources"
                   data={citationSourceSeries}
                   highlightedKey={highlightedCitationSeries}
@@ -890,7 +881,7 @@ export function OverviewPage() {
                       data={citationSourceSeries}
                       label={props.label}
                       payload={props.payload}
-                      promptEvents={promptSetEvents}
+                      annotations={chartAnnotations}
                     />
                   )}
                 />

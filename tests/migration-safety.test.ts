@@ -128,4 +128,22 @@ describe("control database migrations", () => {
     expect(sql).not.toMatch(/UPDATE snapshot_index SET detected_entities_count = 0/i);
     expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
   });
+
+  it("adds an indexed, resumable project-event projection without rebuilding audit data", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0026_project_events.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/CREATE TABLE project_events/i);
+    expect(sql).toMatch(/UNIQUE\s*\(project_id,\s*dedupe_key\)/i);
+    expect(sql).toMatch(
+      /project_events\s*\(project_id,\s*event_date,\s*occurred_at,\s*id\)/i,
+    );
+    expect(sql).toMatch(/CREATE TABLE project_event_audit_backfill/i);
+    expect(sql).toMatch(/CREATE TABLE project_event_backfill_projects/i);
+    expect(sql).not.toMatch(/UPDATE audit_log/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
 });

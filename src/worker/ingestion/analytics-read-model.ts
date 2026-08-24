@@ -13,6 +13,7 @@ import { ANALYTICS_READ_MODEL_SCHEMA_VERSION } from "../lib/analytics-read-model
 import { registerAdAssetSources } from "../automation/ad-assets";
 import { syncSnapshotBrandMetrics } from "./brand-metrics";
 import type { TrackingSource } from "../../shared/contracts";
+import { modelDetectedEventStatement } from "../lib/project-events";
 
 interface SnapshotReadModelRow {
   id: string;
@@ -409,6 +410,14 @@ export async function syncAnalyticsReadModel(
       "DELETE FROM analytics_retrieval_occurrences WHERE snapshot_id = ?",
     ).bind(payload.snapshotId),
   ];
+
+  const modelEvent = modelDetectedEventStatement(env.CONTROL_DB, {
+    projectId: payload.projectId,
+    trackingSource: snapshot.tracking_source,
+    model: snapshot.model,
+    occurredAt: snapshot.captured_at,
+  });
+  if (modelEvent) statements.push(modelEvent);
 
   for (const [normalizedQuery, relatedQuery] of relatedQueries) {
     statements.push(
