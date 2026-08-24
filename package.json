@@ -2,6 +2,14 @@
   "name": "ai-visibility-tracker",
   "version": "0.1.0",
   "private": true,
+  "homepage": "https://getbelki.com",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/GetBelki/belki.git"
+  },
+  "bugs": {
+    "url": "https://github.com/GetBelki/belki/issues"
+  },
   "type": "module",
   "packageManager": "pnpm@11.0.8",
   "cloudflare": {
