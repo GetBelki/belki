@@ -111,6 +111,7 @@ interface Overview {
     totalCitations: number;
     visibility: number | null;
     shareOfVoice: number | null;
+    averagePosition: number | null;
   }>;
   summary: {
     completed_runs: number;
@@ -767,7 +768,7 @@ export function OverviewPage() {
                         : "Position history is being prepared"}
                     type="button"
                   >
-                    Average position
+                    Avg. Position
                   </button>
                 </div>
               )}
@@ -919,6 +920,7 @@ export function OverviewPage() {
                   <span role="columnheader">Platform</span>
                   <span role="columnheader">Visibility</span>
                   <span role="columnheader">Share of Voice</span>
+                  <span role="columnheader">Avg. Position</span>
                   <span role="columnheader">Citations</span>
                 </div>
                 {overview.data?.platformBreakdown.map((platform) => {
@@ -944,6 +946,11 @@ export function OverviewPage() {
                       </span>
                       <span data-label="Share of Voice" role="cell">
                         {platform.shareOfVoice === null ? "—" : percent(platform.shareOfVoice)}
+                      </span>
+                      <span data-label="Avg. Position" role="cell">
+                        {platform.averagePosition === null
+                          ? "—"
+                          : `#${platform.averagePosition.toFixed(1)}`}
                       </span>
                       <span data-label="Citations" role="cell">
                         {compact(platform.totalCitations)}
