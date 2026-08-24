@@ -5,11 +5,23 @@
 <h1 align="center">Belki</h1>
 
 <p align="center">
-  <strong>Know when AI recommends you, and when it doesn't.</strong>
+  <strong>The open-source AI search intelligence platform.</strong>
 </p>
 
 <p align="center">
-  Self-hosted and managed AI visibility, competitor, citation, entity, advertising, and shopping intelligence on Cloudflare.
+  Self-hosted or managed on Cloudflare. Track how your brand and competitors
+  appear across AI-generated answers, citations, recommendations, ads, and
+  shopping results.
+</p>
+
+<p align="center">
+  <a href="https://deploy.workers.cloudflare.com/?url=https://github.com/GetBelki/belki">
+    <img src="https://deploy.workers.cloudflare.com/button" alt="Deploy Belki to Cloudflare">
+  </a>
+</p>
+
+<p align="center">
+  <em>Know when AI recommends you, and when it doesn't.</em>
 </p>
 
 Belki schedules prompts across ChatGPT, Gemini, Google AI Mode, and Google AI
