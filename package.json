@@ -20,12 +20,6 @@
       },
       "BOOTSTRAP_TOKEN": {
         "description": "Generate an independent high-entropy value. You will enter it once on the first-run setup screen."
-      },
-      "STRIPE_SECRET_KEY": {
-        "description": "Managed deployments only: your Stripe secret API key. Leave unset for self-hosted mode."
-      },
-      "STRIPE_WEBHOOK_SECRET": {
-        "description": "Managed deployments only: the signing secret for the Stripe webhook endpoint."
       }
     }
   },

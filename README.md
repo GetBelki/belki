@@ -28,6 +28,7 @@ month on larger self-hosted installations.
 - [Metrics](#metrics)
 - [Architecture](#architecture)
 - [Requirements](#requirements)
+- [Quick start: self-host on Cloudflare](#quick-start-self-host-on-cloudflare)
 - [Local development](#local-development)
 - [Production deployment](#production-deployment)
 - [Managed cloud](#managed-cloud)
@@ -35,6 +36,7 @@ month on larger self-hosted installations.
 - [Security and retention](#security-and-retention)
 - [Verification](#verification)
 - [Repository map](#repository-map)
+- [Contributing and security](#contributing-and-security)
 
 ## Supported AI platforms
 
@@ -393,6 +395,82 @@ binding with `allowed_sender_addresses`. The managed deployment supplies its
 sender through its managed deployment profile; no Belki sender is inherited by
 a fork.
 
+## Quick start: self-host on Cloudflare
+
+This flow is intended for the public release of this repository. Until then,
+the repository remains private and the Deploy button is only a preview of the
+future installation path.
+
+1. Create a Cloudflare Workers Paid account and obtain DataForSEO API
+   credentials.
+2. Generate three different secrets locally. Keep the outputs out of Git,
+   screenshots, issue reports, and shell history shared with other people.
+
+   ```bash
+   openssl rand -base64 32
+   openssl rand -base64 32
+   openssl rand -base64 32
+   ```
+
+3. After the repository is public, click **Deploy to Cloudflare**. Cloudflare
+   creates a fork, provisions the declared Worker, D1, R2, Queue, Durable
+   Object, Workers AI, and asset bindings, then runs the repository's deploy
+   command.
+
+   [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Xyborg/AI-Visibility-Tracker)
+
+4. Enter only these five required secrets when Cloudflare asks for bindings:
+
+   | Secret | Value |
+   |---|---|
+   | `DATAFORSEO_LOGIN` | Your DataForSEO API login |
+   | `DATAFORSEO_PASSWORD` | Your DataForSEO API password |
+   | `DATAFORSEO_WEBHOOK_TOKEN` | First generated value |
+   | `APP_CRYPTO_KEY` | Second generated value |
+   | `BOOTSTRAP_TOKEN` | Third generated value; save it for step 6 |
+
+5. Wait for the deployment and migrations to finish, then open the generated
+   `workers.dev` URL. Leaving `PUBLIC_APP_ORIGIN` empty is intentional for this
+   first deployment: setup records the origin you opened.
+6. The first-run screen appears automatically. Enter the exact
+   `BOOTSTRAP_TOKEN`, owner details, and workspace details to create the first
+   account. The token cannot create a second owner after setup is complete.
+7. Create a project and a test prompt, enable only the sources you intend to
+   use, and run it once before scheduling recurring collection.
+8. Clone your new fork, authenticate Wrangler, and apply the checked-in R2
+   lifecycle policy with `pnpm r2:lifecycle` before enabling original HTML
+   capture.
+
+Self-hosted mode does not use Stripe. Invitation email is also optional: with
+the default empty sender, owners can copy invitation links directly from the
+application.
+
+### Use a custom domain
+
+First confirm the `workers.dev` deployment works. Then edit your fork's
+`wrangler.jsonc` so the final HTTPS origin and custom-domain route are deployed
+together:
+
+```jsonc
+"workers_dev": false,
+"routes": [
+  { "pattern": "tracker.example.com", "custom_domain": true }
+],
+"vars": {
+  // Keep the other checked-in variables unchanged.
+  "PUBLIC_APP_ORIGIN": "https://tracker.example.com",
+  "EMAIL_FROM_ADDRESS": ""
+}
+```
+
+The hostname must belong to a Cloudflare zone in the same account and the
+origin must not contain a path or trailing slash. Deploy the change, open the
+custom domain, and update any workspace URL that was saved during the initial
+`workers.dev` setup under **Settings → Workspace**. The configured origin is
+authoritative for future DataForSEO postbacks and generated links. For an
+existing installation that has already changed domains, use the repair steps
+in the [deployment runbook](docs/deployment-and-migration.md#101-repair-an-installation-after-changing-domains).
+
 ## Local development
 
 ```bash
@@ -431,8 +509,8 @@ Access, existing-install migration, verification, and rollback, read
 
 ### Self-hosted deployment
 
-For a public fork, the Cloudflare Deploy button provisions the declared D1, R2,
-Queue, Workers AI, and secret bindings and can connect the fork to Workers
+After public release, the Cloudflare Deploy button provisions the declared D1,
+R2, Queue, Workers AI, and secret bindings and can connect the fork to Workers
 Builds:
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Xyborg/AI-Visibility-Tracker)
@@ -572,8 +650,12 @@ Run the same aggregate application checks used by CI:
 ```bash
 pnpm check
 pnpm types:check
-pnpm deploy:getbelki:dry
+pnpm deploy:dry
 ```
+
+Maintainers changing Belki's managed deployment must additionally run
+`pnpm deploy:getbelki:dry`. Self-hosters do not need the managed deployment
+profile or Stripe credentials.
 
 `pnpm check` runs application and Worker type checking, strict linting, unit
 tests, Workers integration tests, and the production build. GitHub Actions uses
@@ -601,8 +683,15 @@ Fixture shape, metrics, and acceptance thresholds are documented in
 - `infrastructure`: R2 lifecycle configuration
 - `scripts/migrate.mjs`: control and 32-shard migration runner
 - `docs/deployment-and-migration.md`: production provisioning and migration runbook
+- `docs/public-release-checklist.md`: maintainer checklist for approving public release
 - `evaluation/entity-extraction`: offline entity quality workflow
 - `ai-tracker-prd.md`: original product and architecture requirements
+
+## Contributing and security
+
+Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request. Report
+suspected vulnerabilities privately using the process in
+[SECURITY.md](SECURITY.md); do not put exploit details or secrets in an issue.
 
 ## License
 

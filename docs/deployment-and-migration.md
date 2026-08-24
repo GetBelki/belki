@@ -681,6 +681,32 @@ configuration enables every tracking source and provides high local prompt and
 project limits; ChatGPT remains the default on existing and new projects until
 the owner enables more sources in Project Settings.
 
+### Deploy from the public repository
+
+Once the repository is public, the Deploy to Cloudflare button in the README
+is the shortest fresh-install path. Cloudflare forks the repository, provisions
+the resources declared by `wrangler.jsonc`, collects the five required secrets,
+and runs `pnpm deploy`, including all control and snapshot migrations. It does
+not enable Stripe or Belki's managed deployment profile.
+
+The repository must remain private until the public-release checklist is
+approved. Do not test the public button by changing repository visibility.
+
+Generate three independent values for `DATAFORSEO_WEBHOOK_TOKEN`,
+`APP_CRYPTO_KEY`, and `BOOTSTRAP_TOKEN`:
+
+```bash
+openssl rand -base64 32
+openssl rand -base64 32
+openssl rand -base64 32
+```
+
+Store the outputs in a password manager. The bootstrap value is entered once
+on the first-run setup screen; none of these values belong in GitHub build
+variables, source files, command arguments, or screenshots.
+
+### Deploy manually
+
 Set the five required secrets interactively:
 
 ```bash
@@ -706,6 +732,19 @@ the request origin and workspace owners can later change it under
 **Settings → Workspace**. Using the explicit variable is recommended for a
 single-origin installation because it prevents an old `workers.dev` hostname
 or alternate request host from becoming canonical.
+
+For a custom domain, declare its route in the same commit that sets the origin:
+
+```jsonc
+"workers_dev": false,
+"routes": [
+  { "pattern": "tracker.example.com", "custom_domain": true }
+]
+```
+
+The hostname must be in a Cloudflare zone in the deployment account. Verify the
+initial `workers.dev` installation first, then deploy the route and origin
+together so new provider tasks and generated links use the final host.
 
 Email is optional. Leave `EMAIL_FROM_ADDRESS` empty to disable invitation and
 password-reset delivery while preserving copyable admin-generated links. To
