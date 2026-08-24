@@ -30,6 +30,12 @@ import {
 } from "../lib/crypto";
 import { ApiError, nowIso } from "../lib/http";
 import { sendInvitationEmail, sendPasswordResetEmail } from "../lib/email";
+import { emailDeliveryConfigured } from "../lib/email-config";
+import {
+  configuredPublicAppOrigin,
+  requestPublicAppOrigin,
+  workspacePublicAppOrigin,
+} from "../lib/public-origin";
 import {
   projectListStatements,
   projectSummariesFromRows,
@@ -52,6 +58,7 @@ interface SessionWorkspaceRow {
   name: string;
   status: string;
   plan_key: string;
+  publicBaseUrl: string;
 }
 
 interface SessionWorkspaceMembershipRow extends SessionWorkspaceRow {
@@ -66,7 +73,12 @@ authRoutes.get("/status", async (c) => {
   const owner = await c.env.CONTROL_DB.prepare(
     "SELECT COUNT(*) AS count FROM memberships WHERE role = 'owner'",
   ).first<{ count: number }>();
-  return c.json({ data: { setupRequired: (owner?.count ?? 0) === 0 } });
+  return c.json({
+    data: {
+      setupRequired: (owner?.count ?? 0) === 0,
+      emailDeliveryConfigured: emailDeliveryConfigured(c.env),
+    },
+  });
 });
 
 authRoutes.post("/setup", zValidator("json", SetupSchema), async (c) => {
@@ -85,7 +97,7 @@ authRoutes.post("/setup", zValidator("json", SetupSchema), async (c) => {
   const workspaceId = crypto.randomUUID();
   const now = nowIso();
   const credential = await hashPassword(input.password);
-  const publicBaseUrl = new URL(c.req.url).origin;
+  const publicBaseUrl = requestPublicAppOrigin(c.env, c.req.url);
   const cycleStartedAt = new Date(Date.UTC(
     new Date().getUTCFullYear(),
     new Date().getUTCMonth(),
@@ -198,7 +210,8 @@ authRoutes.get("/auth/session", async (c) => {
     c.env.CONTROL_DB.batch([
       ...projectListStatements(c.env.CONTROL_DB, principal.workspaceId),
       c.env.CONTROL_DB.prepare(
-        "SELECT id, name, status, plan_key FROM workspaces WHERE id = ?",
+        `SELECT id, name, status, plan_key, public_base_url AS publicBaseUrl
+         FROM workspaces WHERE id = ?`,
       )
         .bind(principal.workspaceId),
       c.env.CONTROL_DB.prepare(
@@ -234,6 +247,7 @@ authRoutes.get("/auth/session", async (c) => {
   if (!workspace) {
     throw new ApiError(500, "workspace_not_found", "The current workspace could not be loaded.");
   }
+  const managedPublicOrigin = configuredPublicAppOrigin(c.env);
   return c.json({
     data: {
       user: {
@@ -243,9 +257,16 @@ authRoutes.get("/auth/session", async (c) => {
         role: principal.role,
       },
       workspaceId: principal.workspaceId,
-      workspace,
+      workspace: {
+        ...workspace,
+        publicBaseUrl: managedPublicOrigin ?? workspace.publicBaseUrl,
+      },
       workspaces,
       projects,
+      capabilities: {
+        emailDelivery: emailDeliveryConfigured(c.env),
+        publicOriginManaged: Boolean(managedPublicOrigin),
+      },
       csrfTokenPresent: Boolean(getCookie(c, "ai_tracker_csrf")),
       isPlatformOperator: Boolean(operator?.found),
     },
@@ -333,15 +354,20 @@ authRoutes.post(
       resourceId: id,
       metadata: { email: input.email, role: input.role, emailRequested: input.sendEmail },
     });
-    const link = `${new URL(c.req.url).origin}/accept-invite?token=${encodeURIComponent(token)}`;
-    let emailDelivery: "failed" | "not_requested" | "sent" = "not_requested";
-    if (input.sendEmail) {
+    const workspace = await c.env.CONTROL_DB.prepare(
+      "SELECT name, public_base_url FROM workspaces WHERE id = ?",
+    )
+      .bind(principal.workspaceId)
+      .first<{ name: string; public_base_url: string }>();
+    if (!workspace) {
+      throw new ApiError(404, "workspace_not_found", "Workspace not found.");
+    }
+    const link = `${workspacePublicAppOrigin(c.env, workspace.public_base_url)}/accept-invite?token=${encodeURIComponent(token)}`;
+    let emailDelivery: "failed" | "not_configured" | "not_requested" | "sent" = "not_requested";
+    if (input.sendEmail && !emailDeliveryConfigured(c.env)) {
+      emailDelivery = "not_configured";
+    } else if (input.sendEmail) {
       try {
-        const workspace = await c.env.CONTROL_DB.prepare(
-          "SELECT name FROM workspaces WHERE id = ?",
-        )
-          .bind(principal.workspaceId)
-          .first<{ name: string }>();
         const result = await sendInvitationEmail(
           c.env.EMAIL,
           { email: c.env.EMAIL_FROM_ADDRESS, name: c.env.APP_NAME },
@@ -349,7 +375,7 @@ authRoutes.post(
             appName: c.env.APP_NAME,
             inviteeEmail: input.email.toLowerCase(),
             inviterName: principal.displayName,
-            workspaceName: workspace?.name ?? "your workspace",
+            workspaceName: workspace.name,
             role: input.role,
             link,
             expiresAt: expires,
@@ -568,15 +594,23 @@ authRoutes.post(
     const normalizedEmail = email.toLowerCase();
     const ip = c.req.header("cf-connecting-ip") ?? "unknown";
     await checkLoginRateLimit(c.env.CONTROL_DB, await sha256(`reset|${normalizedEmail}|${ip}`), 5);
+    if (!emailDeliveryConfigured(c.env)) {
+      return c.json({ data: { accepted: true } }, 202);
+    }
     const user = await c.env.CONTROL_DB.prepare(
-      `SELECT user.id, membership.workspace_id
+      `SELECT user.id, membership.workspace_id, workspace.public_base_url
        FROM users user
        JOIN memberships membership ON membership.user_id = user.id
+       JOIN workspaces workspace ON workspace.id = membership.workspace_id
        WHERE user.email = ? COLLATE NOCASE AND user.status = 'active'
          AND membership.status = 'active'
        ORDER BY membership.created_at
        LIMIT 1`,
-    ).bind(normalizedEmail).first<{ id: string; workspace_id: string }>();
+    ).bind(normalizedEmail).first<{
+      id: string;
+      workspace_id: string;
+      public_base_url: string;
+    }>();
     if (user) {
       const token = randomToken();
       const tokenId = crypto.randomUUID();
@@ -595,7 +629,7 @@ authRoutes.post(
         expiresAt,
         now,
       ).run();
-      const link = `${new URL(c.req.url).origin}/reset-password?token=${encodeURIComponent(token)}`;
+      const link = `${workspacePublicAppOrigin(c.env, user.public_base_url)}/reset-password?token=${encodeURIComponent(token)}`;
       try {
         await sendPasswordResetEmail(
           c.env.EMAIL,
@@ -784,12 +818,14 @@ authRoutes.post(
     const principal = requireRole(c, "admin");
     const { id: userId } = c.req.valid("param");
     const target = await c.env.CONTROL_DB.prepare(
-      `SELECT u.email, m.role
-       FROM memberships m JOIN users u ON u.id = m.user_id
+      `SELECT u.email, m.role, w.public_base_url
+       FROM memberships m
+       JOIN users u ON u.id = m.user_id
+       JOIN workspaces w ON w.id = m.workspace_id
        WHERE m.workspace_id = ? AND m.user_id = ?`,
     )
       .bind(principal.workspaceId, userId)
-      .first<{ email: string; role: string }>();
+      .first<{ email: string; role: string; public_base_url: string }>();
     if (!target) throw new ApiError(404, "user_not_found", "Workspace user not found.");
     if (target.role === "owner" && principal.role !== "owner") {
       throw new ApiError(403, "owner_protected", "Only the owner can reset the owner account.");
@@ -816,7 +852,7 @@ authRoutes.post(
         now,
       )
       .run();
-    const link = `${new URL(c.req.url).origin}/reset-password?token=${encodeURIComponent(rawToken)}`;
+    const link = `${workspacePublicAppOrigin(c.env, target.public_base_url)}/reset-password?token=${encodeURIComponent(rawToken)}`;
     await writeAudit(c.env.CONTROL_DB, {
       workspaceId: principal.workspaceId,
       userId: principal.userId,

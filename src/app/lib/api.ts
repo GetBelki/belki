@@ -126,6 +126,7 @@ export interface Session {
   workspace: {
     id: string;
     name: string;
+    publicBaseUrl: string;
     status: "pending_payment" | "active" | "read_only" | "suspended";
     plan_key: string;
   };
@@ -138,4 +139,8 @@ export interface Session {
   }>;
   projects: Project[];
   isPlatformOperator: boolean;
+  capabilities: {
+    emailDelivery: boolean;
+    publicOriginManaged: boolean;
+  };
 }

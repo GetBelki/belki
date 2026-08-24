@@ -30,6 +30,7 @@ import {
 } from "../lib/usage";
 import { availableSources, planSourceEntitlement } from "../lib/tracking-sources";
 import { verifyStripeSignature } from "../lib/stripe-signature";
+import { workspacePublicAppOrigin } from "../lib/public-origin";
 
 const MAX_STRIPE_WEBHOOK_BYTES = 1024 * 1024;
 const RENEWAL_CHANGE_CUTOFF_MS = 5 * 60 * 1000;
@@ -412,6 +413,14 @@ async function account(env: Env, workspaceId: string): Promise<BillingAccountRow
   ).bind(workspaceId).first<BillingAccountRow>();
   if (!row) throw new ApiError(500, "billing_account_not_found", "Billing account not found.");
   return row;
+}
+
+async function billingPublicAppOrigin(env: Env, workspaceId: string): Promise<string> {
+  const workspace = await env.CONTROL_DB.prepare(
+    "SELECT public_base_url FROM workspaces WHERE id = ?",
+  ).bind(workspaceId).first<{ public_base_url: string }>();
+  if (!workspace) throw new ApiError(500, "workspace_not_found", "Workspace not found.");
+  return workspacePublicAppOrigin(env, workspace.public_base_url);
 }
 
 async function accountBySubscription(env: Env, subscriptionId: string): Promise<BillingAccountRow | null> {
@@ -1347,7 +1356,7 @@ billingRoutes.post("/billing/checkout", zValidator("json", BillingCheckoutSchema
   } catch {
     throw new ApiError(409, "checkout_in_progress", "Another Checkout session is already being created. Retry in a moment.");
   }
-  const origin = new URL(c.req.url).origin;
+  const origin = await billingPublicAppOrigin(c.env, principal.workspaceId);
   const params = new URLSearchParams({
     "line_items[0][price]": priceId(c.env, planKey),
     "line_items[0][quantity]": "1",
@@ -1423,7 +1432,14 @@ billingRoutes.post("/billing/plan-change", zValidator("json", BillingPlanChangeS
   assertSupportedPlanChange(snapshot);
   if (snapshot.planKey === target) throw new ApiError(409, "plan_unchanged", "This is already the current plan.");
   if (BILLING_PLANS[target].rank > BILLING_PLANS[snapshot.planKey].rank) {
-    const result = await createUpgradeSession(c.env, principal.workspaceId, principal.userId, snapshot, target, new URL(c.req.url).origin);
+    const result = await createUpgradeSession(
+      c.env,
+      principal.workspaceId,
+      principal.userId,
+      snapshot,
+      target,
+      await billingPublicAppOrigin(c.env, principal.workspaceId),
+    );
     return c.json({ data: { action: "redirect" as const, ...result } });
   }
   const change = await createDowngrade(c.env, principal.workspaceId, principal.userId, snapshot, target);
@@ -1455,7 +1471,7 @@ billingRoutes.post("/billing/management-session", async (c) => {
   const billing = await account(c.env, principal.workspaceId);
   assertAccountStripeEnvironment(c.env, billing);
   if (!billing.stripe_customer_id) throw new ApiError(409, "billing_customer_missing", "Complete Checkout before managing billing.");
-  const origin = new URL(c.req.url).origin;
+  const origin = await billingPublicAppOrigin(c.env, principal.workspaceId);
   const session = await stripeRequest<Record<string, unknown>>(c.env, "/billing_portal/sessions", {
     method: "POST",
     params: new URLSearchParams({ customer: billing.stripe_customer_id, return_url: `${origin}/billing` }),
@@ -1477,7 +1493,7 @@ billingRoutes.post("/billing/cancellation-session", zValidator("json", BillingCa
   const pending = await activePlanChange(c.env, principal.workspaceId);
   if (pending && !replacePending) throw new ApiError(409, "pending_plan_change", "Confirm that cancellation replaces the scheduled downgrade.");
   if (pending) await releasePendingChange(c.env, pending, "superseded");
-  const origin = new URL(c.req.url).origin;
+  const origin = await billingPublicAppOrigin(c.env, principal.workspaceId);
   const session = await stripeRequest<Record<string, unknown>>(c.env, "/billing_portal/sessions", {
     method: "POST",
     params: new URLSearchParams({

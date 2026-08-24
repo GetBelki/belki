@@ -385,10 +385,13 @@ Workers Paid is required by the default topology because it declares one control
 database and 32 snapshot databases. Workers Free permits fewer D1 databases than
 this architecture requires.
 
-The checked-in Worker config restricts the `EMAIL` binding to
-`noreply@notifications.getbelki.com`. Invitations still return a copyable link
-when email is disabled. For another onboarded domain, change both
-`EMAIL_FROM_ADDRESS` and the binding's allowed sender in `wrangler.jsonc`.
+Email is disabled in the checked-in self-hosted configuration. Invitations
+still return a copyable link, and the sign-in page hides email password recovery.
+To enable delivery, onboard a sending domain in Cloudflare Email, set
+`EMAIL_FROM_ADDRESS` in `wrangler.jsonc`, and optionally restrict the `EMAIL`
+binding with `allowed_sender_addresses`. The managed deployment supplies its
+sender through its managed deployment profile; no Belki sender is inherited by
+a fork.
 
 ## Local development
 
@@ -417,8 +420,8 @@ the Stripe keys and the `stripe_livemode` recorded for managed workspaces.
 Use independent, high-entropy values for the three application secrets. For
 locally submitted Standard tasks, DataForSEO must be able to reach the Worker.
 Use a deployed staging Worker or secure public tunnel and set the workspace
-`public_base_url` accordingly. Self-hosted live runs do not need an inbound
-postback.
+public application URL accordingly. Self-hosted live runs do not need an
+inbound postback.
 
 ## Production deployment
 
@@ -442,6 +445,14 @@ pnpm build
 pnpm deploy
 pnpm r2:lifecycle
 ```
+
+Before first-run setup, set `PUBLIC_APP_ORIGIN` in `wrangler.jsonc` to the final
+HTTPS origin, such as `https://tracker.example.com`. It is the canonical base
+for provider postbacks, invitations, password resets, and billing return URLs.
+Leave it empty only for local development or when you want each workspace owner
+to manage the URL under **Settings → Workspace**. A configured value overrides
+the stored workspace value and prevents a legacy `workers.dev` hostname from
+reappearing after a custom-domain migration.
 
 `pnpm deploy` applies control migrations and the same snapshot migrations to all
 32 shards before publishing with Wrangler. `pnpm r2:lifecycle` replaces the

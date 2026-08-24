@@ -66,11 +66,21 @@ describe("API contracts", () => {
     expect(ProjectTrackingSourcesSchema.safeParse({ sources: ["claude"] }).success).toBe(false);
   });
 
-  it("trims workspace names and rejects blank names", () => {
+  it("validates partial workspace settings and canonicalizes the public origin", () => {
     expect(WorkspaceUpdateSchema.parse({ name: "  Acme team  " })).toEqual({
       name: "Acme team",
     });
+    expect(WorkspaceUpdateSchema.parse({
+      publicBaseUrl: " https://tracker.example.com/ ",
+    })).toEqual({ publicBaseUrl: "https://tracker.example.com" });
     expect(WorkspaceUpdateSchema.safeParse({ name: " " }).success).toBe(false);
+    expect(WorkspaceUpdateSchema.safeParse({}).success).toBe(false);
+    expect(WorkspaceUpdateSchema.safeParse({
+      publicBaseUrl: "http://tracker.example.com",
+    }).success).toBe(false);
+    expect(WorkspaceUpdateSchema.safeParse({
+      publicBaseUrl: "https://tracker.example.com/a/path",
+    }).success).toBe(false);
   });
 
   it("rejects malformed schedules", () => {

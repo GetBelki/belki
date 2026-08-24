@@ -12,6 +12,7 @@ import { writeAudit } from "../lib/audit";
 import { assertOperator, createSession } from "../lib/auth";
 import { hashPassword, randomToken, sha256, verifyPassword } from "../lib/crypto";
 import { ApiError, nowIso } from "../lib/http";
+import { requestPublicAppOrigin } from "../lib/public-origin";
 import { stripeLivemode } from "../lib/stripe";
 import { PLAN_ENTITLEMENTS, syncUsageEntitlement } from "../lib/usage";
 import { cancelWorkspaceBillingPlanChange, reconcileWorkspaceBilling } from "./billing";
@@ -121,7 +122,7 @@ onboardingRoutes.post(
       ).bind(
         workspaceId,
         input.workspaceName,
-        new URL(c.req.url).origin,
+        requestPublicAppOrigin(c.env, c.req.url),
         PLAN_ENTITLEMENTS.starter.monthlyUnits,
         input.timezone,
         workspaceStatus,
@@ -202,7 +203,7 @@ onboardingRoutes.post(
       principal.userId,
       now,
     ).run();
-    const signupUrl = `${new URL(c.req.url).origin}/signup?code=${encodeURIComponent(token)}&email=${encodeURIComponent(input.email.toLowerCase())}`;
+    const signupUrl = `${requestPublicAppOrigin(c.env, c.req.url)}/signup?code=${encodeURIComponent(token)}&email=${encodeURIComponent(input.email.toLowerCase())}`;
     return c.json({ data: { id, signupUrl, expiresAt } }, 201);
   },
 );

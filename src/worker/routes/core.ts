@@ -39,6 +39,7 @@ import { manualJobDelivery } from "../lib/job-delivery";
 import { fetchDomainFavicon } from "../lib/favicon";
 import { markBrandMetricsStale } from "../lib/brand-metrics-state";
 import { projectEventStatement } from "../lib/project-events";
+import { configuredPublicAppOrigin } from "../lib/public-origin";
 import { trackingSourceDelta } from "../../shared/project-event-helpers";
 import {
   promptTagKey,
@@ -125,21 +126,53 @@ coreRoutes.patch(
   zValidator("json", WorkspaceUpdateSchema),
   async (c) => {
     const principal = requireRole(c, "owner");
-    const { name } = c.req.valid("json");
+    const input = c.req.valid("json");
+    const managedPublicOrigin = configuredPublicAppOrigin(c.env);
+    if (
+      input.publicBaseUrl &&
+      managedPublicOrigin &&
+      input.publicBaseUrl !== managedPublicOrigin
+    ) {
+      throw new ApiError(
+        409,
+        "public_origin_managed",
+        "The public application URL is managed by this deployment.",
+      );
+    }
     await c.env.CONTROL_DB.prepare(
-      "UPDATE workspaces SET name = ?, updated_at = ? WHERE id = ?",
+      `UPDATE workspaces SET
+        name = COALESCE(?, name),
+        public_base_url = COALESCE(?, public_base_url),
+        updated_at = ?
+       WHERE id = ?`,
     )
-      .bind(name, nowIso(), principal.workspaceId)
+      .bind(input.name ?? null, input.publicBaseUrl ?? null, nowIso(), principal.workspaceId)
       .run();
+    const workspace = await c.env.CONTROL_DB.prepare(
+      `SELECT id, name, public_base_url AS publicBaseUrl
+       FROM workspaces WHERE id = ?`,
+    ).bind(principal.workspaceId).first<{
+      id: string;
+      name: string;
+      publicBaseUrl: string;
+    }>();
+    if (!workspace) {
+      throw new ApiError(404, "workspace_not_found", "Workspace not found.");
+    }
     await writeAudit(c.env.CONTROL_DB, {
       workspaceId: principal.workspaceId,
       userId: principal.userId,
       action: "workspace.updated",
       resourceType: "workspace",
       resourceId: principal.workspaceId,
-      metadata: { name },
+      metadata: input,
     });
-    return c.json({ data: { id: principal.workspaceId, name } });
+    return c.json({
+      data: {
+        ...workspace,
+        publicBaseUrl: managedPublicOrigin ?? workspace.publicBaseUrl,
+      },
+    });
   },
 );
 

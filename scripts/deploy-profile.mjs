@@ -32,6 +32,8 @@ const allowedVars = new Set([
   "TRACKING_SOURCE_GEMINI_ENABLED",
   "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED",
   "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED",
+  "PUBLIC_APP_ORIGIN",
+  "EMAIL_FROM_ADDRESS",
   "STRIPE_ENVIRONMENT",
   "STRIPE_STARTER_PRICE_ID",
   "STRIPE_STUDIO_PRICE_ID",
@@ -76,6 +78,38 @@ const generated = {
   routes: profile.routes,
   vars: { ...base.vars, ...profile.vars },
 };
+
+const publicAppOrigin = String(generated.vars.PUBLIC_APP_ORIGIN ?? "").trim();
+if (publicAppOrigin) {
+  let parsedOrigin;
+  try {
+    parsedOrigin = new URL(publicAppOrigin);
+  } catch {
+    throw new Error("PUBLIC_APP_ORIGIN must be a valid HTTPS origin.");
+  }
+  if (
+    parsedOrigin.protocol !== "https:" ||
+    parsedOrigin.username ||
+    parsedOrigin.password ||
+    parsedOrigin.pathname !== "/" ||
+    parsedOrigin.search ||
+    parsedOrigin.hash
+  ) {
+    throw new Error("PUBLIC_APP_ORIGIN must be an HTTPS origin without credentials, a path, query, or fragment.");
+  }
+  generated.vars.PUBLIC_APP_ORIGIN = parsedOrigin.origin;
+}
+
+const emailFromAddress = String(generated.vars.EMAIL_FROM_ADDRESS ?? "").trim();
+if (emailFromAddress) {
+  if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/u.test(emailFromAddress)) {
+    throw new Error("EMAIL_FROM_ADDRESS must be a valid email address.");
+  }
+  generated.send_email = [{
+    name: "EMAIL",
+    allowed_sender_addresses: [emailFromAddress],
+  }];
+}
 
 if (resolveD1Catalog) {
   const catalogResult = spawnSync(wrangler, ["d1", "list", "--json"], {

@@ -10,6 +10,7 @@ import {
   type StandardTaskInput,
 } from "../lib/dataforseo";
 import { nowIso } from "../lib/http";
+import { workspacePublicAppOrigin } from "../lib/public-origin";
 import { emitRunFailureAlerts } from "../automation/alerts";
 import { platformDataForSeoCredentials } from "../lib/provider-credentials";
 import { commitUsage, releaseUsage } from "../lib/usage";
@@ -140,7 +141,7 @@ export async function dispatchStandardBatch(
       priority: job.delivery_method === "standard_priority" ? 2 : 1,
       expand_citations: job.capture_html === 1,
       tag: job.provider_tag,
-      postback_url: `${job.public_base_url}/api/webhooks/dataforseo/${source}?token=${encodeURIComponent(env.DATAFORSEO_WEBHOOK_TOKEN)}&id=$id&tag=$tag`,
+      postback_url: `${workspacePublicAppOrigin(env, job.public_base_url)}/api/webhooks/dataforseo/${source}?token=${encodeURIComponent(env.DATAFORSEO_WEBHOOK_TOKEN)}&id=$id&tag=$tag`,
       postback_data: "advanced",
     }));
     try {

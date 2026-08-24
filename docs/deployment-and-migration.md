@@ -691,6 +691,33 @@ pnpm exec wrangler secret put APP_CRYPTO_KEY
 pnpm exec wrangler secret put BOOTSTRAP_TOKEN
 ```
 
+Set the final public origin before opening the setup screen:
+
+```jsonc
+"vars": {
+  "PUBLIC_APP_ORIGIN": "https://tracker.example.com",
+  "EMAIL_FROM_ADDRESS": ""
+}
+```
+
+`PUBLIC_APP_ORIGIN` must be an HTTPS origin without a path. It is authoritative
+for DataForSEO postbacks and all generated links. If it is empty, setup records
+the request origin and workspace owners can later change it under
+**Settings → Workspace**. Using the explicit variable is recommended for a
+single-origin installation because it prevents an old `workers.dev` hostname
+or alternate request host from becoming canonical.
+
+Email is optional. Leave `EMAIL_FROM_ADDRESS` empty to disable invitation and
+password-reset delivery while preserving copyable admin-generated links. To
+enable it, first onboard the sender domain in Cloudflare Email, set a verified
+sender such as `noreply@notifications.example.com`, and optionally add that
+address to `allowed_sender_addresses` on the `EMAIL` binding. Regenerate Worker
+types after changing bindings:
+
+```bash
+pnpm types
+```
+
 Then provision bindings, migrate, and deploy from the configured fork:
 
 ```bash
@@ -701,6 +728,28 @@ pnpm db:migrate:remote
 pnpm exec wrangler deploy
 pnpm r2:lifecycle
 ```
+
+### 10.1 Repair an installation after changing domains
+
+Deploying at `workers.dev` and later attaching a custom domain can leave the
+old origin in existing workspace rows. First deploy with `PUBLIC_APP_ORIGIN`
+set to the final custom-domain origin. This immediately makes runtime links and
+provider callbacks canonical without resubmitting paid provider tasks.
+
+Then inspect and repair the stored values for consistency:
+
+```bash
+pnpm exec wrangler d1 execute CONTROL_DB --remote --command \
+  "SELECT id, name, public_base_url FROM workspaces WHERE status != 'deleted' ORDER BY name"
+
+pnpm exec wrangler d1 execute CONTROL_DB --remote --command \
+  "UPDATE workspaces SET public_base_url = 'https://tracker.example.com', updated_at = datetime('now') WHERE status != 'deleted' AND public_base_url != 'https://tracker.example.com'"
+```
+
+Replace the example origin and narrow the `WHERE` clause when different
+workspaces intentionally use different domains. Existing submitted DataForSEO
+tasks should be allowed to finish: the scheduler's ready-task recovery can
+collect completed results whose old postback URL is no longer reachable.
 
 ## Provider references
 
