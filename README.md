@@ -417,7 +417,7 @@ future installation path.
    Object, Workers AI, and asset bindings, then runs the repository's deploy
    command.
 
-   [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Xyborg/AI-Visibility-Tracker)
+   [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/GetBelki/belki)
 
 4. Enter only these five required secrets when Cloudflare asks for bindings:
 
@@ -513,7 +513,7 @@ After public release, the Cloudflare Deploy button provisions the declared D1,
 R2, Queue, Workers AI, and secret bindings and can connect the fork to Workers
 Builds:
 
-[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/Xyborg/AI-Visibility-Tracker)
+[![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/GetBelki/belki)
 
 For a manual deployment, authenticate Wrangler, configure the five required
 production secrets, and run:
