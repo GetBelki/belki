@@ -21,7 +21,7 @@ import {
 import { DEFAULT_TRACKING_SOURCES } from "../../shared/tracking-sources";
 import type { AppEnv } from "../lib/app";
 import { requireRole } from "../lib/auth";
-import { writeAudit } from "../lib/audit";
+import { prepareAudit, writeAudit } from "../lib/audit";
 import { createSignedJobTag } from "../lib/crypto";
 import { normalizeHostname } from "../lib/domain";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
@@ -38,6 +38,8 @@ import { calculateNextRun } from "../lib/schedule";
 import { manualJobDelivery } from "../lib/job-delivery";
 import { fetchDomainFavicon } from "../lib/favicon";
 import { markBrandMetricsStale } from "../lib/brand-metrics-state";
+import { projectEventStatement } from "../lib/project-events";
+import { trackingSourceDelta } from "../../shared/project-event-helpers";
 import {
   promptTagKey,
   uniquePromptTagNames,
@@ -398,8 +400,27 @@ coreRoutes.patch(
     const { sources } = c.req.valid("json");
     await requireProject(c.env.CONTROL_DB, principal.workspaceId, id);
     await assertTrackingSourcesAllowed(c.env, principal.workspaceId, sources);
+    const previousSources = await projectTrackingSources(c.env, id);
+    const { addedSources, removedSources } = trackingSourceDelta(
+      previousSources,
+      sources,
+    );
     const now = nowIso();
-    await c.env.CONTROL_DB.batch(
+    const audit = prepareAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "project.tracking_sources_updated",
+      resourceType: "project",
+      resourceId: id,
+      metadata: {
+        projectId: id,
+        previousSources,
+        sources,
+        addedSources,
+        removedSources,
+      },
+    });
+    const statements =
       ["chatgpt", "gemini", "google_ai_mode", "google_ai_overview"].map((source) =>
         c.env.CONTROL_DB.prepare(
           `INSERT INTO project_tracking_sources (project_id, source, enabled, created_at, updated_at)
@@ -407,16 +428,19 @@ coreRoutes.patch(
            ON CONFLICT(project_id, source) DO UPDATE SET
              enabled = excluded.enabled, updated_at = excluded.updated_at`,
         ).bind(id, source, sources.includes(source as typeof sources[number]) ? 1 : 0, now, now)
-      ),
-    );
-    await writeAudit(c.env.CONTROL_DB, {
-      workspaceId: principal.workspaceId,
-      userId: principal.userId,
-      action: "project.tracking_sources_updated",
-      resourceType: "project",
-      resourceId: id,
-      metadata: { sources },
-    });
+      );
+    statements.push(audit.statement);
+    if (addedSources.length || removedSources.length) {
+      statements.push(projectEventStatement(c.env.CONTROL_DB, {
+        projectId: id,
+        type: "tracking_sources_changed",
+        occurredAt: audit.createdAt,
+        payload: { addedSources, removedSources },
+        dedupeKey: `audit:${audit.id}`,
+        actorUserId: principal.userId,
+      }));
+    }
+    await c.env.CONTROL_DB.batch(statements);
     return c.json({ data: { id, trackingSources: sources } });
   },
 );
@@ -1122,7 +1146,7 @@ coreRoutes.post(
       if (records.length) await releasePromptSlots(c.env, principal.workspaceId, records.length);
       throw error;
     }
-    await writeAudit(c.env.CONTROL_DB, {
+    const audit = prepareAudit(c.env.CONTROL_DB, {
       workspaceId: principal.workspaceId,
       userId: principal.userId,
       action: "query.bulk_created",
@@ -1138,6 +1162,18 @@ coreRoutes.post(
           .length,
       },
     });
+    const auditStatements = [audit.statement];
+    if (records.length) {
+      auditStatements.push(projectEventStatement(c.env.CONTROL_DB, {
+        projectId,
+        type: "prompt_set_changed",
+        occurredAt: audit.createdAt,
+        payload: { addedCount: records.length, removedCount: 0 },
+        dedupeKey: `audit:${audit.id}`,
+        actorUserId: principal.userId,
+      }));
+    }
+    await c.env.CONTROL_DB.batch(auditStatements);
     return c.json(
       {
         data: {
@@ -1224,7 +1260,7 @@ coreRoutes.post(
       await releasePromptSlots(c.env, principal.workspaceId);
       throw error;
     }
-    await writeAudit(c.env.CONTROL_DB, {
+    const audit = prepareAudit(c.env.CONTROL_DB, {
       workspaceId: principal.workspaceId,
       userId: principal.userId,
       action: "query.created",
@@ -1236,6 +1272,17 @@ coreRoutes.post(
         tagNames: input.tags,
       },
     });
+    await c.env.CONTROL_DB.batch([
+      audit.statement,
+      projectEventStatement(c.env.CONTROL_DB, {
+        projectId,
+        type: "prompt_set_changed",
+        occurredAt: audit.createdAt,
+        payload: { addedCount: 1, removedCount: 0 },
+        dedupeKey: `audit:${audit.id}`,
+        actorUserId: principal.userId,
+      }),
+    ]);
     return c.json({ data: { id: queryId, nextRunAt, shardId: shard.shard_id } }, 201);
   },
 );

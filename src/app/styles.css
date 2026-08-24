@@ -5096,17 +5096,17 @@ a.evidence-source:hover strong {
   width: 100%;
 }
 
-.prompt-set-event-marker {
+.chart-annotation-marker {
   cursor: help;
   outline: none;
   pointer-events: all;
 }
 
-.prompt-set-event-hit-area {
+.chart-annotation-hit-area {
   fill: transparent;
 }
 
-.prompt-set-event-flag {
+.chart-annotation-flag {
   fill: #fff;
   stroke: #d4d4d8;
   stroke-width: 1px;
@@ -5115,21 +5115,21 @@ a.evidence-source:hover strong {
     stroke 120ms ease;
 }
 
-.prompt-set-event-label {
+.chart-annotation-label {
   fill: #52525b;
   font-size: 8px;
   font-weight: 650;
   pointer-events: none;
 }
 
-.prompt-set-event-marker:hover .prompt-set-event-flag,
-.prompt-set-event-marker:focus-visible .prompt-set-event-flag {
+.chart-annotation-marker:hover .chart-annotation-flag,
+.chart-annotation-marker:focus-visible .chart-annotation-flag {
   fill: #18181b;
   stroke: #18181b;
 }
 
-.prompt-set-event-marker:hover .prompt-set-event-label,
-.prompt-set-event-marker:focus-visible .prompt-set-event-label {
+.chart-annotation-marker:hover .chart-annotation-label,
+.chart-annotation-marker:focus-visible .chart-annotation-label {
   fill: #fff;
 }
 
@@ -5378,7 +5378,7 @@ a.evidence-source:hover strong {
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .prompt-set-event-flag,
+  .chart-annotation-flag,
   .trend-chart-legend-item {
     transition: none;
   }

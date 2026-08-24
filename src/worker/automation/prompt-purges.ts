@@ -1,7 +1,8 @@
 import type { Principal, PromptPurgeQueueMessage } from "../../shared/contracts";
 import { getShard } from "../lib/shards";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
-import { writeAudit } from "../lib/audit";
+import { prepareAudit } from "../lib/audit";
+import { projectEventStatement } from "../lib/project-events";
 
 const PURGE_GRACE_SECONDS = 120;
 
@@ -163,18 +164,30 @@ export async function requestPromptPurges(
     );
     await env.CONTROL_DB.batch(statements);
 
-    await Promise.all(
-      newPrompts.map((prompt) =>
-        writeAudit(env.CONTROL_DB, {
+    const eventStatements = newPrompts.flatMap((prompt) => {
+      const audit = prepareAudit(env.CONTROL_DB, {
           workspaceId: principal.workspaceId,
           userId: principal.userId,
           action: "query.purge_requested",
           resourceType: "tracked_query",
           resourceId: prompt.id,
           metadata: { projectId },
+      });
+      return [
+        audit.statement,
+        projectEventStatement(env.CONTROL_DB, {
+          projectId,
+          type: "prompt_set_changed",
+          occurredAt: audit.createdAt,
+          payload: { addedCount: 0, removedCount: 1 },
+          dedupeKey: `audit:${audit.id}`,
+          actorUserId: principal.userId,
         }),
-      ),
-    );
+      ];
+    });
+    for (let index = 0; index < eventStatements.length; index += 100) {
+      await env.CONTROL_DB.batch(eventStatements.slice(index, index + 100));
+    }
   }
 
   const purgeJobs = await env.CONTROL_DB.prepare(

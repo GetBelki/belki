@@ -1,3 +1,6 @@
+import type { ChartAnnotation } from "../../shared/project-events";
+import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
+
 export function hasOverviewProducts(
   overview:
     | {
@@ -11,25 +14,35 @@ export function hasOverviewProducts(
   );
 }
 
-export interface PromptSetEvent {
-  metric_date: string;
-  addedCount: number;
-  removedCount: number;
-}
-
-export interface AlignedPromptSetEvent extends PromptSetEvent {
+export interface AlignedChartAnnotation {
   chartDate: string;
   label: string;
-  sourceEvents: PromptSetEvent[];
+  sourceEvents: ChartAnnotation[];
 }
 
 function positiveInteger(value: number): number {
   return Number.isInteger(value) && value > 0 ? value : 0;
 }
 
-export function promptSetEventLabel(
-  event: Pick<PromptSetEvent, "addedCount" | "removedCount">,
-): string {
+function promptCounts(events: readonly ChartAnnotation[]): {
+  addedCount: number;
+  removedCount: number;
+} {
+  return events.reduce(
+    (counts, event) => event.type === "prompt_set_changed"
+      ? {
+          addedCount: counts.addedCount + positiveInteger(event.addedCount),
+          removedCount: counts.removedCount + positiveInteger(event.removedCount),
+        }
+      : counts,
+    { addedCount: 0, removedCount: 0 },
+  );
+}
+
+export function promptSetEventLabel(event: {
+  addedCount: number;
+  removedCount: number;
+}): string {
   const added = positiveInteger(event.addedCount);
   const removed = positiveInteger(event.removedCount);
   if (added && removed) return `+${added} / −${removed}`;
@@ -38,67 +51,89 @@ export function promptSetEventLabel(
   return "";
 }
 
-export function alignPromptSetEvents(
-  events: readonly PromptSetEvent[],
+export function chartAnnotationLabel(
+  events: readonly ChartAnnotation[],
+): string {
+  const prompts = events.filter((event) => event.type === "prompt_set_changed");
+  if (prompts.length === events.length) {
+    return promptSetEventLabel(promptCounts(events));
+  }
+  if (events.length === 1 && events[0]?.type === "model_detected") {
+    return "Model detected";
+  }
+  if (events.length === 1 && events[0]?.type === "tracking_sources_changed") {
+    return "Platform tracking changed";
+  }
+  return `${events.length} events`;
+}
+
+export function chartAnnotationMarkerLabel(
+  event: AlignedChartAnnotation,
+): string {
+  if (event.sourceEvents.every((source) => source.type === "prompt_set_changed")) {
+    const counts = promptCounts(event.sourceEvents);
+    if (counts.addedCount && counts.removedCount) {
+      return `±${counts.addedCount + counts.removedCount}`;
+    }
+    return counts.addedCount ? `+${counts.addedCount}` : `−${counts.removedCount}`;
+  }
+  if (event.sourceEvents.length === 1) {
+    return event.sourceEvents[0]?.type === "model_detected" ? "Model" : "Platform";
+  }
+  return `${event.sourceEvents.length}`;
+}
+
+export function alignChartAnnotations(
+  events: readonly ChartAnnotation[],
   chartDates: readonly string[],
-): AlignedPromptSetEvent[] {
+): AlignedChartAnnotation[] {
   const dates = [...new Set(chartDates)]
     .filter((date) => /^\d{4}-\d{2}-\d{2}$/u.test(date))
     .sort();
-  const alignedByDate = new Map<string, AlignedPromptSetEvent>();
+  const alignedByDate = new Map<string, AlignedChartAnnotation>();
 
   for (const source of [...events].sort((left, right) =>
-    left.metric_date.localeCompare(right.metric_date),
+    left.metricDate.localeCompare(right.metricDate)
   )) {
-    if (!/^\d{4}-\d{2}-\d{2}$/u.test(source.metric_date)) continue;
-    const addedCount = positiveInteger(source.addedCount);
-    const removedCount = positiveInteger(source.removedCount);
-    if (!addedCount && !removedCount) continue;
-    const chartDate = dates.find((date) => date >= source.metric_date);
+    if (!/^\d{4}-\d{2}-\d{2}$/u.test(source.metricDate)) continue;
+    if (
+      source.type === "prompt_set_changed" &&
+      !positiveInteger(source.addedCount) &&
+      !positiveInteger(source.removedCount)
+    ) continue;
+    const chartDate = dates.find((date) => date >= source.metricDate);
     if (!chartDate) continue;
-    const sourceEvent = {
-      metric_date: source.metric_date,
-      addedCount,
-      removedCount,
-    };
     const existing = alignedByDate.get(chartDate);
     if (existing) {
-      existing.addedCount += addedCount;
-      existing.removedCount += removedCount;
-      existing.sourceEvents.push(sourceEvent);
-      existing.label = promptSetEventLabel(existing);
+      existing.sourceEvents.push(source);
+      existing.label = chartAnnotationLabel(existing.sourceEvents);
     } else {
       alignedByDate.set(chartDate, {
-        ...sourceEvent,
         chartDate,
-        label: promptSetEventLabel(sourceEvent),
-        sourceEvents: [sourceEvent],
+        label: chartAnnotationLabel([source]),
+        sourceEvents: [source],
       });
     }
   }
-
   return [...alignedByDate.values()];
 }
 
-export function clusterPromptSetEvents(
-  events: readonly AlignedPromptSetEvent[],
+export function clusterChartAnnotations(
+  events: readonly AlignedChartAnnotation[],
   chartDates: readonly string[],
   maximumIndexSpan = 1,
-): AlignedPromptSetEvent[] {
+): AlignedChartAnnotation[] {
   const dateIndexes = new Map(
     [...new Set(chartDates)].map((date, index) => [date, index]),
   );
   const positioned = events
     .map((event) => ({ event, index: dateIndexes.get(event.chartDate) }))
     .filter(
-      (value): value is { event: AlignedPromptSetEvent; index: number } =>
+      (value): value is { event: AlignedChartAnnotation; index: number } =>
         value.index !== undefined,
     )
     .sort((left, right) => left.index - right.index);
-  const clusters: Array<{
-    firstIndex: number;
-    event: AlignedPromptSetEvent;
-  }> = [];
+  const clusters: Array<{ firstIndex: number; event: AlignedChartAnnotation }> = [];
 
   for (const positionedEvent of positioned) {
     const current = clusters.at(-1);
@@ -106,20 +141,14 @@ export function clusterPromptSetEvents(
       current &&
       positionedEvent.index - current.firstIndex <= maximumIndexSpan
     ) {
-      const addedCount =
-        current.event.addedCount + positionedEvent.event.addedCount;
-      const removedCount =
-        current.event.removedCount + positionedEvent.event.removedCount;
+      const sourceEvents = [
+        ...current.event.sourceEvents,
+        ...positionedEvent.event.sourceEvents,
+      ];
       current.event = {
-        metric_date: current.event.metric_date,
         chartDate: positionedEvent.event.chartDate,
-        addedCount,
-        removedCount,
-        label: promptSetEventLabel({ addedCount, removedCount }),
-        sourceEvents: [
-          ...current.event.sourceEvents,
-          ...positionedEvent.event.sourceEvents,
-        ],
+        label: chartAnnotationLabel(sourceEvents),
+        sourceEvents,
       };
       continue;
     }
@@ -131,29 +160,51 @@ export function clusterPromptSetEvents(
       },
     });
   }
-
   return clusters.map((cluster) => cluster.event);
 }
 
-export function promptSetEventDescription(
-  event: AlignedPromptSetEvent,
-): string {
-  const details = event.sourceEvents.flatMap((source) => {
+export function chartAnnotationItemLabel(event: ChartAnnotation): string {
+  if (event.type === "prompt_set_changed") {
     const messages: string[] = [];
-    if (source.addedCount) {
+    if (event.addedCount) {
       messages.push(
-        `${source.addedCount} ${source.addedCount === 1 ? "prompt" : "prompts"} added on ${source.metric_date}`,
+        `${event.addedCount} ${event.addedCount === 1 ? "prompt" : "prompts"} added`,
       );
     }
-    if (source.removedCount) {
+    if (event.removedCount) {
       messages.push(
-        `${source.removedCount} ${source.removedCount === 1 ? "prompt" : "prompts"} removed on ${source.metric_date}`,
+        `${event.removedCount} ${event.removedCount === 1 ? "prompt" : "prompts"} removed`,
       );
     }
-    return messages;
-  });
+    return messages.join("; ");
+  }
+  if (event.type === "model_detected") {
+    return `${event.model} first detected on ${TRACKING_SOURCE_LABELS[event.trackingSource]}`;
+  }
+  const changes: string[] = [];
+  if (event.addedSources.length) {
+    changes.push(
+      `${event.addedSources.map((source) => TRACKING_SOURCE_LABELS[source]).join(", ")} added`,
+    );
+  }
+  if (event.removedSources.length) {
+    changes.push(
+      `${event.removedSources.map((source) => TRACKING_SOURCE_LABELS[source]).join(", ")} removed`,
+    );
+  }
+  return changes.join("; ");
+}
+
+export function chartAnnotationItemDescription(event: ChartAnnotation): string {
+  return `${chartAnnotationItemLabel(event)} on ${event.metricDate}`;
+}
+
+export function chartAnnotationDescription(
+  event: AlignedChartAnnotation,
+): string {
+  const details = event.sourceEvents.map(chartAnnotationItemDescription);
   const wasShifted = event.sourceEvents.some(
-    (source) => source.metric_date !== event.chartDate,
+    (source) => source.metricDate !== event.chartDate,
   );
   return `${details.join("; ")}.${
     wasShifted
