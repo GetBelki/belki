@@ -2095,7 +2095,7 @@ body .platform-comparison-row {
   align-items: center;
   display: grid;
   gap: 20px;
-  grid-template-columns: minmax(220px, 1.5fr) repeat(3, minmax(100px, .7fr));
+  grid-template-columns: minmax(220px, 1.5fr) repeat(4, minmax(100px, .7fr));
 }
 
 body .platform-comparison-head {

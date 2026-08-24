@@ -2249,6 +2249,9 @@ analyticsRoutes.get(
         shareOfVoice: sourceCompleted
           ? sourceComparison.summary.ownedShareOfVoice
           : null,
+        averagePosition: brandReadModelReady
+          ? sourceComparison.summary.ownedAveragePosition
+          : null,
       };
     });
     return c.json({
