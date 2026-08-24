@@ -2737,7 +2737,7 @@ export function UsersPage() {
   const { session } = useApp();
   const queryClient = useQueryClient();
   const [open, setOpen] = useState(false);
-  const [sendInviteEmail, setSendInviteEmail] = useState(true);
+  const [sendInviteEmail, setSendInviteEmail] = useState(session.capabilities.emailDelivery);
   const [pendingAction, setPendingAction] = useState<
     | { kind: "remove"; id: string; label: string }
     | { kind: "revoke"; id: string; label: string }
@@ -2745,7 +2745,7 @@ export function UsersPage() {
   >(null);
   const [invitation, setInvitation] = useState<{
     link: string;
-    emailDelivery: "failed" | "not_requested" | "sent";
+    emailDelivery: "failed" | "not_configured" | "not_requested" | "sent";
   } | null>(null);
   const users = useQuery({
     queryKey: ["users"],
@@ -2773,7 +2773,7 @@ export function UsersPage() {
     mutationFn: (body: { email: string; role: string; sendEmail: boolean }) =>
       post<{
         link: string;
-        emailDelivery: "failed" | "not_requested" | "sent";
+        emailDelivery: "failed" | "not_configured" | "not_requested" | "sent";
       }>("/auth/invitations", body),
     onSuccess: (data) => {
       setInvitation(data);
@@ -2804,7 +2804,7 @@ export function UsersPage() {
   };
   return (
     <div className="page users-page">
-      <PageHeader title={`${session.workspace.name} users`} description="Role-based access for owners, admins, editors, and viewers." action={<Button onClick={() => { setInvitation(null); setSendInviteEmail(true); invite.reset(); setOpen(true); }}><UserPlus size={15}/> Invite user</Button>} />
+      <PageHeader title={`${session.workspace.name} users`} description="Role-based access for owners, admins, editors, and viewers." action={<Button onClick={() => { setInvitation(null); setSendInviteEmail(session.capabilities.emailDelivery); invite.reset(); setOpen(true); }}><UserPlus size={15}/> Invite user</Button>} />
       <Card className="workspace-access-card">
         <section className="workspace-access-section">
           <CardHeader title="Members" description="People who currently have access to this workspace." />
@@ -2840,6 +2840,8 @@ export function UsersPage() {
                 ? "Invitation email sent. You can also share the link directly."
                 : invitation.emailDelivery === "failed"
                   ? "The invitation was created, but its email could not be sent. Share the link directly."
+                  : invitation.emailDelivery === "not_configured"
+                    ? "Email delivery is not configured. Share the invitation link directly."
                   : "Invitation created. Share the link directly."}
             </p>
             <code className="invite-link">{invitation.link}</code>
@@ -2854,11 +2856,15 @@ export function UsersPage() {
             <label className="checkbox-row">
               <input
                 checked={sendInviteEmail}
+                disabled={!session.capabilities.emailDelivery}
                 onChange={(event) => setSendInviteEmail(event.target.checked)}
                 type="checkbox"
               />
               Send the invitation by email
             </label>
+            {!session.capabilities.emailDelivery ? (
+              <p className="muted">Configure a verified sender domain to enable invitation email.</p>
+            ) : null}
             {invite.isError ? <p className="form-error">{invite.error.message}</p> : null}
             <Button disabled={invite.isPending}>
               <Send size={15}/> {sendInviteEmail ? "Send invitation" : "Create invitation"}

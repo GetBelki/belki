@@ -30,7 +30,8 @@
     "RAW_RETENTION_DAYS": "730",
     "HTML_RETENTION_DAYS": "90",
     "EXPORT_RETENTION_DAYS": "7",
-    "EMAIL_FROM_ADDRESS": "noreply@notifications.getbelki.com"
+    "PUBLIC_APP_ORIGIN": "",
+    "EMAIL_FROM_ADDRESS": ""
   },
   "secrets": {
     "required": [
@@ -96,10 +97,7 @@
   ],
   "ai": { "binding": "AI" },
   "send_email": [
-    {
-      "name": "EMAIL",
-      "allowed_sender_addresses": ["noreply@notifications.getbelki.com"]
-    }
+    { "name": "EMAIL" }
   ],
   "queues": {
     "producers": [

@@ -100,7 +100,7 @@ export function App() {
   const location = useLocation();
   const status = useQuery({
     queryKey: ["status"],
-    queryFn: () => api<{ setupRequired: boolean }>("/status"),
+    queryFn: () => api<{ setupRequired: boolean; emailDeliveryConfigured: boolean }>("/status"),
   });
   const session = useQuery({
     queryKey: ["session"],
@@ -119,9 +119,11 @@ export function App() {
     session.error instanceof ApiClientError &&
     [401, 403].includes(session.error.status)
   ) {
-    return <LoginPage />;
+    return <LoginPage emailDeliveryConfigured={status.data?.emailDeliveryConfigured ?? false} />;
   }
-  if (!session.data) return <LoginPage />;
+  if (!session.data) {
+    return <LoginPage emailDeliveryConfigured={status.data?.emailDeliveryConfigured ?? false} />;
+  }
   if (session.data.workspace.status === "pending_payment" && location.pathname !== "/billing") {
     return <Navigate to="/billing" replace />;
   }

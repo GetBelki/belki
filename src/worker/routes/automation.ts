@@ -17,6 +17,8 @@ import { hmac } from "../lib/crypto";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
 import { projectTrackingSources } from "../lib/tracking-sources";
 import { markBrandMetricsStale } from "../lib/brand-metrics-state";
+import { emailDeliveryConfigured } from "../lib/email-config";
+import { configuredPublicAppOrigin } from "../lib/public-origin";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 
@@ -727,7 +729,13 @@ automationRoutes.get("/settings/health", async (c) => {
        FROM workspaces WHERE id = ?`,
     )
       .bind(principal.workspaceId)
-      .first(),
+      .first<{
+        id: string;
+        name: string;
+        public_base_url: string;
+        monthly_run_cap: number;
+        timezone: string;
+      }>(),
     c.env.CONTROL_DB.prepare(
       `SELECT status, COUNT(*) AS count FROM crawl_jobs
        WHERE workspace_id = ?
@@ -770,6 +778,14 @@ automationRoutes.get("/settings/health", async (c) => {
           planChangesEnabled: String(c.env.BILLING_PLAN_CHANGES_ENABLED) === "true",
           source: "worker_secret",
         },
+        email: {
+          configured: emailDeliveryConfigured(c.env),
+          source: "worker_binding",
+        },
+      },
+      publicOrigin: {
+        configured: configuredPublicAppOrigin(c.env),
+        stored: workspace?.public_base_url ?? null,
       },
     },
   });

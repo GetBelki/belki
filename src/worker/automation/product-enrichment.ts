@@ -10,6 +10,7 @@ import { platformDataForSeoCredentials } from "../lib/provider-credentials";
 import { commitUsage, releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 import { normalizeUrl } from "../lib/domain";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
+import { workspacePublicAppOrigin } from "../lib/public-origin";
 import {
   finiteInteger,
   finiteNumber,
@@ -485,7 +486,7 @@ async function submitJob(env: Env, jobId: string): Promise<void> {
       language_code: job.language_code,
       priority: job.priority,
       tag: job.provider_tag,
-      postback_url: `${job.public_base_url}/api/webhooks/dataforseo/product-info?token=${encodeURIComponent(env.DATAFORSEO_WEBHOOK_TOKEN)}&id=$id&tag=$tag`,
+      postback_url: `${workspacePublicAppOrigin(env, job.public_base_url)}/api/webhooks/dataforseo/product-info?token=${encodeURIComponent(env.DATAFORSEO_WEBHOOK_TOKEN)}&id=$id&tag=$tag`,
       postback_data: "advanced",
     });
     const task = response.tasks[0];

@@ -6,6 +6,7 @@ import {
   uniquePromptTagNames,
 } from "./prompt-tags";
 import { TRACKING_SOURCES } from "./tracking-sources";
+import { normalizePublicAppOrigin } from "./public-origin";
 
 export const TrackingSourceSchema = z.enum(TRACKING_SOURCES);
 export type TrackingSource = z.infer<typeof TrackingSourceSchema>;
@@ -150,9 +151,22 @@ export const CompletePasswordResetSchema = z.object({
   password: z.string().min(12).max(256),
 });
 
-export const WorkspaceUpdateSchema = z.object({
-  name: z.string().trim().min(2).max(120),
+export const PublicAppOriginSchema = z.string().trim().max(2_048).transform((value, context) => {
+  try {
+    return normalizePublicAppOrigin(value);
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      message: error instanceof Error ? error.message : "Enter a valid public application URL.",
+    });
+    return z.NEVER;
+  }
 });
+
+export const WorkspaceUpdateSchema = z.object({
+  name: z.string().trim().min(2).max(120).optional(),
+  publicBaseUrl: PublicAppOriginSchema.optional(),
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
 
 export const ProjectInputSchema = z.object({
   name: z.string().trim().min(2).max(120),

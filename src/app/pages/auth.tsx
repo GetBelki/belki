@@ -81,7 +81,7 @@ export function SetupPage() {
   );
 }
 
-export function LoginPage() {
+export function LoginPage({ emailDeliveryConfigured }: { emailDeliveryConfigured: boolean }) {
   const queryClient = useQueryClient();
   const [error, setError] = useState("");
   const [resetMode, setResetMode] = useState(false);
@@ -111,7 +111,9 @@ export function LoginPage() {
   return (
     <AuthShell
       title={resetMode ? "Reset your password" : "Sign in"}
-      description={resetMode ? "Enter your account email and we’ll send a one-hour reset link." : "Continue to your AI visibility workspace."}
+      description={resetMode
+        ? "Enter your account email and we’ll send a one-hour reset link."
+        : "Continue to your AI visibility workspace."}
     >
       {resetRequested ? (
         <div className="success-panel auth-success-panel"><CheckCircle2/><div><strong>Check your inbox</strong><p>If that account exists, a reset link has been sent.</p></div><Button onClick={() => { setResetRequested(false); setResetMode(false); }}>Back to sign in</Button></div>
@@ -130,7 +132,11 @@ export function LoginPage() {
             <Button disabled={login.isPending} type="submit">
               {login.isPending ? "Signing in…" : "Sign in"} <ArrowRight size={16} />
             </Button>
-            <button className="auth-text-action" type="button" onClick={() => { setError(""); setResetMode(true); }}>Forgot your password?</button>
+            {emailDeliveryConfigured ? (
+              <button className="auth-text-action" type="button" onClick={() => { setError(""); setResetMode(true); }}>Forgot your password?</button>
+            ) : (
+              <p className="muted">Password recovery email is not configured. Contact the installation owner for a reset link.</p>
+            )}
           </form>
       )}
     </AuthShell>

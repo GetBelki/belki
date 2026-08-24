@@ -17,12 +17,17 @@ function session(overrides: Partial<Session> = {}): Session {
     workspace: {
       id: "workspace-1",
       name: "Workspace",
+      publicBaseUrl: "https://tracker.example.com",
       status: "active",
       plan_key: "starter",
     },
     workspaces: [],
     projects: [],
     isPlatformOperator: false,
+    capabilities: {
+      emailDelivery: false,
+      publicOriginManaged: false,
+    },
     ...overrides,
   };
 }
@@ -47,7 +52,13 @@ describe("project onboarding navigation", () => {
       "/operator/insights/fan-out",
     )).toBe(false);
     expect(needsProjectOnboarding(session({
-      workspace: { id: "workspace-1", name: "Workspace", status: "pending_payment", plan_key: "starter" },
+      workspace: {
+        id: "workspace-1",
+        name: "Workspace",
+        publicBaseUrl: "https://tracker.example.com",
+        status: "pending_payment",
+        plan_key: "starter",
+      },
     }), "/billing")).toBe(false);
   });
 

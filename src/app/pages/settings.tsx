@@ -70,7 +70,9 @@ interface HealthSummary {
   provider?: {
     dataForSeo?: { configured: boolean; source: string; account: string };
     stripe?: { configured: boolean; mode: string; source: string };
+    email?: { configured: boolean; source: string };
   };
+  publicOrigin?: { configured: string | null; stored: string | null };
 }
 
 export default function SettingsPage() {
@@ -159,8 +161,8 @@ export default function SettingsPage() {
     },
   });
   const updateWorkspace = useMutation({
-    mutationFn: (body: { name: string }) =>
-      patch<{ id: string; name: string }>("/settings/workspace", body),
+    mutationFn: (body: { name: string; publicBaseUrl?: string }) =>
+      patch<{ id: string; name: string; publicBaseUrl: string }>("/settings/workspace", body),
     onSuccess: (workspace) => {
       queryClient.setQueryData<Session>(["session"], (current) => current
         ? { ...current, workspaceId: workspace.id, workspace: { ...current.workspace, ...workspace } }
@@ -214,7 +216,12 @@ export default function SettingsPage() {
   const workspaceUpdateSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const data = new FormData(event.currentTarget);
-    updateWorkspace.mutate({ name: formText(data, "name") });
+    updateWorkspace.mutate({
+      name: formText(data, "name"),
+      ...(!session.capabilities.publicOriginManaged
+        ? { publicBaseUrl: formText(data, "publicBaseUrl") }
+        : {}),
+    });
   };
   const webhookSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
@@ -425,6 +432,10 @@ export default function SettingsPage() {
             <div className="settings-workspace-summary">
               <span>Name</span>
               <strong>{session.workspace.name}</strong>
+              <span>Public application URL</span>
+              <strong>{session.workspace.publicBaseUrl}</strong>
+              <span>URL source</span>
+              <strong>{session.capabilities.publicOriginManaged ? "Deployment configuration" : "Workspace setting"}</strong>
             </div>
           </section>
           <section className="settings-section">
@@ -508,6 +519,8 @@ export default function SettingsPage() {
                 <div><ServerCog/><span><strong>Snapshot shards</strong>32 shards configured</span></div>
                 <div><KeyRound/><span><strong>DataForSEO credentials</strong>{health.data.provider?.dataForSeo?.configured ? "Configured in Worker secrets" : "Missing Worker secrets"}</span></div>
                 <div><KeyRound/><span><strong>Managed billing</strong>{health.data.provider?.stripe?.mode === "disabled" ? "Disabled for self-hosted mode" : health.data.provider?.stripe?.configured ? `${health.data.provider.stripe.mode} configured` : "Stripe secrets are missing"}</span></div>
+                <div><KeyRound/><span><strong>Email delivery</strong>{health.data.provider?.email?.configured ? "Configured" : "Disabled; invitation links remain copyable"}</span></div>
+                <div><ServerCog/><span><strong>Public application URL</strong>{health.data.publicOrigin?.configured ?? health.data.publicOrigin?.stored ?? "Not configured"}{health.data.publicOrigin?.configured ? " (managed by Worker configuration)" : " (workspace setting)"}</span></div>
               </div>
             ) : <p className="muted">Health checks could not be loaded.</p>}
           </section>
@@ -518,11 +531,21 @@ export default function SettingsPage() {
         open={workspaceOpen}
         onOpenChange={setWorkspaceOpen}
         title="Edit workspace"
-        description="This name is included in future invitation emails."
+        description="The public application URL receives provider callbacks and is used in generated links."
       >
         <form className="form-stack" onSubmit={workspaceUpdateSubmit}>
           <Label>Workspace name</Label>
           <Input name="name" defaultValue={session.workspace.name} minLength={2} maxLength={120} required />
+          <Label hint={session.capabilities.publicOriginManaged ? "Managed by PUBLIC_APP_ORIGIN" : "HTTPS origin only; do not include a path"}>
+            Public application URL
+          </Label>
+          <Input
+            disabled={session.capabilities.publicOriginManaged}
+            name="publicBaseUrl"
+            type="url"
+            defaultValue={session.workspace.publicBaseUrl}
+            required={!session.capabilities.publicOriginManaged}
+          />
           {updateWorkspace.isError ? <p className="form-error">{updateWorkspace.error.message}</p> : null}
           <div className="dialog-actions">
             <Button type="button" variant="ghost" onClick={() => setWorkspaceOpen(false)}>Cancel</Button>
