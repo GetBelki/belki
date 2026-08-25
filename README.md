@@ -5,7 +5,7 @@
 <h1 align="center">Belki</h1>
 
 <p align="center">
-  <strong>The first open-source AI search intelligence platform.</strong>
+  <strong>Open-source AI search intelligence platform.</strong>
 </p>
 
 <p align="center">
