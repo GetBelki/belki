@@ -1,7 +1,14 @@
-import { nowIso } from "../lib/http";
+import type { TrackingSource } from "../../shared/contracts";
+import {
+  createBrandFirstMentionRanker,
+  rankBrandFirstMentions,
+  type BrandPositionInput,
+} from "../lib/brand-position";
+import { jsonParse, nowIso } from "../lib/http";
 import {
   ANALYTICS_BACKFILL_BATCH_SIZE,
   ANALYTICS_READ_MODEL_SCHEMA_VERSION,
+  BRAND_METRICS_BACKFILL_BATCH_SIZE,
   FAN_OUT_TELEMETRY_BACKFILL_BATCH_SIZE,
 } from "../lib/analytics-read-model";
 import { getShard } from "../lib/shards";
@@ -16,6 +23,7 @@ interface BackfillSnapshotRow {
   project_id: string;
   tracked_query_id: string;
   shard_id: number;
+  tracking_source: TrackingSource;
   metric_date: string;
   captured_at: string;
 }
@@ -29,6 +37,28 @@ interface SnapshotFanOutTelemetryRow {
   fan_out_telemetry_status: "reported" | "unavailable" | "unknown";
   id: string;
   model: string | null;
+}
+
+interface SnapshotBrandAnswerRow {
+  answer_markdown: string | null;
+  id: string;
+}
+
+interface BackfillBrandRow {
+  aliases_json: string;
+  id: string;
+  kind: "owned" | "competitor";
+  name: string;
+}
+
+interface SnapshotBrandContributionRow {
+  brands: ReturnType<typeof rankBrandFirstMentions>;
+  metricDate: string;
+  ownedMentioned: number;
+  ownedPosition: number | null;
+  projectId: string;
+  snapshotId: string;
+  trackingSource: TrackingSource;
 }
 
 export interface AnalyticsBackfillResult {
@@ -45,6 +75,184 @@ export interface FanOutTelemetryBackfillResult {
 
 const FAN_OUT_TELEMETRY_SHARD_CONCURRENCY = 5;
 const STALE_BRAND_METRIC_CLEANUP_BATCH_SIZE = 500;
+const BRAND_METRICS_SHARD_CONCURRENCY = 5;
+const D1_BATCH_STATEMENT_LIMIT = 100;
+
+function chunks<T>(rows: T[], size: number): T[][] {
+  const result: T[][] = [];
+  for (let offset = 0; offset < rows.length; offset += size) {
+    result.push(rows.slice(offset, offset + size));
+  }
+  return result;
+}
+
+async function backfillSnapshotBrandMetrics(
+  env: Env,
+  snapshots: BackfillSnapshotRow[],
+): Promise<void> {
+  if (!snapshots.length) return;
+  const projectId = snapshots[0]!.project_id;
+  const [brandRows, project] = await Promise.all([
+    env.CONTROL_DB.prepare(
+      `SELECT id, kind, name, aliases_json
+       FROM tracked_brands WHERE project_id = ?`,
+    ).bind(projectId).all<BackfillBrandRow>(),
+    env.CONTROL_DB.prepare(
+      "SELECT brand_metrics_revision FROM projects WHERE id = ?",
+    ).bind(projectId).first<{ brand_metrics_revision: number }>(),
+  ]);
+  const revision = Number(project?.brand_metrics_revision ?? 1);
+  const brands: BrandPositionInput[] = brandRows.results.map((brand) => ({
+    id: brand.id,
+    kind: brand.kind,
+    name: brand.name,
+    aliases: jsonParse<string[]>(brand.aliases_json, []),
+  }));
+  const snapshotGroups = new Map<number, BackfillSnapshotRow[]>();
+  for (const snapshot of snapshots) {
+    snapshotGroups.set(snapshot.shard_id, [
+      ...(snapshotGroups.get(snapshot.shard_id) ?? []),
+      snapshot,
+    ]);
+  }
+  const requests = [...snapshotGroups.entries()].flatMap(([shardId, rows]) =>
+    chunks(rows, D1_BATCH_STATEMENT_LIMIT).map((requestRows) => ({
+      requestRows,
+      shardId,
+    }))
+  );
+  const answers = new Map<string, SnapshotBrandAnswerRow>();
+  for (
+    let offset = 0;
+    offset < requests.length;
+    offset += BRAND_METRICS_SHARD_CONCURRENCY
+  ) {
+    const wave = requests.slice(offset, offset + BRAND_METRICS_SHARD_CONCURRENCY);
+    const waveRows = await Promise.all(wave.map(async ({ requestRows, shardId }) => {
+      const placeholders = requestRows.map(() => "?").join(",");
+      return getShard(env, shardId).prepare(
+        `SELECT id, answer_markdown FROM snapshots
+         WHERE id IN (${placeholders})`,
+      ).bind(...requestRows.map((row) => row.id)).all<SnapshotBrandAnswerRow>();
+    }));
+    for (const result of waveRows) {
+      for (const row of result.results) answers.set(row.id, row);
+    }
+  }
+  if (answers.size !== snapshots.length) {
+    throw new Error(
+      `Brand metrics backfill loaded ${answers.size} of ${snapshots.length} snapshots`,
+    );
+  }
+
+  const updatedAt = nowIso();
+  const rankBrands = createBrandFirstMentionRanker(brands);
+  const contributions: SnapshotBrandContributionRow[] = snapshots.map((snapshot) => {
+    const metrics = rankBrands(answers.get(snapshot.id)?.answer_markdown ?? "");
+    const ownedPosition = Math.min(
+      ...metrics
+        .filter((metric) => metric.kind === "owned")
+        .map((metric) => metric.position),
+      Number.POSITIVE_INFINITY,
+    );
+    return {
+      brands: metrics,
+      metricDate: snapshot.metric_date,
+      ownedMentioned: Number(Number.isFinite(ownedPosition)),
+      ownedPosition: Number.isFinite(ownedPosition) ? ownedPosition : null,
+      projectId,
+      snapshotId: snapshot.id,
+      trackingSource: snapshot.tracking_source,
+    };
+  });
+
+  for (const batch of chunks(contributions, D1_BATCH_STATEMENT_LIMIT)) {
+    await env.CONTROL_DB.batch(batch.map((row) => env.CONTROL_DB.prepare(
+      `INSERT INTO analytics_brand_snapshot_metrics (
+        snapshot_id, brand_metrics_revision, project_id, tracking_source,
+        metric_date, brands_json, owned_mentioned, owned_position, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(snapshot_id, brand_metrics_revision) DO UPDATE SET
+        tracking_source = excluded.tracking_source,
+        metric_date = excluded.metric_date,
+        brands_json = excluded.brands_json,
+        owned_mentioned = excluded.owned_mentioned,
+        owned_position = excluded.owned_position,
+        updated_at = excluded.updated_at`,
+    ).bind(
+      row.snapshotId,
+      revision,
+      row.projectId,
+      row.trackingSource,
+      row.metricDate,
+      JSON.stringify(row.brands),
+      row.ownedMentioned,
+      row.ownedPosition,
+      updatedAt,
+    )));
+  }
+
+  const affectedDates = [...new Set(contributions.map((row) => row.metricDate))];
+  const datePlaceholders = affectedDates.map(() => "?").join(",");
+  await env.CONTROL_DB.batch([
+    env.CONTROL_DB.prepare(
+      `DELETE FROM analytics_daily_brand_metrics
+       WHERE project_id = ? AND brand_metrics_revision = ?
+         AND metric_date IN (${datePlaceholders})`,
+    ).bind(projectId, revision, ...affectedDates),
+    env.CONTROL_DB.prepare(
+      `DELETE FROM analytics_daily_owned_brand_metrics
+       WHERE project_id = ? AND brand_metrics_revision = ?
+         AND metric_date IN (${datePlaceholders})`,
+    ).bind(projectId, revision, ...affectedDates),
+    env.CONTROL_DB.prepare(
+      `INSERT INTO analytics_daily_brand_metrics (
+        project_id, tracking_source, metric_date, brand_metrics_revision,
+        tracked_brand_id, mentioned_response_count, position_sum,
+        position_sample_count, updated_at
+      )
+      SELECT contribution.project_id, contribution.tracking_source,
+        contribution.metric_date, contribution.brand_metrics_revision,
+        CAST(json_extract(brand.value, '$.brandId') AS TEXT),
+        COUNT(*),
+        SUM(CAST(json_extract(brand.value, '$.position') AS REAL)),
+        COUNT(*), ?
+      FROM analytics_brand_snapshot_metrics contribution
+      CROSS JOIN json_each(contribution.brands_json) brand
+      JOIN tracked_brands tracked
+        ON tracked.id = CAST(json_extract(brand.value, '$.brandId') AS TEXT)
+       AND tracked.project_id = contribution.project_id
+      WHERE contribution.project_id = ?
+        AND contribution.brand_metrics_revision = ?
+        AND contribution.metric_date IN (${datePlaceholders})
+      GROUP BY contribution.project_id, contribution.tracking_source,
+        contribution.metric_date, contribution.brand_metrics_revision,
+        CAST(json_extract(brand.value, '$.brandId') AS TEXT)`,
+    ).bind(updatedAt, projectId, revision, ...affectedDates),
+    env.CONTROL_DB.prepare(
+      `INSERT INTO analytics_daily_owned_brand_metrics (
+        project_id, tracking_source, metric_date, brand_metrics_revision,
+        mentioned_response_count, position_sum, position_sample_count, updated_at
+      )
+      SELECT project_id, tracking_source, metric_date, brand_metrics_revision,
+        SUM(owned_mentioned), SUM(COALESCE(owned_position, 0)),
+        SUM(CASE WHEN owned_position IS NULL THEN 0 ELSE 1 END), ?
+      FROM analytics_brand_snapshot_metrics
+      WHERE project_id = ? AND brand_metrics_revision = ?
+        AND metric_date IN (${datePlaceholders})
+      GROUP BY project_id, tracking_source, metric_date, brand_metrics_revision
+      HAVING SUM(owned_mentioned) > 0`,
+    ).bind(updatedAt, projectId, revision, ...affectedDates),
+  ]);
+
+  for (const batch of chunks(contributions, D1_BATCH_STATEMENT_LIMIT)) {
+    await env.CONTROL_DB.batch(batch.map((row) => env.CONTROL_DB.prepare(
+      `UPDATE analytics_snapshot_facts
+       SET brand_metrics_revision = ?, updated_at = ?
+       WHERE snapshot_id = ?`,
+    ).bind(revision, updatedAt, row.snapshotId)));
+  }
+}
 
 async function cleanupStaleBrandMetricRevisions(db: D1Database): Promise<void> {
   await db.batch([
@@ -275,6 +483,7 @@ export async function backfillAnalyticsReadModel(
         snapshot.project_id,
         snapshot.tracked_query_id,
         snapshot.shard_id,
+        snapshot.tracking_source,
         substr(snapshot.captured_at, 1, 10) AS metric_date,
         snapshot.captured_at
        FROM snapshot_index snapshot
@@ -283,10 +492,6 @@ export async function backfillAnalyticsReadModel(
          AND (
            fact.snapshot_id IS NULL
            OR fact.related_query_signal_counts_indexed_at IS NULL
-           OR fact.brand_metrics_revision != (
-             SELECT brand_metrics_revision FROM projects
-             WHERE id = snapshot.project_id
-           )
          )
        ORDER BY snapshot.captured_at, snapshot.id
        LIMIT ?`,
@@ -303,7 +508,33 @@ export async function backfillAnalyticsReadModel(
       });
     }
 
-    const lastSnapshot = snapshots.results.at(-1);
+    let processedSnapshots = snapshots.results;
+    if (!processedSnapshots.length) {
+      const brandSnapshots = await env.CONTROL_DB.prepare(
+        `SELECT
+          snapshot.id,
+          snapshot.project_id,
+          snapshot.tracked_query_id,
+          snapshot.shard_id,
+          snapshot.tracking_source,
+          substr(snapshot.captured_at, 1, 10) AS metric_date,
+          snapshot.captured_at
+         FROM snapshot_index snapshot
+         JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
+         JOIN projects project ON project.id = snapshot.project_id
+         WHERE snapshot.project_id = ?
+           AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+           AND fact.brand_metrics_revision != project.brand_metrics_revision
+         ORDER BY snapshot.captured_at, snapshot.id
+         LIMIT ?`,
+      )
+        .bind(project.project_id, BRAND_METRICS_BACKFILL_BATCH_SIZE)
+        .all<BackfillSnapshotRow>();
+      await backfillSnapshotBrandMetrics(env, brandSnapshots.results);
+      processedSnapshots = brandSnapshots.results;
+    }
+
+    const lastSnapshot = processedSnapshots.at(-1);
     const remaining = await env.CONTROL_DB.prepare(
       `SELECT EXISTS(
         SELECT 1
@@ -350,7 +581,7 @@ export async function backfillAnalyticsReadModel(
 
     return {
       projects: 1,
-      snapshots: snapshots.results.length,
+      snapshots: processedSnapshots.length,
       ready: isReady ? 1 : 0,
       failed: 0,
     };

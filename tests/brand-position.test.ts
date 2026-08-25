@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { rankBrandFirstMentions } from "../src/worker/lib/brand-position";
+import {
+  createBrandFirstMentionRanker,
+  rankBrandFirstMentions,
+} from "../src/worker/lib/brand-position";
 
 const brands = [
   { id: "owned", kind: "owned" as const, name: "Acme", aliases: ["Acme Inc"] },
@@ -52,5 +55,17 @@ describe("brand first-mention position", () => {
 
   it("returns no invented positions when no tracked brand appears", () => {
     expect(rankBrandFirstMentions("No tracked company appears.", brands)).toEqual([]);
+  });
+
+  it("reuses compiled matchers across a backfill batch", () => {
+    const rank = createBrandFirstMentionRanker(brands);
+
+    expect(rank("Rival appears before Acme.")).toEqual([
+      { brandId: "rival", kind: "competitor", position: 1 },
+      { brandId: "owned", kind: "owned", position: 2 },
+    ]);
+    expect(rank("Acme appears without another tracked brand.")).toEqual([
+      { brandId: "owned", kind: "owned", position: 1 },
+    ]);
   });
 });

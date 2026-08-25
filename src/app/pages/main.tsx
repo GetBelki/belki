@@ -797,7 +797,7 @@ export function OverviewPage() {
                       : displayedBrandMetric === "averagePosition"
                         ? "Position is conditional on a brand being mentioned; lower is better. "
                         : ""}
-                  Select a brand to show or hide it. Share of Voice and position include all {comparisonSummary.trackedCompetitorCount} tracked {comparisonSummary.trackedCompetitorCount === 1 ? "competitor" : "competitors"}{comparisonSummary.trackedCompetitorCount > 4 ? "; the chart shows the top four." : "."}
+                  Select a brand to show or hide it. {comparisonSummary.trackedCompetitorCount} {comparisonSummary.trackedCompetitorCount === 1 ? "competitor is" : "competitors are"} tracked today; historical Share of Voice and position use the tracked set active on each date{comparisonSummary.trackedCompetitorCount > 4 ? ", and the chart shows the current top four." : "."}
                 </p>
               </>
             ) : null}
