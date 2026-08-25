@@ -108,7 +108,9 @@ for every enabled source. It includes:
   underlying data exists.
 
 The competitor chart displays the owned brand and the four most visible
-competitors. Share of Voice still includes every tracked competitor.
+competitors. Share of Voice includes every competitor tracked for that capture.
+Adding, editing, or removing a tracked brand takes effect for new captures and
+does not invalidate or hide completed historical position metrics.
 
 ### Prompt tracking and prompt library
 
@@ -292,8 +294,8 @@ Managed cloud adds:
 | Metric | Definition |
 |---|---|
 | Visibility | Completed responses mentioning the tracked brand ÷ all completed responses |
-| Share of Voice | Tracked-brand appearances ÷ appearances across the owned brand and every tracked competitor |
-| Average position | Mean first-mention rank among tracked brands that appear in a completed response; lower is better |
+| Share of Voice | Tracked-brand appearances ÷ appearances across the owned brand and every competitor tracked for that capture |
+| Average position | Mean first-mention rank among brands tracked for that capture; lower is better |
 | Visibility gap | Owned-brand visibility minus the visibility of the leading tracked competitor, in percentage points |
 | Citation rate | Completed responses containing at least one citation ÷ all completed responses |
 | Ad appearance rate | Completed responses containing at least one sponsored result ÷ all completed responses |
@@ -628,6 +630,9 @@ pre-submit failures and explicit provider rejections release the reservation.
 The scheduler uses separate standard and live queues, signed provider job tags,
 idempotent postbacks, retryable normalization, and ready-task recovery. Cloudflare
 observability is enabled and scheduled handlers emit structured metrics.
+Brand-only migration work uses a separate bulk path of up to 250 snapshots per
+minute; ordinary tracked-brand changes are forward-effective and do not start a
+historical project-wide rebuild.
 
 ## Security and retention
 

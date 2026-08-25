@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   ANALYTICS_READ_MODEL_SCHEMA_VERSION,
+  BRAND_METRICS_BACKFILL_BATCH_SIZE,
   RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION,
   analyticsBackfillEstimatedMinutes,
   analyticsReadModelSupports,
@@ -46,5 +47,9 @@ describe("analytics read-model compatibility", () => {
     expect(analyticsBackfillEstimatedMinutes(686)).toBe(14);
     expect(analyticsBackfillEstimatedMinutes(0, 3_291)).toBe(9);
     expect(analyticsBackfillEstimatedMinutes(51, 3_291)).toBe(9);
+  });
+
+  it("uses a bulk path for brand-only migration work", () => {
+    expect(BRAND_METRICS_BACKFILL_BATCH_SIZE).toBe(250);
   });
 });

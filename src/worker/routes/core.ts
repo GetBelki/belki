@@ -37,7 +37,7 @@ import {
 import { calculateNextRun } from "../lib/schedule";
 import { manualJobDelivery } from "../lib/job-delivery";
 import { fetchDomainFavicon } from "../lib/favicon";
-import { markBrandMetricsStale } from "../lib/brand-metrics-state";
+import { preserveBrandMetricsHistory } from "../lib/brand-metrics-state";
 import { projectEventStatement } from "../lib/project-events";
 import { configuredPublicAppOrigin } from "../lib/public-origin";
 import { trackingSourceDelta } from "../../shared/project-event-helpers";
@@ -650,7 +650,7 @@ coreRoutes.post(
         now,
       )
       .run();
-    await markBrandMetricsStale(c.env.CONTROL_DB, projectId);
+    await preserveBrandMetricsHistory(c.env.CONTROL_DB, projectId);
     return c.json({ data: { id } }, 201);
   },
 );
@@ -694,7 +694,7 @@ coreRoutes.patch(
         id,
       )
       .run();
-    await markBrandMetricsStale(c.env.CONTROL_DB, current.project_id);
+    await preserveBrandMetricsHistory(c.env.CONTROL_DB, current.project_id);
     return c.json({ data: { id } });
   },
 );
@@ -726,7 +726,7 @@ coreRoutes.delete(
     if (result.meta.changes === 0) {
       throw new ApiError(404, "brand_not_found", "Tracked brand not found.");
     }
-    await markBrandMetricsStale(c.env.CONTROL_DB, brand.project_id);
+    await preserveBrandMetricsHistory(c.env.CONTROL_DB, brand.project_id);
     return c.json({ data: { deleted: true } });
   },
 );

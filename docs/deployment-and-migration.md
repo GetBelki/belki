@@ -204,6 +204,11 @@ Before merging this schema release, run `pnpm db:migrate:remote`, which applies:
   Existing projects continue reading v1 until the bounded v2 backfill completes;
   v1 data is retained so operators can roll a project back by changing its
   active extractor version.
+- `0024_brand_position_metrics.sql`: response-level tracked-brand appearances
+  and first-mention positions plus daily aggregates. Brand-only migration work
+  advances in bulk batches of up to 250 snapshots per minute. Later tracked-
+  brand changes are effective for new captures and preserve completed history;
+  they do not reset the project read model.
 - Snapshot migrations `0005_tracking_sources.sql` and
   `0006_fanout_telemetry.sql` on every snapshot shard: source identity,
   AI-surface presence, model metadata, and the distinction between an explicit

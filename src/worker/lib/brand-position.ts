@@ -19,15 +19,19 @@ interface SurfaceMatch {
   end: number;
 }
 
+interface CompiledBrandPositionInput {
+  brand: BrandPositionInput;
+  expressions: RegExp[];
+}
+
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
 }
 
-function matchesForBrand(
-  text: string,
+function compileBrand(
   brand: BrandPositionInput,
-): SurfaceMatch[] {
-  const terms = [brand.name, ...brand.aliases]
+): CompiledBrandPositionInput {
+  const expressions = [brand.name, ...brand.aliases]
     .map((term) => term.normalize("NFKC").trim())
     .filter(Boolean)
     .filter(
@@ -37,20 +41,30 @@ function matchesForBrand(
             candidate.toLocaleLowerCase("en-US") ===
             term.toLocaleLowerCase("en-US"),
         ) === index,
-    );
+    )
+    .map((term) => {
+      const pattern = escapeRegExp(term).replace(/\s+/gu, "\\s+");
+      return new RegExp(
+        `(^|[^\\p{L}\\p{N}])(${pattern})(?=$|[^\\p{L}\\p{N}])`,
+        "giu",
+      );
+    });
+  return { brand, expressions };
+}
+
+function matchesForBrand(
+  text: string,
+  compiled: CompiledBrandPositionInput,
+): SurfaceMatch[] {
   const matches = new Map<string, SurfaceMatch>();
-  for (const term of terms) {
-    const pattern = escapeRegExp(term).replace(/\s+/gu, "\\s+");
-    const expression = new RegExp(
-      `(^|[^\\p{L}\\p{N}])(${pattern})(?=$|[^\\p{L}\\p{N}])`,
-      "giu",
-    );
-    for (const match of text.matchAll(expression)) {
+  for (const expression of compiled.expressions) {
+    expression.lastIndex = 0;
+    for (let match = expression.exec(text); match; match = expression.exec(text)) {
       const prefixLength = match[1]?.length ?? 0;
       const surface = match[2] ?? "";
       const start = (match.index ?? 0) + prefixLength;
       const end = start + surface.length;
-      matches.set(`${start}:${end}`, { brand, start, end });
+      matches.set(`${start}:${end}`, { brand: compiled.brand, start, end });
     }
   }
   return [...matches.values()];
@@ -65,9 +79,9 @@ function overlaps(left: SurfaceMatch, right: SurfaceMatch): boolean {
  * visible answer text. Longer overlapping names win ("Acme Labs" over
  * "Acme"), while an identical surface assigned to multiple brands is ignored.
  */
-export function rankBrandFirstMentions(
+function rankCompiledBrandFirstMentions(
   answer: string,
-  brands: BrandPositionInput[],
+  brands: CompiledBrandPositionInput[],
 ): RankedBrandMention[] {
   const text = brandMentionText(answer).normalize("NFKC");
   const candidates = brands.flatMap((brand) => matchesForBrand(text, brand));
@@ -113,4 +127,18 @@ export function rankBrandFirstMentions(
       kind: match.brand.kind,
       position: index + 1,
     }));
+}
+
+export function createBrandFirstMentionRanker(
+  brands: BrandPositionInput[],
+): (answer: string) => RankedBrandMention[] {
+  const compiled = brands.map(compileBrand);
+  return (answer) => rankCompiledBrandFirstMentions(answer, compiled);
+}
+
+export function rankBrandFirstMentions(
+  answer: string,
+  brands: BrandPositionInput[],
+): RankedBrandMention[] {
+  return createBrandFirstMentionRanker(brands)(answer);
 }

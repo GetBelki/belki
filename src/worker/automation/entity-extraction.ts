@@ -1,11 +1,15 @@
-import type { EntityExtractionQueueMessage } from "../../shared/contracts";
+import type {
+  EntityExtractionQueueMessage,
+  TrackingSource,
+} from "../../shared/contracts";
 import { sha256 } from "../lib/crypto";
 import { brandMentionText, normalizeBrand } from "../lib/domain";
 import { writeAudit } from "../lib/audit";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
 import { commitUsage, releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 import { getShard } from "../lib/shards";
-import { markBrandMetricsStale } from "../lib/brand-metrics-state";
+import { preserveBrandMetricsHistory } from "../lib/brand-metrics-state";
+import { syncSnapshotBrandMetrics } from "../ingestion/brand-metrics";
 import {
   ENTITY_EXTRACTION_MODEL,
   ENTITY_EXTRACTOR_VERSION,
@@ -46,6 +50,7 @@ interface EntityJobRow {
   language_code: string;
   primary_domain: string | null;
   captured_at: string;
+  tracking_source: TrackingSource;
   active_entity_extractor_version: string;
   entity_extraction_enabled: number;
   entity_auto_track_enabled: number;
@@ -593,7 +598,7 @@ async function autoTrackEligibleCompetitors(
     });
   }
   if (tracked > 0) {
-    await markBrandMetricsStale(env.CONTROL_DB, job.project_id);
+    await preserveBrandMetricsHistory(env.CONTROL_DB, job.project_id);
   }
   return tracked;
 }
@@ -601,7 +606,8 @@ async function autoTrackEligibleCompetitors(
 export async function processEntityExtraction(env: Env, jobId: string): Promise<void> {
   const job = await env.CONTROL_DB.prepare(
     `SELECT job.*, query.query_text, query.language_code, project.primary_domain,
-      snapshot.captured_at, project.active_entity_extractor_version,
+      snapshot.captured_at, snapshot.tracking_source,
+      project.active_entity_extractor_version,
       project.entity_extraction_enabled, project.entity_auto_track_enabled
      FROM entity_extraction_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
@@ -700,6 +706,34 @@ export async function processEntityExtraction(env: Env, jobId: string): Promise<
     estimated_cost_usd: number;
   }>();
   const autoTracked = await autoTrackEligibleCompetitors(env, job);
+  // A live extraction is still part of the capture pipeline, so include newly
+  // auto-tracked competitors in that capture. Historical extraction backfills
+  // must not rewrite an isolated old date with today's tracking configuration.
+  if (autoTracked > 0 && job.run_type === "live") {
+    const [currentBrands, project] = await Promise.all([
+      env.CONTROL_DB.prepare(
+        `SELECT id, kind, name, aliases_json, domains_json
+         FROM tracked_brands WHERE project_id = ?`,
+      ).bind(job.project_id).all<TrackedBrandRow>(),
+      env.CONTROL_DB.prepare(
+        "SELECT brand_metrics_revision FROM projects WHERE id = ?",
+      ).bind(job.project_id).first<{ brand_metrics_revision: number }>(),
+    ]);
+    await syncSnapshotBrandMetrics(env.CONTROL_DB, {
+      snapshotId: job.snapshot_id,
+      projectId: job.project_id,
+      trackingSource: job.tracking_source,
+      metricDate: job.captured_at.slice(0, 10),
+      answer,
+      revision: Number(project?.brand_metrics_revision ?? 1),
+      brands: currentBrands.results.map((brand) => ({
+        id: brand.id,
+        kind: brand.kind,
+        name: brand.name,
+        aliases: jsonParse<string[]>(brand.aliases_json, []),
+      })),
+    });
+  }
   await env.CONTROL_DB.batch([
     env.CONTROL_DB.prepare(
       `UPDATE entity_extraction_jobs SET status = 'completed', input_tokens = ?,

@@ -85,7 +85,12 @@ export async function syncSnapshotBrandMetrics(
      FROM analytics_brand_snapshot_metrics
      WHERE snapshot_id = ? AND brand_metrics_revision = ?`,
   ).bind(input.snapshotId, input.revision).first<StoredContribution>();
-  const previousMetrics = storedMetrics(previous?.brands_json ?? "[]");
+  const currentBrandIds = new Set(input.brands.map((brand) => brand.id));
+  // Deleted brands already cascade out of the daily aggregate table. Ignore
+  // their embedded snapshot contribution so a later idempotent refresh does
+  // not try to write a negative delta for a missing foreign key.
+  const previousMetrics = storedMetrics(previous?.brands_json ?? "[]")
+    .filter((metric) => currentBrandIds.has(metric.brandId));
   const nextMetrics = rankBrandFirstMentions(input.answer, input.brands);
   const deltas = metricDeltas(previousMetrics, nextMetrics);
   const previousOwnedPosition = previous?.owned_position ?? null;
