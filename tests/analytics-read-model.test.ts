@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   ANALYTICS_READ_MODEL_SCHEMA_VERSION,
   BRAND_METRICS_BACKFILL_BATCH_SIZE,
+  RELATED_QUERY_SIGNAL_COUNTS_VERSION,
   RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION,
   analyticsBackfillEstimatedMinutes,
   analyticsReadModelSupports,
@@ -22,8 +23,9 @@ describe("analytics read-model compatibility", () => {
     ).toBe(true);
   });
 
-  it("uses version 9 for aggregated brand position availability", () => {
-    expect(ANALYTICS_READ_MODEL_SCHEMA_VERSION).toBe(9);
+  it("uses version 10 for education-domain fan-out availability", () => {
+    expect(ANALYTICS_READ_MODEL_SCHEMA_VERSION).toBe(10);
+    expect(RELATED_QUERY_SIGNAL_COUNTS_VERSION).toBe(2);
   });
 
   it("requires the requested schema capability and a completed backfill", () => {
@@ -35,7 +37,7 @@ describe("analytics read-model compatibility", () => {
   });
 
   it("accepts later compatible schema versions", () => {
-    expect(analyticsReadModelSupports({ status: "ready", schema_version: 9 }))
+    expect(analyticsReadModelSupports({ status: "ready", schema_version: 10 }))
       .toBe(true);
   });
 

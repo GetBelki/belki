@@ -120,6 +120,7 @@ describe("fan-out operator filters", () => {
           site: [],
           official: [],
           government: [],
+          education: [],
           pricing: [],
           reviews: [],
           best: [],

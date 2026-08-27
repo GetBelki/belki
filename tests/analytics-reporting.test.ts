@@ -79,13 +79,16 @@ describe("related query reporting", () => {
       .toMatchObject({ reviewPresent: false, sitePresent: false });
   });
 
-  it("classifies official and government-domain fan-out queries", () => {
+  it("classifies official, government-domain, and education-domain fan-out queries", () => {
     expect(classifyRelatedQueries([
       "Canon USA warranty return policy official",
       "Canon sostenibilidad informe oficial",
       "site:bcb.gov.br pagamentos internacionais",
       "site:hacienda.gob.mx impuestos",
+      "site:mit.edu admissions",
+      "site:monash.edu.au scholarships",
     ])).toMatchObject({
+      signalCounts: { education: 2 },
       governmentPresent: true,
       officialPresent: true,
     });
@@ -93,7 +96,10 @@ describe("related query reporting", () => {
       "unofficial Canon community",
       "government camera procurement",
       "gobstopper reviews",
+      "education camera programs",
+      "site:example.education photography",
     ])).toMatchObject({
+      signalCounts: { education: 0 },
       governmentPresent: false,
       officialPresent: false,
     });
@@ -122,6 +128,7 @@ describe("related query reporting", () => {
       site: 2,
       official: 1,
       government: 1,
+      education: 0,
       pricing: 2,
       reviews: 2,
       best: 1,

@@ -146,4 +146,20 @@ describe("control database migrations", () => {
     expect(sql).not.toMatch(/DROP TABLE/i);
     expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
   });
+
+  it("schedules a version 10 fan-out reclassification for education domains", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0027_education_fanout_signal.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/ADD COLUMN related_query_signal_counts_version/i);
+    expect(sql).toMatch(/related_query_signal_counts_version\s+>=\s+1/i);
+    expect(sql).toMatch(/schema_version\s*=\s*10/i);
+    expect(sql).not.toMatch(
+      /SET related_query_signal_counts_indexed_at\s*=\s*NULL/i,
+    );
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
 });

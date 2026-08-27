@@ -4,7 +4,10 @@ import { z } from "zod";
 import { TrackingSourceSchema } from "../../shared/contracts";
 import type { AppEnv } from "../lib/app";
 import { assertOperator } from "../lib/auth";
-import { analyticsBackfillEstimatedMinutes } from "../lib/analytics-read-model";
+import {
+  RELATED_QUERY_SIGNAL_COUNTS_VERSION,
+  analyticsBackfillEstimatedMinutes,
+} from "../lib/analytics-read-model";
 import {
   RELATED_QUERY_SIGNAL_KEYS,
   buildFanOutActivityTrend,
@@ -234,9 +237,11 @@ operatorInsightRoutes.get(
         `SELECT
           SUM(CASE WHEN fact.snapshot_id IS NULL
             OR fact.related_query_signal_counts_indexed_at IS NULL
+            OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
             THEN 1 ELSE 0 END) AS full_remaining,
           SUM(CASE WHEN fact.snapshot_id IS NOT NULL
             AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+            AND fact.related_query_signal_counts_version >= ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
             AND fact.fan_out_telemetry_indexed_at IS NULL
             THEN 1 ELSE 0 END) AS telemetry_remaining
          FROM snapshot_index snapshot
@@ -253,6 +258,7 @@ operatorInsightRoutes.get(
            AND (
              fact.snapshot_id IS NULL
              OR fact.related_query_signal_counts_indexed_at IS NULL
+             OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
              OR fact.fan_out_telemetry_indexed_at IS NULL
            )`,
       )
@@ -266,9 +272,11 @@ operatorInsightRoutes.get(
         `SELECT
           SUM(CASE WHEN fact.snapshot_id IS NULL
             OR fact.related_query_signal_counts_indexed_at IS NULL
+            OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
             THEN 1 ELSE 0 END) AS full_remaining,
           SUM(CASE WHEN fact.snapshot_id IS NOT NULL
             AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+            AND fact.related_query_signal_counts_version >= ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
             AND fact.fan_out_telemetry_indexed_at IS NULL
             THEN 1 ELSE 0 END) AS telemetry_remaining
          FROM snapshot_index snapshot
@@ -280,6 +288,7 @@ operatorInsightRoutes.get(
          WHERE snapshot.tracking_source IN ('chatgpt', 'gemini')
            AND (fact.snapshot_id IS NULL
            OR fact.related_query_signal_counts_indexed_at IS NULL
+           OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
            OR fact.fan_out_telemetry_indexed_at IS NULL)`,
       ).first<{ full_remaining: number; telemetry_remaining: number }>(),
     ]);
@@ -344,6 +353,7 @@ operatorInsightRoutes.get(
              OR fact.provider_model = ?
            )
            AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+           AND fact.related_query_signal_counts_version >= ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
            AND fact.fan_out_telemetry_indexed_at IS NOT NULL
          GROUP BY fact.metric_date
          ORDER BY fact.metric_date`,
@@ -379,6 +389,7 @@ operatorInsightRoutes.get(
              OR fact.provider_model = ?
            )
            AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+           AND fact.related_query_signal_counts_version >= ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
            AND fact.fan_out_telemetry_indexed_at IS NOT NULL
            AND fact.fan_out_telemetry_status = 'reported'
            AND CAST(year.key AS INTEGER) BETWEEN 2025 AND ?

@@ -209,6 +209,8 @@ Before merging this schema release, run `pnpm db:migrate:remote`, which applies:
   advances in bulk batches of up to 250 snapshots per minute. Later tracked-
   brand changes are effective for new captures and preserve completed history;
   they do not reset the project read model.
+- `0027_education_fanout_signal.sql`: schema-v10 reclassification of retained
+  fan-out queries so `.edu` domains appear in operator signal trends.
 - Snapshot migrations `0005_tracking_sources.sql` and
   `0006_fanout_telemetry.sql` on every snapshot shard: source identity,
   AI-surface presence, model metadata, and the distinction between an explicit

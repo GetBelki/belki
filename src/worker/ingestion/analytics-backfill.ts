@@ -10,6 +10,7 @@ import {
   ANALYTICS_READ_MODEL_SCHEMA_VERSION,
   BRAND_METRICS_BACKFILL_BATCH_SIZE,
   FAN_OUT_TELEMETRY_BACKFILL_BATCH_SIZE,
+  RELATED_QUERY_SIGNAL_COUNTS_VERSION,
 } from "../lib/analytics-read-model";
 import { getShard } from "../lib/shards";
 import { syncAnalyticsReadModel } from "./analytics-read-model";
@@ -298,6 +299,7 @@ export async function backfillFanOutTelemetryReadModel(
      JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
      WHERE snapshot.tracking_source IN ('chatgpt', 'gemini')
        AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+       AND fact.related_query_signal_counts_version >= ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
        AND fact.fan_out_telemetry_indexed_at IS NULL
      ORDER BY snapshot.captured_at, snapshot.id
      LIMIT ?`,
@@ -375,6 +377,7 @@ export async function backfillFanOutTelemetryReadModel(
            AND (
              fact.snapshot_id IS NULL
              OR fact.related_query_signal_counts_indexed_at IS NULL
+             OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
              OR fact.brand_metrics_revision != (
                SELECT brand_metrics_revision FROM projects
                WHERE id = snapshot.project_id
@@ -437,6 +440,7 @@ export async function backfillAnalyticsReadModel(
            AND (
              fact.snapshot_id IS NULL
              OR fact.related_query_signal_counts_indexed_at IS NULL
+             OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
              OR fact.brand_metrics_revision != (
                SELECT brand_metrics_revision FROM projects
                WHERE id = snapshot.project_id
@@ -492,6 +496,7 @@ export async function backfillAnalyticsReadModel(
          AND (
            fact.snapshot_id IS NULL
            OR fact.related_query_signal_counts_indexed_at IS NULL
+           OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
          )
        ORDER BY snapshot.captured_at, snapshot.id
        LIMIT ?`,
@@ -524,6 +529,7 @@ export async function backfillAnalyticsReadModel(
          JOIN projects project ON project.id = snapshot.project_id
          WHERE snapshot.project_id = ?
            AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+           AND fact.related_query_signal_counts_version >= ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
            AND fact.brand_metrics_revision != project.brand_metrics_revision
          ORDER BY snapshot.captured_at, snapshot.id
          LIMIT ?`,
@@ -544,6 +550,7 @@ export async function backfillAnalyticsReadModel(
           AND (
             fact.snapshot_id IS NULL
             OR fact.related_query_signal_counts_indexed_at IS NULL
+            OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
             OR fact.brand_metrics_revision != (
               SELECT brand_metrics_revision FROM projects
               WHERE id = snapshot.project_id

@@ -1,5 +1,6 @@
-// Version 9 materializes verified brand appearances and first-mention position.
-export const ANALYTICS_READ_MODEL_SCHEMA_VERSION = 9;
+// Version 10 reclassifies fan-out signals to include education domains.
+export const ANALYTICS_READ_MODEL_SCHEMA_VERSION = 10;
+export const RELATED_QUERY_SIGNAL_COUNTS_VERSION = 2;
 export const ANALYTICS_BACKFILL_BATCH_SIZE = 50;
 export const BRAND_METRICS_BACKFILL_BATCH_SIZE = 250;
 export const FAN_OUT_TELEMETRY_BACKFILL_BATCH_SIZE = 400;

@@ -47,6 +47,7 @@ type FanOutSignalKey =
   | "site"
   | "official"
   | "government"
+  | "education"
   | "pricing"
   | "reviews"
   | "best"
@@ -164,6 +165,7 @@ const FAN_OUT_SIGNAL_GROUPS: Record<
     { key: "site", label: "Site operator" },
     { key: "official", label: "Official" },
     { key: "government", label: "Government domains" },
+    { key: "education", label: "Education domains (.edu)" },
   ],
   "commercial-research": [
     { key: "pricing", label: "Pricing" },
@@ -1232,6 +1234,7 @@ export function OperatorFanOutTrendsPage() {
               site: [],
               official: [],
               government: [],
+              education: [],
               pricing: [],
               reviews: [],
               best: [],

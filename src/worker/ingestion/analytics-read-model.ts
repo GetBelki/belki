@@ -9,7 +9,10 @@ import { getShard } from "../lib/shards";
 import { jsonParse, nowIso } from "../lib/http";
 import { matchedBrandTerms, normalizeBrand, normalizeHostname } from "../lib/domain";
 import { normalizeAdItem } from "../lib/ads";
-import { ANALYTICS_READ_MODEL_SCHEMA_VERSION } from "../lib/analytics-read-model";
+import {
+  ANALYTICS_READ_MODEL_SCHEMA_VERSION,
+  RELATED_QUERY_SIGNAL_COUNTS_VERSION,
+} from "../lib/analytics-read-model";
 import { registerAdAssetSources } from "../automation/ad-assets";
 import { syncSnapshotBrandMetrics } from "./brand-metrics";
 import type { TrackingSource } from "../../shared/contracts";
@@ -316,10 +319,11 @@ export async function syncAnalyticsReadModel(
         related_query_years_json, related_query_insights_indexed_at,
         related_query_signal_counts_json,
         related_query_signal_counts_indexed_at,
+        related_query_signal_counts_version,
         provider_model, fan_out_telemetry_status,
         fan_out_telemetry_indexed_at,
         provider_cost_usd, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
       ON CONFLICT(snapshot_id) DO UPDATE SET
         tracking_source = excluded.tracking_source,
         surface_present = excluded.surface_present,
@@ -341,6 +345,7 @@ export async function syncAnalyticsReadModel(
         related_query_insights_indexed_at = excluded.related_query_insights_indexed_at,
         related_query_signal_counts_json = excluded.related_query_signal_counts_json,
         related_query_signal_counts_indexed_at = excluded.related_query_signal_counts_indexed_at,
+        related_query_signal_counts_version = excluded.related_query_signal_counts_version,
         provider_model = excluded.provider_model,
         fan_out_telemetry_status = excluded.fan_out_telemetry_status,
         fan_out_telemetry_indexed_at = excluded.fan_out_telemetry_indexed_at,
@@ -373,6 +378,7 @@ export async function syncAnalyticsReadModel(
       updatedAt,
       JSON.stringify(relatedQueryClassification.signalCounts),
       updatedAt,
+      RELATED_QUERY_SIGNAL_COUNTS_VERSION,
       snapshot.model,
       snapshot.fan_out_telemetry_status,
       updatedAt,

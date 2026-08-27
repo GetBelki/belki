@@ -37,6 +37,7 @@ export const RELATED_QUERY_SIGNAL_KEYS = [
   "site",
   "official",
   "government",
+  "education",
   "pricing",
   "reviews",
   "best",
@@ -200,6 +201,7 @@ function emptyRelatedQuerySignalCounts(): RelatedQuerySignalCounts {
     site: 0,
     official: 0,
     government: 0,
+    education: 0,
     pricing: 0,
     reviews: 0,
     best: 0,
@@ -228,6 +230,9 @@ export function classifyRelatedQueries(
     }
     if (/\.(?:gov|gob)(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
       signalCounts.government += 1;
+    }
+    if (/\.edu(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
+      signalCounts.education += 1;
     }
     if (/(?:^|[^\p{L}\p{N}_])pricing(?=$|[^\p{L}\p{N}_])/iu.test(normalized)) {
       signalCounts.pricing += 1;
