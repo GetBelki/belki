@@ -6,6 +6,8 @@ import { useSearchParams } from "react-router-dom";
 import {
   Area,
   AreaChart,
+  Bar,
+  BarChart,
   CartesianGrid,
   Legend,
   Line,
@@ -511,6 +513,138 @@ function ActivityTooltip({
             : `${point.totalFanOuts.toLocaleString()} fan-outs across ${point.reportedResponses.toLocaleString()} reported responses`}
       </small>
     </div>
+  );
+}
+
+function FanOutResponseStatusTooltip({
+  active,
+  label,
+  payload,
+}: TooltipContentProps) {
+  const point: unknown = payload[0]?.payload;
+  if (!active || !isFanOutActivityPoint(point)) return null;
+  const responsesWithoutFanOut = Math.max(
+    0,
+    point.reportedResponses - point.responsesWithFanOut,
+  );
+  return (
+    <div className="operator-chart-tooltip operator-response-status-tooltip">
+      <strong>{tooltipDateLabel(label)}</strong>
+      <div className="operator-response-status-tooltip-row">
+        <i style={{ background: "#18181b" }} />
+        <span>With fan-out</span>
+        <b>{point.responsesWithFanOut.toLocaleString()}</b>
+      </div>
+      <div className="operator-response-status-tooltip-row">
+        <i style={{ background: "#a1a1aa" }} />
+        <span>Reported none</span>
+        <b>{responsesWithoutFanOut.toLocaleString()}</b>
+      </div>
+      <div className="operator-response-status-tooltip-row">
+        <i style={{ background: "#f59e0b" }} />
+        <span>Telemetry unavailable</span>
+        <b>{point.unavailableResponses.toLocaleString()}</b>
+      </div>
+      <small>{point.completedResponses.toLocaleString()} completed responses</small>
+    </div>
+  );
+}
+
+export function FanOutResponseStatusChart({
+  data,
+  pending,
+}: {
+  data: FanOutActivityPoint[];
+  pending: boolean;
+}) {
+  const chartData = data.map((point) => ({
+    ...point,
+    responsesWithoutFanOut: Math.max(
+      0,
+      point.reportedResponses - point.responsesWithFanOut,
+    ),
+  }));
+  const hasResponses = data.some((point) => point.completedResponses > 0);
+  const yAxisMax = insightNumericYAxisMax(
+    data.map((point) => point.completedResponses),
+  );
+  return (
+    <Card className="operator-insight-card">
+      <CardHeader
+        title="Fan-out response status"
+        description="Daily completed responses split by fan-out result. Unavailable means the provider did not return fan-out telemetry."
+      />
+      <div className="operator-insight-chart">
+        {pending ? (
+          <Skeleton className="operator-insight-chart-skeleton" />
+        ) : !hasResponses ? (
+          <EmptyState
+            title="No fan-out activity"
+            description="Completed responses will appear here for the selected period."
+          />
+        ) : (
+          <ResponsiveContainer height="100%" minWidth={0} width="100%">
+            <BarChart accessibilityLayer data={chartData} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+              <CartesianGrid stroke="#ececf0" vertical={false} />
+              <XAxis
+                axisLine={false}
+                dataKey="date"
+                interval="preserveStartEnd"
+                minTickGap={38}
+                tick={{ fill: "#71717a", fontSize: 10 }}
+                tickFormatter={dateLabel}
+                tickLine={false}
+              />
+              <YAxis
+                axisLine={false}
+                domain={[0, yAxisMax]}
+                tick={{ fill: "#71717a", fontSize: 10 }}
+                tickFormatter={(value) => Number(value).toLocaleString()}
+                tickLine={false}
+                ticks={insightYAxisTicks(yAxisMax)}
+                width={42}
+              />
+              <Tooltip
+                content={FanOutResponseStatusTooltip}
+                cursor={{ fill: "rgba(161, 161, 170, 0.12)" }}
+                isAnimationActive={false}
+              />
+              <Bar
+                dataKey="responsesWithFanOut"
+                fill="#18181b"
+                isAnimationActive={false}
+                maxBarSize={28}
+                name="With fan-out"
+                stackId="responses"
+              />
+              <Bar
+                dataKey="responsesWithoutFanOut"
+                fill="#a1a1aa"
+                isAnimationActive={false}
+                maxBarSize={28}
+                name="Reported none"
+                stackId="responses"
+              />
+              <Bar
+                dataKey="unavailableResponses"
+                fill="#f59e0b"
+                isAnimationActive={false}
+                maxBarSize={28}
+                name="Telemetry unavailable"
+                stackId="responses"
+              />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+      {!pending && hasResponses ? (
+        <div aria-label="Response status" className="operator-response-status-legend" role="group">
+          <span><i style={{ background: "#18181b" }} />With fan-out</span>
+          <span><i style={{ background: "#a1a1aa" }} />Reported none</span>
+          <span><i style={{ background: "#f59e0b" }} />Telemetry unavailable</span>
+        </div>
+      ) : null}
+    </Card>
   );
 }
 
@@ -1234,12 +1368,9 @@ export function OperatorFanOutTrendsPage() {
             </div>
           ) : null}
           <div className="operator-insight-grid operator-fanout-activity-grid">
-            <FanOutActivityChart
+            <FanOutResponseStatusChart
               data={data?.activity ?? []}
-              description="Share of responses with reported telemetry containing at least one fan-out query."
-              metric="responseShare"
               pending={report.isPending}
-              title="Responses with fan-out"
             />
             <FanOutActivityChart
               data={data?.activity ?? []}

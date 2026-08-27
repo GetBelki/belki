@@ -7929,6 +7929,28 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 .operator-chart-tooltip strong { color: #18181b; font-size: 12px; }
 .operator-chart-tooltip span { color: #18181b; font-size: 16px; font-weight: 700; }
 .operator-chart-tooltip small { color: #71717a; font-size: 11px; }
+.operator-response-status-tooltip { gap: 8px; min-width: 210px; }
+.operator-response-status-tooltip-row {
+  align-items: center;
+  display: grid;
+  gap: 7px;
+  grid-template-columns: 8px 1fr auto;
+}
+.operator-response-status-tooltip-row i { border-radius: 999px; height: 8px; width: 8px; }
+.operator-response-status-tooltip-row span { color: #3f3f46; font-size: 11px; font-weight: 400; }
+.operator-response-status-tooltip-row b { color: #18181b; font-size: 12px; text-align: right; }
+.operator-response-status-legend {
+  align-items: center;
+  color: #52525b;
+  display: flex;
+  flex-wrap: wrap;
+  font-size: 11px;
+  gap: 8px 14px;
+  justify-content: center;
+  padding: 0 18px 16px;
+}
+.operator-response-status-legend span { align-items: center; display: flex; gap: 6px; }
+.operator-response-status-legend i { border-radius: 999px; height: 8px; width: 8px; }
 .operator-signal-card > .card-header { align-items: end; }
 .operator-signal-group-control { display: grid; flex: 0 0 190px; gap: 7px; min-width: 0; }
 .operator-signal-group-control .select-trigger { min-height: 40px; min-width: 190px; }

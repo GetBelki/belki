@@ -9,6 +9,7 @@ import {
 } from "../src/app/lib/operator-fanout";
 import {
   CitationDomainCombobox,
+  FanOutResponseStatusChart,
   FanOutSignalExplorer,
   OperatorFanOutTrendsPage,
 } from "../src/app/pages/operator-insights";
@@ -92,6 +93,31 @@ describe("operator insight chart scale", () => {
 });
 
 describe("fan-out operator filters", () => {
+  it("shows response outcomes against all completed responses", () => {
+    render(
+      <FanOutResponseStatusChart
+        data={[{
+          date: "2026-08-27",
+          completedResponses: 207,
+          reportedResponses: 5,
+          unavailableResponses: 202,
+          responsesWithFanOut: 5,
+          totalFanOuts: 10,
+          responseShare: 100,
+          fanOutsPerResponse: 2,
+          telemetryCoverage: 5 / 207 * 100,
+        }]}
+        pending={false}
+      />,
+    );
+
+    expect(screen.getByText("Fan-out response status")).toBeInTheDocument();
+    expect(screen.getByText("With fan-out")).toBeInTheDocument();
+    expect(screen.getByText("Reported none")).toBeInTheDocument();
+    expect(screen.getByText("Telemetry unavailable")).toBeInTheDocument();
+    expect(screen.queryByText("Responses with fan-out")).not.toBeInTheDocument();
+  });
+
   it("toggles individual fan-out chart series from the legend", () => {
     render(
       <FanOutSignalExplorer
