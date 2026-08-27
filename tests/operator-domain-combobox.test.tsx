@@ -9,6 +9,7 @@ import {
 } from "../src/app/lib/operator-fanout";
 import {
   CitationDomainCombobox,
+  FanOutSignalExplorer,
   OperatorFanOutTrendsPage,
 } from "../src/app/pages/operator-insights";
 
@@ -91,6 +92,50 @@ describe("operator insight chart scale", () => {
 });
 
 describe("fan-out operator filters", () => {
+  it("toggles individual fan-out chart series from the legend", () => {
+    render(
+      <FanOutSignalExplorer
+        activity={[{
+          date: "2026-08-27",
+          completedResponses: 10,
+          reportedResponses: 10,
+          unavailableResponses: 0,
+          responsesWithFanOut: 8,
+          totalFanOuts: 20,
+          responseShare: 80,
+          fanOutsPerResponse: 2,
+          telemetryCoverage: 100,
+        }]}
+        group="direct-source"
+        metric="shareOfFanOuts"
+        onGroupChange={() => undefined}
+        pending={false}
+        signals={{
+          site: [],
+          official: [],
+          government: [],
+          education: [],
+          pricing: [],
+          reviews: [],
+          best: [],
+          top: [],
+          comparison: [],
+          vs: [],
+        }}
+        yearSignals={[]}
+      />,
+    );
+
+    const official = screen.getByRole("button", { name: "Hide Official" });
+    expect(official).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(official);
+    expect(screen.getByRole("button", { name: "Show Official" }))
+      .toHaveAttribute("aria-pressed", "false");
+    fireEvent.click(screen.getByRole("button", { name: "Show Official" }));
+    expect(screen.getByRole("button", { name: "Hide Official" }))
+      .toHaveAttribute("aria-pressed", "true");
+  });
+
   it("defaults invalid values and accepts every supported metric and group", () => {
     expect(fanOutMetricValue(null)).toBe("shareOfFanOuts");
     expect(fanOutMetricValue("fanOutsPerResponse")).toBe("fanOutsPerResponse");

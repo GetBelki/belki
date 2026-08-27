@@ -18,6 +18,7 @@ import {
 } from "recharts";
 import { PageHeader } from "../components/layout";
 import { OperatorDataFailure } from "../components/operator-access";
+import { TrendChartLegend } from "../components/trend-chart";
 import {
   Card,
   CardHeader,
@@ -667,7 +668,9 @@ export function FanOutSignalExplorer({
   signals: FanOutTrendReport["signals"];
   yearSignals: FanOutTrendReport["yearSignals"];
 }) {
-  const series = group === "years"
+  const [hiddenSeries, setHiddenSeries] = useState<Set<string>>(() => new Set());
+  const [highlightedSeries, setHighlightedSeries] = useState<string | null>(null);
+  const series = (group === "years"
     ? yearSignals.map(({ year, trend }) => ({
         id: `year-${year}`,
         label: String(year),
@@ -677,7 +680,11 @@ export function FanOutSignalExplorer({
         id: key,
         label,
         trend: signals[key] ?? [],
+      }))).map((item, index) => ({
+        ...item,
+        color: YEAR_COLORS[index % YEAR_COLORS.length]!,
       }));
+  const visibleSeries = series.filter(({ id }) => !hiddenSeries.has(id));
   const dates = activity.map((point) => point.date);
   const chartData = dates.map((date, index) => {
     const point: Record<string, unknown> = { date };
@@ -687,7 +694,9 @@ export function FanOutSignalExplorer({
     }
     return point;
   });
-  const values = series.flatMap(({ trend }) => trend.map((point) => point[metric]));
+  const values = visibleSeries.flatMap(({ trend }) =>
+    trend.map((point) => point[metric])
+  );
   const metricCopy = FAN_OUT_METRIC_COPY[metric];
   const yAxisMax = metricCopy.percentage
     ? insightYAxisMax(values)
@@ -752,8 +761,7 @@ export function FanOutSignalExplorer({
                 cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }}
                 isAnimationActive={false}
               />
-              <Legend iconSize={10} iconType="line" />
-              {series.map(({ id, label }, index) => (
+              {visibleSeries.map(({ color, id, label }) => (
                 <Line
                   dataKey={id}
                   activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }}
@@ -761,7 +769,10 @@ export function FanOutSignalExplorer({
                   isAnimationActive={false}
                   key={id}
                   name={label}
-                  stroke={YEAR_COLORS[index % YEAR_COLORS.length]}
+                  opacity={highlightedSeries !== null && highlightedSeries !== id
+                    ? 0.16
+                    : 1}
+                  stroke={color}
                   strokeLinecap="round"
                   strokeLinejoin="round"
                   strokeWidth={2.25}
@@ -772,8 +783,29 @@ export function FanOutSignalExplorer({
           </ResponsiveContainer>
         )}
       </div>
+      {!pending && hasResponses && series.length ? (
+        <TrendChartLegend
+          hiddenKeys={hiddenSeries}
+          highlightedKey={highlightedSeries}
+          items={series.map(({ color, id, label }) => ({
+            color,
+            key: id,
+            label,
+          }))}
+          onHighlightedKeyChange={setHighlightedSeries}
+          onToggle={(id) => {
+            setHiddenSeries((current) => {
+              const next = new Set(current);
+              if (next.has(id)) next.delete(id);
+              else next.add(id);
+              return next;
+            });
+          }}
+        />
+      ) : null}
       <p className="operator-signal-note">
-        Signals can overlap when one fan-out query matches more than one category.
+        Select legend items to show or hide them. Signals can overlap when one
+        fan-out query matches more than one category.
       </p>
     </Card>
   );
