@@ -38,6 +38,7 @@ import { exportBatch } from "./automation/exports";
 import { notificationBatch } from "./automation/notifications";
 import {
   backfillAnalyticsReadModel,
+  backfillFanOutSignalCounts,
   backfillFanOutTelemetryReadModel,
 } from "./ingestion/analytics-backfill";
 import { backfillProjectEvents } from "./ingestion/project-event-backfill";
@@ -299,6 +300,8 @@ async function scheduled(
     metrics.reconciledPromptPurges = await reconcilePromptPurges(env);
     metrics.reconciledEntityExtractions = await reconcileEntityExtractionJobs(env);
     metrics.reconciledAdAssets = await reconcileAdAssets(env);
+    const signalBackfill = await backfillFanOutSignalCounts(env);
+    metrics.fanOutSignalBackfillSnapshots = signalBackfill.snapshots;
     const telemetryBackfill = await backfillFanOutTelemetryReadModel(env);
     metrics.fanOutTelemetryBackfillSnapshots = telemetryBackfill.snapshots;
     metrics.fanOutTelemetryBackfillShards = telemetryBackfill.shards;

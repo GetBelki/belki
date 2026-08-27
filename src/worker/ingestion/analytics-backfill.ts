@@ -4,11 +4,13 @@ import {
   rankBrandFirstMentions,
   type BrandPositionInput,
 } from "../lib/brand-position";
+import { classifyRelatedQueries } from "../lib/reporting";
 import { jsonParse, nowIso } from "../lib/http";
 import {
   ANALYTICS_BACKFILL_BATCH_SIZE,
   ANALYTICS_READ_MODEL_SCHEMA_VERSION,
   BRAND_METRICS_BACKFILL_BATCH_SIZE,
+  FAN_OUT_SIGNAL_BACKFILL_BATCH_SIZE,
   FAN_OUT_TELEMETRY_BACKFILL_BATCH_SIZE,
   RELATED_QUERY_SIGNAL_COUNTS_VERSION,
 } from "../lib/analytics-read-model";
@@ -32,6 +34,15 @@ interface BackfillSnapshotRow {
 interface FanOutTelemetryBackfillRow {
   id: string;
   shard_id: number;
+}
+
+interface FanOutSignalBackfillRow {
+  snapshot_id: string;
+}
+
+interface FanOutSignalQueryRow {
+  query_text: string;
+  snapshot_id: string;
 }
 
 interface SnapshotFanOutTelemetryRow {
@@ -74,6 +85,10 @@ export interface FanOutTelemetryBackfillResult {
   shards: number;
 }
 
+export interface FanOutSignalBackfillResult {
+  snapshots: number;
+}
+
 const FAN_OUT_TELEMETRY_SHARD_CONCURRENCY = 5;
 const STALE_BRAND_METRIC_CLEANUP_BATCH_SIZE = 500;
 const BRAND_METRICS_SHARD_CONCURRENCY = 5;
@@ -85,6 +100,72 @@ function chunks<T>(rows: T[], size: number): T[][] {
     result.push(rows.slice(offset, offset + size));
   }
   return result;
+}
+
+export async function backfillFanOutSignalCounts(
+  env: Env,
+): Promise<FanOutSignalBackfillResult> {
+  const candidates = await env.CONTROL_DB.prepare(
+    `SELECT fact.snapshot_id
+     FROM analytics_snapshot_facts fact
+     WHERE fact.related_query_signal_counts_indexed_at IS NOT NULL
+       AND fact.related_queries_indexed_at IS NOT NULL
+       AND fact.related_query_signal_counts_version < ?
+     ORDER BY CASE
+       WHEN fact.tracking_source IN ('chatgpt', 'gemini') THEN 0 ELSE 1
+     END, fact.captured_at DESC, fact.snapshot_id
+     LIMIT ?`,
+  )
+    .bind(
+      RELATED_QUERY_SIGNAL_COUNTS_VERSION,
+      FAN_OUT_SIGNAL_BACKFILL_BATCH_SIZE,
+    )
+    .all<FanOutSignalBackfillRow>();
+  if (!candidates.results.length) return { snapshots: 0 };
+
+  const queriesBySnapshot = new Map<string, string[]>(
+    candidates.results.map((row) => [row.snapshot_id, []]),
+  );
+  for (const batch of chunks(candidates.results, D1_BATCH_STATEMENT_LIMIT)) {
+    const placeholders = batch.map(() => "?").join(",");
+    const queries = await env.CONTROL_DB.prepare(
+      `SELECT snapshot_id, query_text
+       FROM analytics_related_query_occurrences
+       WHERE snapshot_id IN (${placeholders})
+       ORDER BY snapshot_id, ordinal`,
+    )
+      .bind(...batch.map((row) => row.snapshot_id))
+      .all<FanOutSignalQueryRow>();
+    for (const query of queries.results) {
+      queriesBySnapshot.get(query.snapshot_id)?.push(query.query_text);
+    }
+  }
+
+  const indexedAt = nowIso();
+  for (const batch of chunks(candidates.results, D1_BATCH_STATEMENT_LIMIT)) {
+    await env.CONTROL_DB.batch(batch.map((row) => {
+      const signalCounts = classifyRelatedQueries(
+        queriesBySnapshot.get(row.snapshot_id) ?? [],
+      ).signalCounts;
+      return env.CONTROL_DB.prepare(
+        `UPDATE analytics_snapshot_facts
+         SET related_query_signal_counts_json = ?,
+           related_query_signal_counts_indexed_at = ?,
+           related_query_signal_counts_version = ?, updated_at = ?
+         WHERE snapshot_id = ?
+           AND related_query_signal_counts_version < ?`,
+      ).bind(
+        JSON.stringify(signalCounts),
+        indexedAt,
+        RELATED_QUERY_SIGNAL_COUNTS_VERSION,
+        indexedAt,
+        row.snapshot_id,
+        RELATED_QUERY_SIGNAL_COUNTS_VERSION,
+      );
+    }));
+  }
+
+  return { snapshots: candidates.results.length };
 }
 
 async function backfillSnapshotBrandMetrics(

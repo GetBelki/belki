@@ -237,8 +237,11 @@ operatorInsightRoutes.get(
         `SELECT
           SUM(CASE WHEN fact.snapshot_id IS NULL
             OR fact.related_query_signal_counts_indexed_at IS NULL
-            OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
             THEN 1 ELSE 0 END) AS full_remaining,
+          SUM(CASE WHEN fact.snapshot_id IS NOT NULL
+            AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+            AND fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
+            THEN 1 ELSE 0 END) AS signal_remaining,
           SUM(CASE WHEN fact.snapshot_id IS NOT NULL
             AND fact.related_query_signal_counts_indexed_at IS NOT NULL
             AND fact.related_query_signal_counts_version >= ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
@@ -267,13 +270,20 @@ operatorInsightRoutes.get(
         dates.endExclusiveTimestamp,
         ...fanOutSourceBindings(input.source),
       )
-        .first<{ full_remaining: number; telemetry_remaining: number }>(),
+        .first<{
+          full_remaining: number;
+          signal_remaining: number;
+          telemetry_remaining: number;
+        }>(),
       c.env.CONTROL_DB.prepare(
         `SELECT
           SUM(CASE WHEN fact.snapshot_id IS NULL
             OR fact.related_query_signal_counts_indexed_at IS NULL
-            OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
             THEN 1 ELSE 0 END) AS full_remaining,
+          SUM(CASE WHEN fact.snapshot_id IS NOT NULL
+            AND fact.related_query_signal_counts_indexed_at IS NOT NULL
+            AND fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
+            THEN 1 ELSE 0 END) AS signal_remaining,
           SUM(CASE WHEN fact.snapshot_id IS NOT NULL
             AND fact.related_query_signal_counts_indexed_at IS NOT NULL
             AND fact.related_query_signal_counts_version >= ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
@@ -290,13 +300,22 @@ operatorInsightRoutes.get(
            OR fact.related_query_signal_counts_indexed_at IS NULL
            OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
            OR fact.fan_out_telemetry_indexed_at IS NULL)`,
-      ).first<{ full_remaining: number; telemetry_remaining: number }>(),
+      ).first<{
+        full_remaining: number;
+        signal_remaining: number;
+        telemetry_remaining: number;
+      }>(),
     ]);
     const selectedFullRemaining = Number(selectedProgress?.full_remaining ?? 0);
+    const selectedSignalRemaining = Number(
+      selectedProgress?.signal_remaining ?? 0,
+    );
     const selectedTelemetryRemaining = Number(
       selectedProgress?.telemetry_remaining ?? 0,
     );
-    const remainingSnapshots = selectedFullRemaining + selectedTelemetryRemaining;
+    const remainingSnapshots = selectedFullRemaining
+      + selectedSignalRemaining
+      + selectedTelemetryRemaining;
     if (remainingSnapshots > 0) {
       return c.json({
         data: {
@@ -309,6 +328,7 @@ operatorInsightRoutes.get(
           estimatedMinutes: analyticsBackfillEstimatedMinutes(
             Number(globalProgress?.full_remaining ?? 0),
             Number(globalProgress?.telemetry_remaining ?? 0),
+            Number(globalProgress?.signal_remaining ?? 0),
           ),
           activity: [],
           signals: Object.fromEntries(
