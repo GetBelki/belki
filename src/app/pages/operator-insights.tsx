@@ -283,6 +283,22 @@ function OperatorCoverageTooltip({
   );
 }
 
+function coverageChangeReferenceLine(date: string | undefined) {
+  return date ? (
+    <ReferenceLine
+      label={{
+        fill: "#92400e",
+        fontSize: 10,
+        position: "insideTopLeft",
+        value: "Coverage change",
+      }}
+      stroke="#d97706"
+      strokeDasharray="4 4"
+      x={date}
+    />
+  ) : null;
+}
+
 const FAN_OUT_GROUP_OPTIONS = [
   { value: "direct-source", label: "Direct source" },
   { value: "commercial-research", label: "Commercial research" },
@@ -682,9 +698,11 @@ function FanOutResponseStatusTooltip({
 }
 
 export function FanOutResponseStatusChart({
+  coverageChangeDate,
   data,
   pending,
 }: {
+  coverageChangeDate?: string;
   data: FanOutActivityPoint[];
   pending: boolean;
 }) {
@@ -740,6 +758,7 @@ export function FanOutResponseStatusChart({
                 cursor={{ fill: "rgba(161, 161, 170, 0.12)" }}
                 isAnimationActive={false}
               />
+              {coverageChangeReferenceLine(coverageChangeDate)}
               <Bar
                 dataKey="responsesWithFanOut"
                 fill="#18181b"
@@ -782,12 +801,14 @@ export function FanOutResponseStatusChart({
 function FanOutActivityChart({
   title,
   description,
+  coverageChangeDate,
   data,
   metric,
   pending,
 }: {
   title: string;
   description: string;
+  coverageChangeDate?: string;
   data: FanOutActivityPoint[];
   metric: "responseShare" | "fanOutsPerResponse" | "telemetryCoverage";
   pending: boolean;
@@ -849,6 +870,7 @@ function FanOutActivityChart({
                 cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }}
                 isAnimationActive={false}
               />
+              {coverageChangeReferenceLine(coverageChangeDate)}
               <Area
                 activeDot={{ fill: "#fff", r: 4, stroke: "#18181b", strokeWidth: 2 }}
                 dataKey={metric}
@@ -922,6 +944,7 @@ function SignalTooltip({
 
 export function FanOutSignalExplorer({
   activity,
+  coverageChangeDate,
   group,
   metric,
   onGroupChange,
@@ -930,6 +953,7 @@ export function FanOutSignalExplorer({
   yearSignals,
 }: {
   activity: FanOutActivityPoint[];
+  coverageChangeDate?: string;
   group: FanOutSignalGroup;
   metric: FanOutMetric;
   onGroupChange: (group: FanOutSignalGroup) => void;
@@ -1030,6 +1054,7 @@ export function FanOutSignalExplorer({
                 cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }}
                 isAnimationActive={false}
               />
+              {coverageChangeReferenceLine(coverageChangeDate)}
               {visibleSeries.map(({ color, id, label }) => (
                 <Line
                   dataKey={id}
@@ -1964,6 +1989,12 @@ export function OperatorFanOutTrendsPage() {
       missing provider data is not counted as zero.
     </OperatorCoverageTooltip>
   ) : undefined;
+  const coverageChangeDate = showsDataForSeoGap
+    && (data?.activity ?? []).some(
+      (point) => point.date === SOURCE_DISCOVERY_DATAFORSEO_GAP_START,
+    )
+    ? SOURCE_DISCOVERY_DATAFORSEO_GAP_START
+    : undefined;
   if (report.isError) {
     return (
       <OperatorDataFailure
@@ -2001,10 +2032,12 @@ export function OperatorFanOutTrendsPage() {
         <>
           <div className="operator-insight-grid operator-fanout-activity-grid">
             <FanOutResponseStatusChart
+              coverageChangeDate={coverageChangeDate}
               data={data?.activity ?? []}
               pending={report.isPending}
             />
             <FanOutActivityChart
+              coverageChangeDate={coverageChangeDate}
               data={data?.activity ?? []}
               description="Average unique fan-out queries per response with reported telemetry. Explicit zeroes are included; gaps mean no telemetry was reported that day."
               metric="fanOutsPerResponse"
@@ -2014,6 +2047,7 @@ export function OperatorFanOutTrendsPage() {
           </div>
           <FanOutSignalExplorer
             activity={data?.activity ?? []}
+            coverageChangeDate={coverageChangeDate}
             group={group}
             metric={metric}
             onGroupChange={(value) => update({ group: value })}
