@@ -42,6 +42,7 @@ import {
   backfillFanOutTelemetryReadModel,
 } from "./ingestion/analytics-backfill";
 import { backfillProjectEvents } from "./ingestion/project-event-backfill";
+import { backfillSourceDiscoveryFirstSeen } from "./ingestion/source-discovery";
 import {
   promptPurgeBatch,
   reconcilePromptPurges,
@@ -305,6 +306,10 @@ async function scheduled(
     const telemetryBackfill = await backfillFanOutTelemetryReadModel(env);
     metrics.fanOutTelemetryBackfillSnapshots = telemetryBackfill.snapshots;
     metrics.fanOutTelemetryBackfillShards = telemetryBackfill.shards;
+    const sourceDiscovery = await backfillSourceDiscoveryFirstSeen(env);
+    metrics.sourceDiscoveryBackfillDays = sourceDiscovery.days;
+    metrics.sourceDiscoveryBackfillReady = sourceDiscovery.ready;
+    metrics.sourceDiscoveryBackfillFailed = sourceDiscovery.failed;
     const backfill = await backfillAnalyticsReadModel(env);
     metrics.analyticsBackfillProjects = backfill.projects;
     metrics.analyticsBackfillSnapshots = backfill.snapshots;

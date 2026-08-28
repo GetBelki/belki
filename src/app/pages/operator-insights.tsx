@@ -121,6 +121,60 @@ interface CitationDomainOption {
   citations: number;
 }
 
+interface SourceDiscoveryActivityPoint {
+  date: string;
+  completedResponses: number;
+  reportedFanOutResponses: number;
+  totalFanOuts: number;
+  retrievedUrls: number;
+  retrievedDomains: number;
+  citedUrls: number;
+  citedDomains: number;
+  fanOutsPerResponse: number | null;
+  retrievedUrlsPerResponse: number;
+  citedUrlsPerResponse: number;
+  knownUrls: number;
+  newUrlsKnownDomains: number;
+  newUrlsNewDomains: number;
+  totalUniqueUrls: number;
+  knownUrlShare: number;
+  newUrlKnownDomainShare: number;
+  newUrlNewDomainShare: number;
+}
+
+interface SourceDiscoveryReport {
+  period: InsightPeriod;
+  source: InsightSource;
+  model: FanOutModel;
+  models: Array<{ value: string; label: string; responses: number }>;
+  indexing: boolean;
+  estimatedMinutes: number;
+  summary?: {
+    completedResponses: number;
+    retrievedUrlsPerResponse: number;
+    citedUrlsPerResponse: number;
+    newUrlShare: number;
+    newDomainShare: number;
+  };
+  activity: SourceDiscoveryActivityPoint[];
+  pageTypes: Array<{
+    type: string;
+    citations: number;
+    citationShare: number;
+    newUrlShare: number;
+    newDomainShare: number;
+  }>;
+  siteImpact: Array<{
+    siteOperatorPresent: boolean;
+    responses: number;
+    fanOutsPerResponse: number;
+    retrievedUrlsPerResponse: number;
+    citedUrlsPerResponse: number;
+    newUrlShare: number;
+    newDomainsPerResponse: number;
+  }>;
+}
+
 interface DomainComboboxOption {
   label: string;
   value: string;
@@ -151,6 +205,26 @@ const FAN_OUT_METRIC_OPTIONS = [
   { value: "fanOutsPerResponse", label: "Per response" },
   { value: "responseShare", label: "Response prevalence" },
 ];
+
+const SOURCE_DISCOVERY_TYPE_LABELS: Record<string, string> = {
+  pdf: "PDF",
+  pricing: "Pricing",
+  press: "Press / newsroom",
+  product: "Product",
+  blog: "Blog",
+  docs: "Docs / support",
+  reviews: "Reviews",
+  other: "Other",
+};
+
+const SOURCE_DISCOVERY_COLORS = {
+  known: "#a1a1aa",
+  knownDomain: "#18181b",
+  newDomain: "#2563eb",
+  retrieved: "#18181b",
+  cited: "#2563eb",
+  fanOut: "#d97706",
+};
 
 const FAN_OUT_GROUP_OPTIONS = [
   { value: "direct-source", label: "Direct source" },
@@ -949,6 +1023,273 @@ export function FanOutSignalExplorer({
   );
 }
 
+function isSourceDiscoveryPoint(
+  value: unknown,
+): value is SourceDiscoveryActivityPoint {
+  if (!value || typeof value !== "object") return false;
+  const point = value as Partial<SourceDiscoveryActivityPoint>;
+  return typeof point.date === "string"
+    && typeof point.completedResponses === "number"
+    && typeof point.totalUniqueUrls === "number";
+}
+
+function SourceDiscoveryNoveltyTooltip({
+  active,
+  label,
+  payload,
+}: TooltipContentProps) {
+  const point: unknown = payload[0]?.payload;
+  if (!active || !isSourceDiscoveryPoint(point)) return null;
+  return (
+    <div className="operator-chart-tooltip operator-discovery-tooltip">
+      <strong>{tooltipDateLabel(label)}</strong>
+      <div><i style={{ background: SOURCE_DISCOVERY_COLORS.known }} /><span>Previously seen URL</span><b>{percent(point.knownUrlShare)}</b><small>{point.knownUrls.toLocaleString()}</small></div>
+      <div><i style={{ background: SOURCE_DISCOVERY_COLORS.knownDomain }} /><span>New URL, known domain</span><b>{percent(point.newUrlKnownDomainShare)}</b><small>{point.newUrlsKnownDomains.toLocaleString()}</small></div>
+      <div><i style={{ background: SOURCE_DISCOVERY_COLORS.newDomain }} /><span>New URL and domain</span><b>{percent(point.newUrlNewDomainShare)}</b><small>{point.newUrlsNewDomains.toLocaleString()}</small></div>
+    </div>
+  );
+}
+
+function SourceDiscoveryDepthTooltip({
+  active,
+  label,
+  payload,
+}: TooltipContentProps) {
+  const point: unknown = payload[0]?.payload;
+  if (!active || !isSourceDiscoveryPoint(point)) return null;
+  return (
+    <div className="operator-chart-tooltip operator-discovery-tooltip">
+      <strong>{tooltipDateLabel(label)}</strong>
+      <div><i style={{ background: SOURCE_DISCOVERY_COLORS.fanOut }} /><span>Fan-outs / response</span><b>{point.fanOutsPerResponse === null ? "—" : decimal(point.fanOutsPerResponse)}</b></div>
+      <div><i style={{ background: SOURCE_DISCOVERY_COLORS.retrieved }} /><span>Retrieved URLs / response</span><b>{decimal(point.retrievedUrlsPerResponse)}</b></div>
+      <div><i style={{ background: SOURCE_DISCOVERY_COLORS.cited }} /><span>Cited URLs / response</span><b>{decimal(point.citedUrlsPerResponse)}</b></div>
+      <small>{point.completedResponses.toLocaleString()} completed responses</small>
+    </div>
+  );
+}
+
+function SourceDiscoverySummary({
+  pending,
+  summary,
+}: {
+  pending: boolean;
+  summary: SourceDiscoveryReport["summary"];
+}) {
+  const cards = [
+    {
+      label: "Retrieved URLs / response",
+      value: decimal(summary?.retrievedUrlsPerResponse ?? 0),
+      detail: "Unique within each response",
+    },
+    {
+      label: "Cited URLs / response",
+      value: decimal(summary?.citedUrlsPerResponse ?? 0),
+      detail: "Unique within each response",
+    },
+    {
+      label: "First-seen URL share",
+      value: percent(summary?.newUrlShare ?? 0),
+      detail: "First observed in Belki history",
+    },
+    {
+      label: "First-seen domain share",
+      value: percent(summary?.newDomainShare ?? 0),
+      detail: "URL and domain first observed that day",
+    },
+  ];
+  return (
+    <div className="operator-discovery-summary">
+      {cards.map((card) => pending ? (
+        <Skeleton className="operator-discovery-kpi" key={card.label} />
+      ) : (
+        <Card className="operator-discovery-kpi" key={card.label}>
+          <span>{card.label}</span>
+          <strong>{card.value}</strong>
+          <small>{card.detail}</small>
+        </Card>
+      ))}
+    </div>
+  );
+}
+
+function SourceDiscoveryNoveltyChart({
+  data,
+  pending,
+}: {
+  data: SourceDiscoveryActivityPoint[];
+  pending: boolean;
+}) {
+  const hasUrls = data.some((point) => point.totalUniqueUrls > 0);
+  return (
+    <Card className="operator-insight-card">
+      <CardHeader
+        title="Citation novelty"
+        description="Daily unique cited URLs classified against earlier observations from the same tracking source."
+      />
+      <div className="operator-insight-chart">
+        {pending ? <Skeleton className="operator-insight-chart-skeleton" />
+          : !hasUrls ? (
+            <EmptyState
+              title="No cited URLs"
+              description="Cited URLs will appear here for the selected period."
+            />
+          ) : (
+            <ResponsiveContainer height="100%" minWidth={0} width="100%">
+              <AreaChart accessibilityLayer data={data} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+                <CartesianGrid stroke="#ececf0" vertical={false} />
+                <XAxis axisLine={false} dataKey="date" interval="preserveStartEnd" minTickGap={38} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={dateLabel} tickLine={false} />
+                <YAxis axisLine={false} domain={[0, 100]} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => `${value}%`} tickLine={false} ticks={[0, 25, 50, 75, 100]} width={36} />
+                <Tooltip content={SourceDiscoveryNoveltyTooltip} cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} isAnimationActive={false} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                <Area dataKey="knownUrlShare" fill={SOURCE_DISCOVERY_COLORS.known} isAnimationActive={false} name="Previously seen URL" stackId="novelty" stroke={SOURCE_DISCOVERY_COLORS.known} type="linear" />
+                <Area dataKey="newUrlKnownDomainShare" fill={SOURCE_DISCOVERY_COLORS.knownDomain} isAnimationActive={false} name="New URL, known domain" stackId="novelty" stroke={SOURCE_DISCOVERY_COLORS.knownDomain} type="linear" />
+                <Area dataKey="newUrlNewDomainShare" fill={SOURCE_DISCOVERY_COLORS.newDomain} isAnimationActive={false} name="New URL and domain" stackId="novelty" stroke={SOURCE_DISCOVERY_COLORS.newDomain} type="linear" />
+              </AreaChart>
+            </ResponsiveContainer>
+          )}
+      </div>
+    </Card>
+  );
+}
+
+function SourceDiscoveryDepthChart({
+  data,
+  pending,
+}: {
+  data: SourceDiscoveryActivityPoint[];
+  pending: boolean;
+}) {
+  const hasResponses = data.some((point) => point.completedResponses > 0);
+  const maximum = insightNumericYAxisMax(data.flatMap((point) => [
+    point.fanOutsPerResponse,
+    point.retrievedUrlsPerResponse,
+    point.citedUrlsPerResponse,
+  ].filter((value): value is number => value !== null)));
+  return (
+    <Card className="operator-insight-card">
+      <CardHeader
+        title="Retrieval depth"
+        description="Average unique retrieval and citation depth per completed response; fan-outs use responses with reported telemetry."
+      />
+      <div className="operator-insight-chart">
+        {pending ? <Skeleton className="operator-insight-chart-skeleton" />
+          : !hasResponses ? (
+            <EmptyState
+              title="No response activity"
+              description="Completed responses will appear here for the selected period."
+            />
+          ) : (
+            <ResponsiveContainer height="100%" minWidth={0} width="100%">
+              <LineChart accessibilityLayer data={data} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+                <CartesianGrid stroke="#ececf0" vertical={false} />
+                <XAxis axisLine={false} dataKey="date" interval="preserveStartEnd" minTickGap={38} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={dateLabel} tickLine={false} />
+                <YAxis axisLine={false} domain={[0, maximum]} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })} tickLine={false} ticks={insightYAxisTicks(maximum)} width={36} />
+                <Tooltip content={SourceDiscoveryDepthTooltip} cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} isAnimationActive={false} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                <Line dataKey="fanOutsPerResponse" dot={false} isAnimationActive={false} name="Fan-outs / response" stroke={SOURCE_DISCOVERY_COLORS.fanOut} strokeWidth={2.1} type="linear" />
+                <Line dataKey="retrievedUrlsPerResponse" dot={false} isAnimationActive={false} name="Retrieved URLs / response" stroke={SOURCE_DISCOVERY_COLORS.retrieved} strokeWidth={2.1} type="linear" />
+                <Line dataKey="citedUrlsPerResponse" dot={false} isAnimationActive={false} name="Cited URLs / response" stroke={SOURCE_DISCOVERY_COLORS.cited} strokeWidth={2.1} type="linear" />
+              </LineChart>
+            </ResponsiveContainer>
+          )}
+      </div>
+    </Card>
+  );
+}
+
+function SourceDiscoverySiteImpact({
+  data,
+  pending,
+}: {
+  data: SourceDiscoveryReport["siteImpact"];
+  pending: boolean;
+}) {
+  const chartData = data.map((row) => ({
+    ...row,
+    label: row.siteOperatorPresent ? "With site:" : "Without site:",
+  }));
+  return (
+    <Card className="operator-insight-card">
+      <CardHeader
+        title="Site-operator effect"
+        description="Retrieval and citation depth for responses with reported fan-out telemetry."
+      />
+      <div className="operator-insight-chart operator-site-impact-chart">
+        {pending ? <Skeleton className="operator-insight-chart-skeleton" />
+          : !chartData.length ? (
+            <EmptyState
+              title="No site-operator comparison"
+              description="Reported ChatGPT or Gemini fan-outs are required for this comparison."
+            />
+          ) : (
+            <ResponsiveContainer height="100%" minWidth={0} width="100%">
+              <BarChart accessibilityLayer data={chartData} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+                <CartesianGrid stroke="#ececf0" vertical={false} />
+                <XAxis axisLine={false} dataKey="label" tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} />
+                <YAxis axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} width={36} />
+                <Tooltip formatter={(value, name) => [decimal(Number(value)), String(name)]} isAnimationActive={false} />
+                <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                <Bar dataKey="retrievedUrlsPerResponse" fill={SOURCE_DISCOVERY_COLORS.retrieved} isAnimationActive={false} maxBarSize={46} name="Retrieved URLs / response" />
+                <Bar dataKey="citedUrlsPerResponse" fill={SOURCE_DISCOVERY_COLORS.cited} isAnimationActive={false} maxBarSize={46} name="Cited URLs / response" />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+      </div>
+      {!pending && chartData.length ? (
+        <div className="operator-site-impact-details">
+          {chartData.map((row) => (
+            <div key={row.label}>
+              <strong>{row.label}</strong>
+              <span>{percent(row.newUrlShare)} first-seen URLs</span>
+              <span>{decimal(row.newDomainsPerResponse)} new domains / response</span>
+              <small>{row.responses.toLocaleString()} responses</small>
+            </div>
+          ))}
+        </div>
+      ) : null}
+    </Card>
+  );
+}
+
+function SourceDiscoveryPageTypes({
+  data,
+  pending,
+}: {
+  data: SourceDiscoveryReport["pageTypes"];
+  pending: boolean;
+}) {
+  return (
+    <Card className="operator-insight-card operator-page-types-card">
+      <CardHeader
+        title="Cited page types"
+        description="Heuristic URL and title patterns; first-seen rates use Belki's retained source history."
+      />
+      {pending ? <Skeleton className="operator-page-types-skeleton" />
+        : !data.length ? (
+          <EmptyState
+            title="No page types"
+            description="Cited URLs will appear here for the selected period."
+          />
+        ) : (
+          <div className="operator-page-types-table-wrap">
+            <table className="operator-page-types-table">
+              <thead><tr><th>Type</th><th>Citation share</th><th>Citations</th><th>First-seen URLs</th><th>New domains</th></tr></thead>
+              <tbody>{data.map((row) => (
+                <tr key={row.type}>
+                  <th>{SOURCE_DISCOVERY_TYPE_LABELS[row.type] ?? row.type}</th>
+                  <td>{percent(row.citationShare)}</td>
+                  <td>{row.citations.toLocaleString()}</td>
+                  <td>{percent(row.newUrlShare)}</td>
+                  <td>{percent(row.newDomainShare)}</td>
+                </tr>
+              ))}</tbody>
+            </table>
+          </div>
+        )}
+    </Card>
+  );
+}
+
 function Filters({
   period,
   source,
@@ -978,6 +1319,56 @@ function Filters({
         <span className="operator-insight-filter-label">Period</span>
         <Select
           ariaLabel="Trend period"
+          onValueChange={(value) => onPeriodChange(periodValue(value))}
+          options={PERIOD_OPTIONS}
+          value={period}
+        />
+      </div>
+    </div>
+  );
+}
+
+function SourceDiscoveryFilters({
+  model,
+  modelOptions,
+  onModelChange,
+  onPeriodChange,
+  onSourceChange,
+  period,
+  source,
+}: {
+  model: FanOutModel;
+  modelOptions: Array<{ value: string; label: string }>;
+  onModelChange: (model: FanOutModel) => void;
+  onPeriodChange: (period: InsightPeriod) => void;
+  onSourceChange: (source: InsightSource) => void;
+  period: InsightPeriod;
+  source: InsightSource;
+}) {
+  return (
+    <div className="operator-insight-filters operator-source-discovery-filters">
+      <div className="operator-insight-filter-field">
+        <span className="operator-insight-filter-label">Source</span>
+        <Select
+          ariaLabel="Source discovery tracking source"
+          onValueChange={(value) => onSourceChange(sourceValue(value))}
+          options={SOURCE_OPTIONS}
+          value={source}
+        />
+      </div>
+      <div className="operator-insight-filter-field">
+        <span className="operator-insight-filter-label">Model</span>
+        <Select
+          ariaLabel="Source discovery model"
+          onValueChange={onModelChange}
+          options={modelOptions}
+          value={model}
+        />
+      </div>
+      <div className="operator-insight-filter-field">
+        <span className="operator-insight-filter-label">Period</span>
+        <Select
+          ariaLabel="Source discovery period"
           onValueChange={(value) => onPeriodChange(periodValue(value))}
           options={PERIOD_OPTIONS}
           value={period}
@@ -1071,6 +1462,34 @@ function useInsightFilters() {
     setSearchParams(next, { replace: true });
   };
   return { period, searchParams, source, update };
+}
+
+function useSourceDiscoveryFilters() {
+  const [searchParams, setSearchParams] = useSearchParams();
+  const period = periodValue(searchParams.get("period"));
+  const source = sourceValue(searchParams.get("source"));
+  const model = fanOutModelValue(searchParams.get("model"));
+  const update = (values: {
+    period?: InsightPeriod;
+    source?: InsightSource;
+    model?: FanOutModel;
+  }) => {
+    const next = new URLSearchParams(searchParams);
+    if (values.period !== undefined) {
+      if (values.period === "30d") next.delete("period");
+      else next.set("period", values.period);
+    }
+    if (values.source !== undefined) {
+      if (values.source === "all") next.delete("source");
+      else next.set("source", values.source);
+    }
+    if (values.model !== undefined) {
+      if (values.model === "all") next.delete("model");
+      else next.set("model", values.model);
+    }
+    setSearchParams(next, { replace: true });
+  };
+  return { model, period, source, update };
 }
 
 function useFanOutFilters() {
@@ -1287,6 +1706,101 @@ export function OperatorCitationTrendsPage() {
         pending={report.isPending}
         title={domain ? domain : "All cited domains"}
       />
+    </div>
+  );
+}
+
+export function OperatorSourceDiscoveryPage() {
+  const { model, period, source, update } = useSourceDiscoveryFilters();
+  const params = new URLSearchParams({ period, source, model });
+  const report = useQuery({
+    queryKey: ["operator-source-discovery", period, source, model],
+    queryFn: () => api<SourceDiscoveryReport>(
+      `/operator/insights/source-discovery?${params}`,
+    ),
+    refetchInterval: (query) => query.state.data?.indexing ? 15_000 : false,
+  });
+  const data = report.data;
+  const modelOptions = useMemo(() => {
+    const options = [{ value: "all", label: "All models" }];
+    const seen = new Set(["all"]);
+    for (const option of data?.models ?? []) {
+      if (seen.has(option.value)) continue;
+      seen.add(option.value);
+      options.push({
+        value: option.value,
+        label: `${option.label} (${option.responses.toLocaleString()})`,
+      });
+    }
+    if (!seen.has(model)) {
+      options.push({
+        value: model,
+        label: model === "__unreported__" ? "Model not reported" : model,
+      });
+    }
+    return options;
+  }, [data?.models, model]);
+  if (report.isError) {
+    return (
+      <OperatorDataFailure
+        error={report.error}
+        onRetry={() => void report.refetch()}
+      />
+    );
+  }
+  return (
+    <div className="page operator-insights-page">
+      <PageHeader
+        title="Source discovery"
+        description="How deeply AI surfaces explore, retrieve, and cite the web across every retained project."
+      />
+      <SourceDiscoveryFilters
+        model={model}
+        modelOptions={modelOptions}
+        onModelChange={(value) => update({ model: value })}
+        onPeriodChange={(value) => update({ period: value })}
+        onSourceChange={(value) => update({ source: value, model: "all" })}
+        period={period}
+        source={source}
+      />
+      {data?.indexing ? (
+        <Card className="operator-insight-card operator-indexing-card">
+          <EmptyState
+            title="Preparing source history"
+            description={`Belki is indexing first-seen URLs and domains directly from the analytics read model. Estimated completion: about ${Math.max(1, data.estimatedMinutes)} ${Math.max(1, data.estimatedMinutes) === 1 ? "minute" : "minutes"}. This page refreshes automatically.`}
+          />
+        </Card>
+      ) : (
+        <>
+          <SourceDiscoverySummary
+            pending={report.isPending}
+            summary={data?.summary}
+          />
+          <div className="operator-insight-grid">
+            <SourceDiscoveryNoveltyChart
+              data={data?.activity ?? []}
+              pending={report.isPending}
+            />
+            <SourceDiscoveryDepthChart
+              data={data?.activity ?? []}
+              pending={report.isPending}
+            />
+            <SourceDiscoverySiteImpact
+              data={data?.siteImpact ?? []}
+              pending={report.isPending}
+            />
+            <SourceDiscoveryPageTypes
+              data={data?.pageTypes ?? []}
+              pending={report.isPending}
+            />
+          </div>
+          <p className="operator-discovery-note">
+            “First seen” means first observed within Belki’s retained corpus for
+            that tracking source; it does not claim the underlying model had
+            never encountered the URL before.
+          </p>
+        </>
+      )}
     </div>
   );
 }

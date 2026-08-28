@@ -84,6 +84,11 @@ const OperatorCitationTrendsPage = lazy(() =>
     default: module.OperatorCitationTrendsPage,
   })),
 );
+const OperatorSourceDiscoveryPage = lazy(() =>
+  import("./pages/operator-insights").then((module) => ({
+    default: module.OperatorSourceDiscoveryPage,
+  })),
+);
 const OperatorFanOutTrendsPage = lazy(() =>
   import("./pages/operator-insights").then((module) => ({
     default: module.OperatorFanOutTrendsPage,
@@ -178,6 +183,7 @@ export function App() {
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/operator" element={session.data.isPlatformOperator ? <OperatorPage /> : <Navigate to="/" replace />} />
             <Route path="/operator/insights/citations" element={session.data.isPlatformOperator ? <OperatorCitationTrendsPage /> : <Navigate to="/" replace />} />
+            <Route path="/operator/insights/source-discovery" element={session.data.isPlatformOperator ? <OperatorSourceDiscoveryPage /> : <Navigate to="/" replace />} />
             <Route path="/operator/insights/fan-out" element={session.data.isPlatformOperator ? <OperatorFanOutTrendsPage /> : <Navigate to="/" replace />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>

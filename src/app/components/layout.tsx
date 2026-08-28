@@ -49,6 +49,9 @@ const NAVIGATION = [
 export function OperatorNavigation({ pathname }: { pathname: string }) {
   const consoleActive = pathname === "/operator";
   const citationsActive = pathname.startsWith("/operator/insights/citations");
+  const sourceDiscoveryActive = pathname.startsWith(
+    "/operator/insights/source-discovery",
+  );
   const fanOutActive = pathname.startsWith("/operator/insights/fan-out");
   return (
     <>
@@ -66,6 +69,13 @@ export function OperatorNavigation({ pathname }: { pathname: string }) {
         href="/operator/insights/citations"
       >
         <SourcesIcon size={17} /> <span>Citation trends</span>
+      </a>
+      <a
+        aria-current={sourceDiscoveryActive ? "page" : undefined}
+        className={cn("nav-item", "operator-nav-item", sourceDiscoveryActive && "active")}
+        href="/operator/insights/source-discovery"
+      >
+        <ChartNoAxesCombined size={17} /> <span>Source discovery</span>
       </a>
       <a
         aria-current={fanOutActive ? "page" : undefined}

@@ -24,6 +24,10 @@ describe("operator navigation", () => {
       "aria-current",
       "page",
     );
+    expect(screen.getByRole("link", { name: "Source discovery" })).toHaveAttribute(
+      "href",
+      "/operator/insights/source-discovery",
+    );
     expect(screen.getByRole("link", { name: "Fan-out trends" })).toHaveAttribute(
       "href",
       "/operator/insights/fan-out",

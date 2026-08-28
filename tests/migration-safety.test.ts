@@ -162,4 +162,20 @@ describe("control database migrations", () => {
     expect(sql).not.toMatch(/DROP TABLE/i);
     expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
   });
+
+  it("adds a resumable source-discovery index without replaying snapshot shards", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0028_source_discovery.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/CREATE TABLE analytics_citation_url_first_seen/i);
+    expect(sql).toMatch(/CREATE TABLE analytics_citation_domain_first_seen/i);
+    expect(sql).toMatch(/CREATE TABLE source_discovery_backfill/i);
+    expect(sql).toMatch(/status IN \('pending', 'backfilling', 'ready'\)/i);
+    expect(sql).not.toMatch(/UPDATE analytics_citation_occurrences/i);
+    expect(sql).not.toMatch(/UPDATE analytics_snapshot_facts/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
 });

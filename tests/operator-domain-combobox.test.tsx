@@ -12,6 +12,7 @@ import {
   FanOutResponseStatusChart,
   FanOutSignalExplorer,
   OperatorFanOutTrendsPage,
+  OperatorSourceDiscoveryPage,
 } from "../src/app/pages/operator-insights";
 
 class ResizeObserverMock {
@@ -275,5 +276,87 @@ describe("fan-out operator filters", () => {
         "metric=fanOutsPerResponse&group=comparison&model=gpt-5-6",
       );
     });
+  });
+});
+
+describe("source-discovery operator insights", () => {
+  it("renders novelty, depth, site impact, and page-type evidence", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      data: {
+        period: "30d",
+        source: "all",
+        model: "all",
+        models: [{ value: "gpt-5-6", label: "gpt-5-6", responses: 42 }],
+        indexing: false,
+        estimatedMinutes: 0,
+        summary: {
+          completedResponses: 42,
+          retrievedUrlsPerResponse: 12.5,
+          citedUrlsPerResponse: 4.25,
+          newUrlShare: 27.6,
+          newDomainShare: 5.2,
+        },
+        activity: [{
+          date: "2026-08-28",
+          completedResponses: 42,
+          reportedFanOutResponses: 0,
+          totalFanOuts: 0,
+          retrievedUrls: 525,
+          retrievedDomains: 80,
+          citedUrls: 179,
+          citedDomains: 60,
+          fanOutsPerResponse: null,
+          retrievedUrlsPerResponse: 12.5,
+          citedUrlsPerResponse: 4.25,
+          knownUrls: 67,
+          newUrlsKnownDomains: 27,
+          newUrlsNewDomains: 6,
+          totalUniqueUrls: 100,
+          knownUrlShare: 67,
+          newUrlKnownDomainShare: 27,
+          newUrlNewDomainShare: 6,
+        }],
+        pageTypes: [{
+          type: "pdf",
+          citations: 12,
+          citationShare: 8,
+          newUrlShare: 50,
+          newDomainShare: 5,
+        }],
+        siteImpact: [{
+          siteOperatorPresent: true,
+          responses: 10,
+          fanOutsPerResponse: 2,
+          retrievedUrlsPerResponse: 15,
+          citedUrlsPerResponse: 5,
+          newUrlShare: 30,
+          newDomainsPerResponse: 0.3,
+        }],
+      },
+    }), { headers: { "content-type": "application/json" } }));
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false } },
+    });
+
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter initialEntries={["/operator/insights/source-discovery"]}>
+          <Routes>
+            <Route
+              path="/operator/insights/source-discovery"
+              element={<OperatorSourceDiscoveryPage />}
+            />
+          </Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+
+    expect(await screen.findByText("PDF")).toBeInTheDocument();
+    expect(screen.getByText("Citation novelty")).toBeInTheDocument();
+    expect(screen.getByText("Retrieval depth")).toBeInTheDocument();
+    expect(screen.getByText("Site-operator effect")).toBeInTheDocument();
+    expect(screen.getByText("Cited page types")).toBeInTheDocument();
+    expect(screen.getByText(/does not claim the underlying model/))
+      .toBeInTheDocument();
   });
 });

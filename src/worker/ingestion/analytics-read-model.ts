@@ -15,6 +15,7 @@ import {
 } from "../lib/analytics-read-model";
 import { registerAdAssetSources } from "../automation/ad-assets";
 import { syncSnapshotBrandMetrics } from "./brand-metrics";
+import { syncSourceDiscoveryFirstSeen } from "./source-discovery";
 import type { TrackingSource } from "../../shared/contracts";
 import { modelDetectedEventStatement } from "../lib/project-events";
 
@@ -557,6 +558,7 @@ export async function syncAnalyticsReadModel(
   for (let index = 0; index < statements.length; index += 100) {
     await env.CONTROL_DB.batch(statements.slice(index, index + 100));
   }
+  await syncSourceDiscoveryFirstSeen(env.CONTROL_DB, payload.snapshotId);
   await syncSnapshotBrandMetrics(env.CONTROL_DB, {
     snapshotId: payload.snapshotId,
     projectId: payload.projectId,

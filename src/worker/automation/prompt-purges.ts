@@ -648,6 +648,14 @@ export async function processPromptPurge(env: Env, purgeJobId: string): Promise<
     env.CONTROL_DB.prepare(
       "DELETE FROM analytics_retrieval_occurrences WHERE tracked_query_id = ?",
     ).bind(job.tracked_query_id),
+    env.CONTROL_DB.prepare("DELETE FROM analytics_citation_url_first_seen"),
+    env.CONTROL_DB.prepare("DELETE FROM analytics_citation_domain_first_seen"),
+    env.CONTROL_DB.prepare(
+      `UPDATE source_discovery_backfill
+       SET status = 'pending', cursor_date = NULL, through_date = NULL,
+         error_message = NULL, updated_at = ?
+       WHERE singleton_id = 1`,
+    ).bind(now),
     env.CONTROL_DB.prepare(
       "DELETE FROM analytics_snapshot_facts WHERE tracked_query_id = ?",
     ).bind(job.tracked_query_id),

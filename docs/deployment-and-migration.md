@@ -212,6 +212,10 @@ Before merging this schema release, run `pnpm db:migrate:remote`, which applies:
 - `0027_education_fanout_signal.sql`: schema-v10 reclassification of retained
   fan-out queries so `.edu` domains appear in operator signal trends. The
   control-database-only bulk path reclassifies up to 1,000 responses per minute.
+- `0028_source_discovery.sql`: additive first-seen URL and domain indexes for
+  operator Source discovery insights. Its resumable control-database-only
+  backfill advances by up to 372 days per minute without reopening snapshot
+  shards; the previous Worker remains compatible while it completes.
 - Snapshot migrations `0005_tracking_sources.sql` and
   `0006_fanout_telemetry.sql` on every snapshot shard: source identity,
   AI-surface presence, model metadata, and the distinction between an explicit
