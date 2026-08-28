@@ -356,6 +356,8 @@ describe("source-discovery operator insights", () => {
     expect(screen.getByText("Retrieval depth")).toBeInTheDocument();
     expect(screen.getByText("Site-operator effect")).toBeInTheDocument();
     expect(screen.getByText("Cited page types")).toBeInTheDocument();
+    expect(screen.getByText(/DataForSEO coverage change/))
+      .toBeInTheDocument();
     expect(screen.getByText(/does not claim the underlying model/))
       .toBeInTheDocument();
   });

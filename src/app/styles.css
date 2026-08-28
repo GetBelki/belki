@@ -7875,6 +7875,7 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 }
 .operator-telemetry-notice strong { font-size: 12px; }
 .operator-telemetry-notice span { font-size: 12px; line-height: 1.5; }
+.operator-discovery-coverage-note { margin: 0 18px 18px; }
 .operator-insight-filter-field { display: grid; gap: 7px; min-width: 0; }
 .operator-insight-filter-label {
   color: #52525b;

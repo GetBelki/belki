@@ -12,6 +12,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   XAxis,
@@ -225,6 +226,7 @@ const SOURCE_DISCOVERY_COLORS = {
   cited: "#2563eb",
   fanOut: "#d97706",
 };
+const SOURCE_DISCOVERY_DATAFORSEO_GAP_START = "2026-08-21";
 
 const FAN_OUT_GROUP_OPTIONS = [
   { value: "direct-source", label: "Direct source" },
@@ -1154,12 +1156,28 @@ function SourceDiscoveryNoveltyChart({
 
 function SourceDiscoveryDepthChart({
   data,
+  model,
   pending,
+  source,
 }: {
   data: SourceDiscoveryActivityPoint[];
+  model: FanOutModel;
   pending: boolean;
+  source: InsightSource;
 }) {
   const hasResponses = data.some((point) => point.completedResponses > 0);
+  const includesChatGpt = source === "chatgpt"
+    || (source === "all" && (
+      model === "all"
+      || model === "__unreported__"
+      || /^gpt-/i.test(model)
+    ));
+  const showsDataForSeoGap = includesChatGpt && data.some(
+    (point) => point.date >= SOURCE_DISCOVERY_DATAFORSEO_GAP_START,
+  );
+  const showsDataForSeoMarker = showsDataForSeoGap && data.some(
+    (point) => point.date === SOURCE_DISCOVERY_DATAFORSEO_GAP_START,
+  );
   const maximum = insightNumericYAxisMax(data.flatMap((point) => [
     point.fanOutsPerResponse,
     point.retrievedUrlsPerResponse,
@@ -1186,6 +1204,19 @@ function SourceDiscoveryDepthChart({
                 <YAxis axisLine={false} domain={[0, maximum]} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => Number(value).toLocaleString(undefined, { maximumFractionDigits: 1 })} tickLine={false} ticks={insightYAxisTicks(maximum)} width={36} />
                 <Tooltip content={SourceDiscoveryDepthTooltip} cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} isAnimationActive={false} />
                 <Legend iconType="circle" wrapperStyle={{ fontSize: 11 }} />
+                {showsDataForSeoMarker ? (
+                  <ReferenceLine
+                    label={{
+                      fill: "#92400e",
+                      fontSize: 10,
+                      position: "insideTopLeft",
+                      value: "Coverage change",
+                    }}
+                    stroke="#d97706"
+                    strokeDasharray="4 4"
+                    x={SOURCE_DISCOVERY_DATAFORSEO_GAP_START}
+                  />
+                ) : null}
                 <Line dataKey="fanOutsPerResponse" dot={false} isAnimationActive={false} name="Fan-outs / response" stroke={SOURCE_DISCOVERY_COLORS.fanOut} strokeWidth={2.1} type="linear" />
                 <Line dataKey="retrievedUrlsPerResponse" dot={false} isAnimationActive={false} name="Retrieved URLs / response" stroke={SOURCE_DISCOVERY_COLORS.retrieved} strokeWidth={2.1} type="linear" />
                 <Line dataKey="citedUrlsPerResponse" dot={false} isAnimationActive={false} name="Cited URLs / response" stroke={SOURCE_DISCOVERY_COLORS.cited} strokeWidth={2.1} type="linear" />
@@ -1193,6 +1224,20 @@ function SourceDiscoveryDepthChart({
             </ResponsiveContainer>
           )}
       </div>
+      {showsDataForSeoGap && !pending ? (
+        <div
+          className="operator-telemetry-notice operator-discovery-coverage-note"
+          role="note"
+        >
+          <strong>DataForSEO coverage change · August 21, 2026</strong>
+          <span>
+            After a provider-side ChatGPT change, DataForSEO stopped returning
+            complete fan-out-query details. Fan-out and retrieved-URL values
+            after this marker have partial coverage; the apparent drop should
+            not be read as lower retrieval depth.
+          </span>
+        </div>
+      ) : null}
     </Card>
   );
 }
@@ -1783,7 +1828,9 @@ export function OperatorSourceDiscoveryPage() {
             />
             <SourceDiscoveryDepthChart
               data={data?.activity ?? []}
+              model={model}
               pending={report.isPending}
+              source={source}
             />
             <SourceDiscoverySiteImpact
               data={data?.siteImpact ?? []}
