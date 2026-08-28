@@ -663,6 +663,10 @@ function FanOutActivityChart({
 }) {
   const isShare = metric !== "fanOutsPerResponse";
   const values = data.map((point) => point[metric]);
+  const chartData = data.map((point) => ({
+    ...point,
+    [metric]: point.reportedResponses > 0 ? point[metric] : null,
+  }));
   const yAxisMax = isShare
     ? insightYAxisMax(values)
     : insightNumericYAxisMax(values);
@@ -681,7 +685,7 @@ function FanOutActivityChart({
           />
         ) : (
           <ResponsiveContainer height="100%" minWidth={0} width="100%">
-            <AreaChart accessibilityLayer data={data} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+            <AreaChart accessibilityLayer data={chartData} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
               <defs>
                 <linearGradient id={gradientId} x1="0" x2="0" y1="0" y2="1">
                   <stop offset="5%" stopColor="#18181b" stopOpacity={0.12} />
@@ -1361,8 +1365,10 @@ export function OperatorFanOutTrendsPage() {
             <div className="operator-telemetry-notice" role="status">
               <strong>Partial fan-out telemetry</strong>
               <span>
-                {unavailableResponses.toLocaleString()} responses did not report
-                fan-out telemetry. They are shown in coverage but excluded from
+                {unavailableResponses.toLocaleString()} {unavailableResponses === 1
+                  ? "response did"
+                  : "responses did"} not report fan-out telemetry. They are
+                shown as unavailable in response status and excluded from
                 fan-out rates, so missing provider data is not counted as zero.
               </span>
             </div>
@@ -1374,17 +1380,10 @@ export function OperatorFanOutTrendsPage() {
             />
             <FanOutActivityChart
               data={data?.activity ?? []}
-              description="Average unique fan-out queries per response with reported telemetry, including explicit zeroes."
+              description="Average unique fan-out queries per response with reported telemetry. Explicit zeroes are included; gaps mean no telemetry was reported that day."
               metric="fanOutsPerResponse"
               pending={report.isPending}
               title="Fan-outs per response"
-            />
-            <FanOutActivityChart
-              data={data?.activity ?? []}
-              description="Share of completed responses for which the provider returned fan-out telemetry."
-              metric="telemetryCoverage"
-              pending={report.isPending}
-              title="Telemetry coverage"
             />
           </div>
           <FanOutSignalExplorer

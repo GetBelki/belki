@@ -186,7 +186,17 @@ describe("fan-out operator filters", () => {
         indexing: false,
         remainingSnapshots: 0,
         estimatedMinutes: 0,
-        activity: [],
+        activity: [{
+          date: "2026-08-27",
+          completedResponses: 6,
+          reportedResponses: 5,
+          unavailableResponses: 1,
+          responsesWithFanOut: 5,
+          totalFanOuts: 10,
+          responseShare: 100,
+          fanOutsPerResponse: 2,
+          telemetryCoverage: 5 / 6 * 100,
+        }],
         signals: {
           site: [],
           official: [],
@@ -230,6 +240,13 @@ describe("fan-out operator filters", () => {
         </MemoryRouter>
       </QueryClientProvider>,
     );
+
+    expect(await screen.findByText("Fan-out response status")).toBeInTheDocument();
+    expect(await screen.findByText((_, element) =>
+      element?.tagName === "SPAN"
+      && element.textContent?.includes("shown as unavailable in response status") === true
+    )).toBeInTheDocument();
+    expect(screen.queryByText("Telemetry coverage")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("combobox", { name: "Fan-out metric" }));
     fireEvent.click(await screen.findByRole("option", { name: "Per response" }));
