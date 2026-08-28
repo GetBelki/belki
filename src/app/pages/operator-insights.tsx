@@ -1,7 +1,13 @@
 import { Combobox } from "@base-ui/react/combobox";
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { Check, ChevronsUpDown, LoaderCircle, Search } from "lucide-react";
-import { useEffect, useMemo, useState, type ReactNode } from "react";
+import {
+  Check,
+  ChevronsUpDown,
+  CircleHelp,
+  LoaderCircle,
+  Search,
+} from "lucide-react";
+import { useEffect, useId, useMemo, useState, type ReactNode } from "react";
 import { useSearchParams } from "react-router-dom";
 import {
   Area,
@@ -227,6 +233,55 @@ const SOURCE_DISCOVERY_COLORS = {
   fanOut: "#d97706",
 };
 const SOURCE_DISCOVERY_DATAFORSEO_GAP_START = "2026-08-21";
+
+function includesDataForSeoChatGptGap(
+  data: ReadonlyArray<{ date: string }>,
+  source: InsightSource,
+  model: FanOutModel,
+): boolean {
+  const includesChatGpt = source === "chatgpt"
+    || (source === "all" && (
+      model === "all"
+      || model === "__unreported__"
+      || /^gpt-/i.test(model)
+    ));
+  return includesChatGpt && data.some(
+    (point) => point.date >= SOURCE_DISCOVERY_DATAFORSEO_GAP_START,
+  );
+}
+
+function OperatorCoverageTooltip({
+  ariaLabel,
+  children,
+  title,
+}: {
+  ariaLabel: string;
+  children: ReactNode;
+  title: string;
+}) {
+  const descriptionId = useId();
+  return (
+    <span className="operator-coverage-tooltip">
+      <button
+        aria-describedby={descriptionId}
+        aria-label={ariaLabel}
+        className="operator-coverage-tooltip-trigger"
+        type="button"
+      >
+        <CircleHelp size={14} />
+        <span>Partial coverage</span>
+      </button>
+      <span
+        className="operator-coverage-tooltip-content"
+        id={descriptionId}
+        role="tooltip"
+      >
+        <strong>{title}</strong>
+        <span>{children}</span>
+      </span>
+    </span>
+  );
+}
 
 const FAN_OUT_GROUP_OPTIONS = [
   { value: "direct-source", label: "Direct source" },
@@ -1166,14 +1221,10 @@ function SourceDiscoveryDepthChart({
   source: InsightSource;
 }) {
   const hasResponses = data.some((point) => point.completedResponses > 0);
-  const includesChatGpt = source === "chatgpt"
-    || (source === "all" && (
-      model === "all"
-      || model === "__unreported__"
-      || /^gpt-/i.test(model)
-    ));
-  const showsDataForSeoGap = includesChatGpt && data.some(
-    (point) => point.date >= SOURCE_DISCOVERY_DATAFORSEO_GAP_START,
+  const showsDataForSeoGap = includesDataForSeoChatGptGap(
+    data,
+    source,
+    model,
   );
   const showsDataForSeoMarker = showsDataForSeoGap && data.some(
     (point) => point.date === SOURCE_DISCOVERY_DATAFORSEO_GAP_START,
@@ -1186,6 +1237,17 @@ function SourceDiscoveryDepthChart({
   return (
     <Card className="operator-insight-card">
       <CardHeader
+        action={showsDataForSeoGap && !pending ? (
+          <OperatorCoverageTooltip
+            ariaLabel="DataForSEO retrieval coverage details"
+            title="DataForSEO coverage change · August 21, 2026"
+          >
+            After a provider-side ChatGPT change, DataForSEO stopped returning
+            complete fan-out-query details. Fan-out and retrieved-URL values
+            after the marker have partial coverage; the apparent drop should
+            not be read as lower retrieval depth.
+          </OperatorCoverageTooltip>
+        ) : undefined}
         title="Retrieval depth"
         description="Average unique retrieval and citation depth per completed response; fan-outs use responses with reported telemetry."
       />
@@ -1224,20 +1286,6 @@ function SourceDiscoveryDepthChart({
             </ResponsiveContainer>
           )}
       </div>
-      {showsDataForSeoGap && !pending ? (
-        <div
-          className="operator-telemetry-notice operator-discovery-coverage-note"
-          role="note"
-        >
-          <strong>DataForSEO coverage change · August 21, 2026</strong>
-          <span>
-            After a provider-side ChatGPT change, DataForSEO stopped returning
-            complete fan-out-query details. Fan-out and retrieved-URL values
-            after this marker have partial coverage; the apparent drop should
-            not be read as lower retrieval depth.
-          </span>
-        </div>
-      ) : null}
     </Card>
   );
 }
@@ -1888,6 +1936,34 @@ export function OperatorFanOutTrendsPage() {
     (total, point) => total + point.unavailableResponses,
     0,
   );
+  const showsDataForSeoGap = includesDataForSeoChatGptGap(
+    data?.activity ?? [],
+    source,
+    model,
+  );
+  const coverageTooltip = showsDataForSeoGap ? (
+    <OperatorCoverageTooltip
+      ariaLabel="DataForSEO fan-out coverage details"
+      title="DataForSEO coverage change · August 21, 2026"
+    >
+      After a provider-side ChatGPT change, DataForSEO stopped returning
+      complete fan-out-query details. {unavailableResponses > 0
+        ? `${unavailableResponses.toLocaleString()} ${unavailableResponses === 1 ? "response is" : "responses are"} unavailable in this view and excluded from fan-out rates. `
+        : "Filtered views may contain only the responses for which telemetry was reported. "}
+      Missing provider data is not counted as zero.
+    </OperatorCoverageTooltip>
+  ) : unavailableResponses > 0 ? (
+    <OperatorCoverageTooltip
+      ariaLabel="Partial fan-out coverage details"
+      title="Partial fan-out telemetry"
+    >
+      {unavailableResponses.toLocaleString()} {unavailableResponses === 1
+        ? "response did"
+        : "responses did"} not report fan-out telemetry. They are shown as
+      unavailable in response status and excluded from fan-out rates, so
+      missing provider data is not counted as zero.
+    </OperatorCoverageTooltip>
+  ) : undefined;
   if (report.isError) {
     return (
       <OperatorDataFailure
@@ -1899,6 +1975,7 @@ export function OperatorFanOutTrendsPage() {
   return (
     <div className="page operator-insights-page">
       <PageHeader
+        action={!indexing ? coverageTooltip : undefined}
         title="Fan-out query trends"
         description="Daily fan-out behavior aggregated across every retained project."
       />
@@ -1922,18 +1999,6 @@ export function OperatorFanOutTrendsPage() {
         </Card>
       ) : (
         <>
-          {unavailableResponses > 0 ? (
-            <div className="operator-telemetry-notice" role="status">
-              <strong>Partial fan-out telemetry</strong>
-              <span>
-                {unavailableResponses.toLocaleString()} {unavailableResponses === 1
-                  ? "response did"
-                  : "responses did"} not report fan-out telemetry. They are
-                shown as unavailable in response status and excluded from
-                fan-out rates, so missing provider data is not counted as zero.
-              </span>
-            </div>
-          ) : null}
           <div className="operator-insight-grid operator-fanout-activity-grid">
             <FanOutResponseStatusChart
               data={data?.activity ?? []}

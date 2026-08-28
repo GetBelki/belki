@@ -7863,19 +7863,59 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 .operator-fanout-activity-grid .operator-insight-chart { height: 300px; }
-.operator-telemetry-notice {
-  align-items: start;
+.operator-coverage-tooltip { display: inline-flex; position: relative; z-index: 8; }
+.operator-coverage-tooltip-trigger {
+  align-items: center;
   background: #fffbeb;
   border: 1px solid #fde68a;
-  border-radius: 10px;
-  color: #713f12;
-  display: grid;
-  gap: 3px;
-  padding: 12px 14px;
+  border-radius: 999px;
+  color: #92400e;
+  cursor: help;
+  display: inline-flex;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 700;
+  gap: 5px;
+  line-height: 1;
+  padding: 7px 9px;
+  white-space: nowrap;
 }
-.operator-telemetry-notice strong { font-size: 12px; }
-.operator-telemetry-notice span { font-size: 12px; line-height: 1.5; }
-.operator-discovery-coverage-note { margin: 0 18px 18px; }
+.operator-coverage-tooltip-trigger:hover,
+.operator-coverage-tooltip-trigger:focus-visible {
+  background: #fef3c7;
+  border-color: #f59e0b;
+  outline: none;
+}
+.operator-coverage-tooltip-content {
+  background: #18181b;
+  border: 1px solid #27272a;
+  border-radius: 9px;
+  box-shadow: 0 12px 32px rgba(24, 24, 27, .2);
+  color: #d4d4d8;
+  display: grid;
+  font-size: 11px;
+  gap: 5px;
+  line-height: 1.5;
+  opacity: 0;
+  padding: 11px 12px;
+  pointer-events: none;
+  position: absolute;
+  right: 0;
+  top: calc(100% + 8px);
+  transform: translateY(-4px);
+  transition: opacity 120ms ease, transform 120ms ease, visibility 120ms ease;
+  visibility: hidden;
+  white-space: normal;
+  width: min(360px, calc(100vw - 48px));
+  z-index: 30;
+}
+.operator-coverage-tooltip-content strong { color: #fff; font-size: 11px; }
+.operator-coverage-tooltip:hover .operator-coverage-tooltip-content,
+.operator-coverage-tooltip:focus-within .operator-coverage-tooltip-content {
+  opacity: 1;
+  transform: translateY(0);
+  visibility: visible;
+}
 .operator-insight-filter-field { display: grid; gap: 7px; min-width: 0; }
 .operator-insight-filter-label {
   color: #52525b;

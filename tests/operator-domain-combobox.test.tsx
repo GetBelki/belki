@@ -243,10 +243,13 @@ describe("fan-out operator filters", () => {
     );
 
     expect(await screen.findByText("Fan-out response status")).toBeInTheDocument();
-    expect(await screen.findByText((_, element) =>
-      element?.tagName === "SPAN"
-      && element.textContent?.includes("shown as unavailable in response status") === true
-    )).toBeInTheDocument();
+    expect(await screen.findByText(/DataForSEO coverage change/))
+      .toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "DataForSEO fan-out coverage details",
+    })).toBeInTheDocument();
+    expect(screen.getByText(/1 response is unavailable in this view/))
+      .toBeInTheDocument();
     expect(screen.queryByText("Telemetry coverage")).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("combobox", { name: "Fan-out metric" }));
@@ -358,6 +361,9 @@ describe("source-discovery operator insights", () => {
     expect(screen.getByText("Cited page types")).toBeInTheDocument();
     expect(screen.getByText(/DataForSEO coverage change/))
       .toBeInTheDocument();
+    expect(screen.getByRole("button", {
+      name: "DataForSEO retrieval coverage details",
+    })).toBeInTheDocument();
     expect(screen.getByText(/does not claim the underlying model/))
       .toBeInTheDocument();
   });
