@@ -358,7 +358,7 @@ export function AdsPage() {
                 <XAxis axisLine={false} dataKey="date" interval="preserveStartEnd" minTickGap={38} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={shortChartDate} tickLine={false} />
                 <YAxis allowDecimals={false} axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickFormatter={(value) => compact(Number(value))} tickLine={false} width={40} />
                 <Tooltip cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} formatter={(value, name) => [compact(Number(value)), String(name)]} isAnimationActive={false} labelFormatter={chartDateLabel} />
-                <Line activeDot={{ fill: "#fff", r: 4, strokeWidth: 2 }} dataKey="appearances" dot={false} isAnimationActive={false} name="Rendered ads" stroke="#7c3aed" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} type="linear" />
+                <Line activeDot={{ fill: "#fff", r: 4, strokeWidth: 2 }} dataKey="appearances" dot={false} isAnimationActive={false} name="Rendered ads" stroke="#1e73be" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} type="linear" />
                 <Line activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }} dataKey="hiddenAppearances" dot={false} isAnimationActive={false} name="Served but hidden" stroke="#d97706" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} type="linear" />
               </LineChart>
             </ResponsiveContainer>

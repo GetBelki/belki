@@ -1,33 +1,38 @@
 # Deployment and migration guide
 
 This is the production runbook for Belki's multi-user release, invite-only
-signup, prompt-based plans, multiple tracking sources, Stripe Direct
+signup, prompt-based plans, multiple tracking sources, modular payment-provider
 subscriptions, safe plan changes, and Cloudflare operator protection.
 
 The repository supports two operating models:
 
-| Installation | DataForSEO credentials | Stripe | Customer billing |
+| Installation | Capture-provider credentials | Payment provider | Customer billing |
 |---|---|---|---|
-| Self-hosted | The deployer adds their own Worker secrets | Disabled | None |
-| Belki managed cloud | Belki's platform Worker secrets | Stripe Direct | Starter, Studio, and Agency prompt allowances |
+| Self-hosted | The operator connects a provider during onboarding | Explicitly disabled during onboarding | None |
+| Belki managed cloud | Belki's operator connects platform accounts | Operator selects Stripe or Dodo Payments | Installation-defined plans and allowances |
 
-Provider credentials never belong in an application settings screen. Keep
-DataForSEO and Stripe credentials as encrypted **Worker runtime secrets**. A
-managed customer purchases a prompt allowance and never sees or supplies
-Belki's DataForSEO credentials. Internal workload budgets still protect the
-platform from runaway provider spend, but they are not a customer-facing
+Only the installation operator can add provider credentials, during onboarding
+or under **Operator → Providers**. Belki encrypts them with the Worker secret
+`APP_CRYPTO_KEY` before storing them in the control database and never returns
+them through the API. Payment-provider API and webhook secrets use the same
+versioned encrypted vault and are managed under **Operator → Payments**. A
+managed customer purchases a prompt allowance and never sees or supplies the
+installation's provider credentials. Internal workload budgets still protect
+the platform from runaway provider spend, but they are not a customer-facing
 currency.
 
 ## Rules that prevent production mistakes
 
 1. Deploy production from a reviewed Git commit on `main`. Do not run a local
    Wrangler deployment at the same time as a Cloudflare Git build.
-2. Runtime secrets go under **Worker → Settings → Variables & Secrets**. Do not
+2. The installation secrets `APP_CRYPTO_KEY` and `BOOTSTRAP_TOKEN` go under
+   **Worker → Settings → Variables & Secrets**. Provider credentials go through
+   the operator UI. Do not
    put them in GitHub, `wrangler.jsonc`, deployment profiles, chat, or
    **Settings → Build → Variables and secrets**.
-3. Test and live Stripe data are isolated by `STRIPE_ENVIRONMENT` and the
-   `stripe_livemode` stored in D1. Never change Stripe keys while payments are
-   enabled.
+3. Test and live payment data are isolated by each account's stored environment
+   and the workspace subscription link. Never change an account's environment;
+   create a separate account instead.
 4. Database migrations run before the Worker upload. Migrations `0015` and
    `0016` add managed billing. Migration `0017` adds source identity without
    rebuilding or dropping the foreign-key parent `crawl_jobs` table; its
@@ -37,6 +42,9 @@ currency.
    self-hosted and active.
 5. Plan downgrades are scheduled through Stripe Subscription Schedules. Never
    configure Stripe's generic portal to perform Belki plan switches.
+6. Changing the installation default affects new Checkout sessions only.
+   Existing subscriptions remain pinned to their recorded provider account and
+   continue receiving events through that account's unique webhook endpoint.
 
 Commands below assume the managed Worker is `ai-visibility-tracker` and its
 origin is `https://app.getbelki.com`. Self-hosters replace those values.
@@ -116,23 +124,61 @@ combined command remains available:
 pnpm deploy:getbelki:with-migrations
 ```
 
+An operator-guided wrapper is also available:
+
+```bash
+pnpm deploy:guided
+```
+
+It checks the Git release state and Cloudflare login, verifies that
+`APP_CRYPTO_KEY` and `BOOTSTRAP_TOKEN` exist without reading their values, runs
+the application checks and profile-specific dry run, previews and applies all
+control/snapshot migrations, verifies the new provider and billing tables,
+prints the migrated account/plan state, publishes the Worker, and checks the
+public status endpoint. Use `--target getbelki --yes` only from a clean reviewed
+checkout for a repeatable managed run; `--target self-hosted --url
+https://tracker.example.com --yes` provides the equivalent self-hosted path.
+
+The wrapper does not send provider credentials through shell arguments or write
+them directly to D1. Account verification, encrypted credential import,
+currency/catalogue selection, default-provider selection, and webhook cutover
+remain in **Operator → Providers** and **Operator → Payments**. The final script
+output links those screens and lists the safe cutover order.
+
+For a pre-launch environment with disposable test billing, use the explicit
+sandbox reset instead of importing legacy Stripe:
+
+```bash
+pnpm deploy:guided -- --target getbelki --reset-test-payments
+```
+
+After migrations establish the provider-neutral schema, the wrapper audits and
+prints the exact test accounts, subscriptions, Checkouts, plan changes, events,
+and affected workspaces. It fails closed when any live or ambiguous marker is
+present, records the current CONTROL_DB Time Travel bookmark, and requires the
+operator to type `DISCARD-TEST-PAYMENTS`. The cleanup returns only affected
+workspaces to self-hosted billing and removes test payment accounts and their
+encrypted credentials/mappings. It does not delete users, projects, prompts,
+captures, R2 objects, capture-provider configuration, usage history, or logical
+plan definitions. The post-reset state is `undecided`, so the operator can
+choose self-hosted, Stripe, or Dodo afresh. The reset does not call a provider
+API: cancel the printed sandbox subscription and remove its legacy webhook in
+Stripe before connecting the new payment account.
+
 The current managed sandbox profile is:
 
 ```json
 {
   "DEPLOYMENT_MODE": "managed",
-  "PAYMENT_MODE": "stripe_direct",
-  "BILLING_PLAN_CHANGES_ENABLED": "true",
-  "TRACKING_SOURCE_GEMINI_ENABLED": "false",
-  "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED": "false",
-  "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED": "false",
-  "STRIPE_ENVIRONMENT": "test"
+  "PAYMENT_MODE": "enabled",
+  "BILLING_PLAN_CHANGES_ENABLED": "true"
 }
 ```
 
-The three source flags intentionally remain false for the initial deployment.
-ChatGPT is always available. Enable the other sources one at a time only after
-the source-specific sandbox tests in section 6 pass.
+Tracking-platform activation and provider selection are stored in the control
+database and managed through **Operator → Providers**, rather than deployment
+variables. Enable platforms one at a time only after the source-specific
+sandbox tests in section 6 pass.
 
 `workers_dev` is disabled and `app.getbelki.com` is the only managed route, so
 the `workers.dev` hostname cannot bypass Cloudflare Access.
@@ -216,6 +262,12 @@ Before merging this schema release, run `pnpm db:migrate:remote`, which applies:
   operator Source discovery insights. Its resumable control-database-only
   backfill advances by up to 372 days per minute without reopening snapshot
   shards; the previous Worker remains compatible while it completes.
+- `0029_capture_providers.sql`: encrypted capture-provider accounts, routes,
+  attempts, and legacy credential import support.
+- `0030_payment_providers.sql`: encrypted, versioned payment accounts and plan
+  catalogues, the installation default, workspace-to-account subscription links,
+  unique webhook endpoints, and additive provider-neutral aliases on existing
+  billing records. Existing Stripe IDs are linked to the legacy Stripe account.
 - Snapshot migrations `0005_tracking_sources.sql` and
   `0006_fanout_telemetry.sql` on every snapshot shard: source identity,
   AI-surface presence, model metadata, and the distinction between an explicit
@@ -264,6 +316,41 @@ Expected results:
 Re-run the pre-cutover invariant query and exercise login, project reads,
 analytics, exports, a normal crawl, and a DataForSEO postback.
 
+### 3.4 Move legacy Stripe configuration into the vault
+
+Migration `0030` creates a legacy Stripe account only when existing Stripe
+billing state is present, then links every existing Stripe customer/subscription
+to it. A fresh database starts in `undecided` mode with no payment account or
+default. For a deployment that still has the old Stripe
+Worker variables and secrets, keep those bindings for one migration deployment.
+The payment onboarding page offers **Import current Stripe configuration**. That
+action verifies the remote catalogue, encrypts both secrets in D1, versions the
+credential, and makes the database-backed account authoritative.
+
+After the import passes:
+
+1. Copy the account-specific `/api/webhooks/payments/{endpoint-key}` URL from
+   **Operator → Payments** and update the Stripe webhook destination. The legacy
+   `/api/webhooks/stripe` route remains only as a cutover bridge.
+2. Use **Test** in the operator page and send a signed Stripe test event.
+3. Deploy the standard managed profile, which contains no Stripe variables.
+4. Remove the old `STRIPE_SECRET_KEY` and `STRIPE_WEBHOOK_SECRET` Worker secrets.
+   If the webhook destination was recreated and has a new signing secret, rotate
+   the saved payment credentials first.
+
+The current installation has no real subscriptions, so it may instead remove
+the legacy bindings and configure either a complete Stripe or Dodo test account
+during installation setup. Importing legacy Stripe never hides the normal
+provider choice. Do not use that shortcut once customer subscriptions exist.
+
+If the existing Stripe subscription and events are disposable sandbox fixtures,
+the guided `--reset-test-payments` path is cleaner than importing them. The
+audit runs only after migration `0031`, refuses any live or unclassified state,
+records a Time Travel bookmark, deletes the test-only provider links and billing
+history, unlocks the logical plan catalogue, and leaves the installation ready
+for a new payment choice. Never use this flag to migrate a public installation
+with customer billing history.
+
 ## 4. Protect the operator console with Cloudflare Access
 
 `/api/v1/operator/*` is the administration API used by the `/operator` React
@@ -287,7 +374,8 @@ Belki requires both controls:
 2. The active Belki session email must match that header and exist in
    `platform_operators`.
 
-Do not protect `/api/webhooks/stripe`, DataForSEO webhooks, signup, login, or the
+Do not protect `/api/webhooks/payments/*`, the legacy `/api/webhooks/stripe`,
+capture-provider webhooks, signup, login, or the
 customer application with the operator Access policy.
 
 Verify in a private browser:
@@ -297,9 +385,41 @@ Verify in a private browser:
 - An allow-listed email without a Belki operator record is denied by Belki.
 - The allow-listed platform operator can load workspace and signup-code data.
 
-## 5. Stripe product and portal model
+## 5. Payment-provider model and catalogues
 
-Belki supports one monthly EUR subscription item at quantity 1:
+The payment registry owns Checkout, customer management, subscription
+normalization, plan changes, cancellation/reactivation, and webhook verification.
+The installation default is selected under **Operator → Payments**. Each
+successful subscription stores its provider account, environment, adapter
+version, external customer/subscription IDs, and provider state. Stripe and Dodo
+Payments can both be configured; changing the default affects new Checkout
+sessions while existing subscriptions continue through their original account.
+
+Payment credentials are encrypted with `APP_CRYPTO_KEY`, versioned on rotation,
+and can only be replaced. The API never returns plaintext. First-run onboarding
+requires one deliberate choice: configure one Stripe or Dodo account for
+`managed`, or continue without payment credentials as `self_hosted`. A
+self-hosted installation can later activate managed billing from
+**Operator → Payments**.
+
+The first payment-account form defines the installation's logical catalogue of
+1–8 plans. The bundled Starter/Studio/Agency values are an editable GetBelki
+template, not fixed product policy. The operator can rename, reorder, add, or
+remove plans and configure their usage, project, prompt, and source entitlements.
+Each payment account then maps every logical plan to one remote Price/Product ID
+and amount in one ISO 4217 currency. Belki stores integer minor units, verifies
+the remote catalogue, and returns the same definitions and prices to the
+customer pricing screen. Plans, currency, and prices are installation data, not
+Worker bindings or hard-coded adapter policy. After the first account is saved,
+the definitions are shared and locked while additional accounts map that same
+catalogue.
+
+### 5.1 Stripe product and portal requirements
+
+Belki supports one monthly subscription item at quantity 1. The operator chooses
+the logical plans, currency, and amounts when configuring the first account.
+The current GetBelki commercial catalogue uses EUR as follows; another
+installation may replace the complete catalogue, including names and limits:
 
 | Plan | Tax-exclusive price | Active prompts | Active projects | Tracking sources per project |
 |---|---:|---:|---:|---|
@@ -311,8 +431,9 @@ One active prompt is one query Belki tracks on schedule. If a project has two
 tracking sources enabled, that prompt is collected from both sources. Do not
 market internal workload weights as prompts, checks, credits, or requests.
 
-Use three Products with one Price each—not three same-interval Prices on one
-Product. This avoids Stripe's “This pricing plan can't be added” portal error.
+Use one Product with one Price for each logical plan rather than multiple
+same-interval Prices on a shared Product. This avoids Stripe's “This pricing
+plan can't be added” portal error.
 
 Configure two portal experiences separately in sandbox and live mode:
 
@@ -328,6 +449,22 @@ Configure two portal experiences separately in sandbox and live mode:
 
 Stripe Dashboard manages only the default portal configuration. The helper
 creates the non-default action configuration through Stripe's API.
+
+### 5.2 Dodo Payments product requirements
+
+Create one tax-exclusive, monthly recurring Product for each installation plan
+in the chosen currency. Enter its exact decimal amount and `pdt_...` Product ID,
+the test/live API key, and the endpoint's `whsec_...` signing secret in Belki.
+For GetBelki's current catalogue those values are EUR 10, EUR 29, and EUR 149;
+they are not adapter-wide defaults. Dodo's customer portal needs no stored
+configuration ID.
+
+If customers may upgrade through Belki, enable **Collect Plan Change Payments by
+Payment Link** in Dodo's subscription settings. Add Belki's account-specific
+webhook URL under **Developer → Webhooks** and subscribe to payment
+succeeded/failed/cancelled plus subscription active, renewed, on-hold, failed,
+cancelled, expired, plan-changed, and updated events. Belki verifies Dodo's
+Standard Webhooks signature before parsing the payload.
 
 ## 6. Sandbox rollout on the invite-only live app
 
@@ -345,25 +482,37 @@ pnpm stripe:configure -- \
   --bootstrap-catalogue
 ```
 
-The command prints only:
+The command prints the currency, human-readable amounts, environment, three
+Price IDs, and action portal ID for the GetBelki template. Keep them available
+for the installation form; do not add them to the deployment profile. This
+helper intentionally bootstraps GetBelki's Starter/Studio/Agency catalogue.
+Installations with different logical plans create the corresponding monthly
+Stripe Products/Prices in Stripe and enter them in Belki's dynamic catalogue
+editor. The helper's template prices can still be changed with `--currency`,
+`--starter-amount`, `--studio-amount`, and `--agency-amount`.
 
 ```text
 STRIPE_ENVIRONMENT=test
+PAYMENT_CATALOGUE_CURRENCY=EUR
+PAYMENT_STARTER_AMOUNT=10.00
+PAYMENT_STUDIO_AMOUNT=29.00
+PAYMENT_AGENCY_AMOUNT=149.00
 STRIPE_STARTER_PRICE_ID=price_...
 STRIPE_STUDIO_PRICE_ID=price_...
 STRIPE_AGENCY_PRICE_ID=price_...
 STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID=bpc_...
 ```
 
-Copy those non-secret IDs into `deployment/getbelki.json`.
+Open the installation payment step or **Operator → Payments → Add payment
+account**. Select the test environment, enter `EUR` and the current 10/29/149
+amounts for this deployment, and copy the unique webhook URL before submitting
+the form.
 
 ### 6.2 Create the sandbox webhook
 
-Create a Stripe sandbox webhook destination:
-
-```text
-https://app.getbelki.com/api/webhooks/stripe
-```
+Create a Stripe sandbox webhook destination using the unique
+`/api/webhooks/payments/{endpoint-key}` URL shown by Belki. Do not reuse another
+payment account's URL.
 
 Select event API version **`2025-03-31.basil`**, not **Latest**. Stripe fixes
 the payload version when it creates the destination; it cannot be changed on an
@@ -398,6 +547,7 @@ allowlist:
 ```bash
 pnpm stripe:check -- \
   --origin https://app.getbelki.com \
+  --webhook-url https://app.getbelki.com/api/webhooks/payments/... \
   --starter-price price_... \
   --studio-price price_... \
   --agency-price price_... \
@@ -408,20 +558,16 @@ Do not put Cloudflare Access in front of this endpoint. Belki authenticates the
 bounded raw body with Stripe's signature, rejects the wrong test/live mode, and
 deduplicates event IDs in D1.
 
-### OWNER SECRET CHECKPOINT A — sandbox
+### OWNER CREDENTIAL CHECKPOINT A — sandbox
 
-In **Workers & Pages → ai-visibility-tracker → Settings → Variables & Secrets →
-Add → Secret**, paste:
+In the Belki payment form, enter the sandbox `sk_test_...` server key, the new
+endpoint's `whsec_...` signing secret, the three Price IDs, and the action portal
+ID. Submit once. Belki verifies the remote objects before encrypting the secrets
+with `APP_CRYPTO_KEY`. The values cannot be viewed afterward; rotation requires
+complete replacement credentials.
 
-1. `STRIPE_SECRET_KEY`: the sandbox `sk_test_...` server key.
-2. `STRIPE_WEBHOOK_SECRET`: the sandbox endpoint's `whsec_...` signing secret.
-
-Do not paste either value into a terminal command, `.dev.vars.production`,
-GitHub, documentation, or chat. Verify names without revealing values:
-
-```bash
-pnpm exec wrangler secret list
-```
+Do not put either secret in Worker variables, a terminal command, GitHub,
+documentation, or chat.
 
 ### 6.3 Activate sandbox through Git
 
@@ -430,16 +576,13 @@ In a dedicated PR, change only the managed profile:
 ```json
 {
   "DEPLOYMENT_MODE": "managed",
-  "PAYMENT_MODE": "stripe_direct",
-  "BILLING_PLAN_CHANGES_ENABLED": "true",
-  "TRACKING_SOURCE_GEMINI_ENABLED": "false",
-  "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED": "false",
-  "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED": "false",
-  "STRIPE_ENVIRONMENT": "test"
+  "PAYMENT_MODE": "enabled",
+  "BILLING_PLAN_CHANGES_ENABLED": "true"
 }
 ```
 
-Use the sandbox Price/action-portal IDs. Merge after CI and Stripe checks pass.
+Merge after CI and Stripe checks pass. Payment account configuration remains in
+D1 and is not part of the deployment profile.
 
 From `/operator`, create one test-only signup code and exercise:
 
@@ -464,31 +607,31 @@ From `/operator`, create one test-only signup code and exercise:
 - Prompt, project, and source limits stop new paid work without deleting
   customer data.
 
-### 6.4 Validate and release tracking sources
+### 6.4 Validate and release tracking platforms
 
-No new provider secret is required. Gemini, Google AI Mode, Google AI
-Overviews, and ChatGPT all use the existing `DATAFORSEO_LOGIN` and
-`DATAFORSEO_PASSWORD` Worker runtime secrets.
+Provider accounts are operator-owned and installation-wide. Add or rotate
+their credentials under **Operator → Providers**; credentials are encrypted
+with `APP_CRYPTO_KEY` and are never returned by the API. Select one default
+provider, then optionally choose a different provider for each platform.
 
-Release optional sources independently, in this order:
+Release optional platforms independently, in this order:
 
-1. Set `TRACKING_SOURCE_GEMINI_ENABLED=true` in
-   `deployment/getbelki.json`, merge the profile PR, and enable Gemini on one
-   internal Studio or Agency project.
-2. Allow one scheduled prompt update. Verify a source-specific result,
-   citations, provider cost, prompt history, alert, and CSV export. Confirm
+1. In **Operator → Providers**, enable Gemini and select a provider that
+   supports it. Enable Gemini on one internal Studio or Agency project.
+2. Allow one scheduled prompt update. Verify a platform-specific result,
+   citations, provider activity, prompt history, alert, and CSV export. Confirm
    ChatGPT reporting did not change.
-3. Repeat for `TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED`.
-4. Repeat for `TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED`. Test one query with
+3. Repeat for Google AI Mode.
+4. Repeat for Google AI Overview. Test one query with
    an AI Overview and one without. Absence is a successful observation shown as
    “not present,” not a failed job.
 
-Google AI Overviews uses Google Organic Advanced with asynchronous AI Overview
-loading; DataForSEO charges that option at a higher multiplier. Watch actual
-provider cost before expanding access. To stop a source safely, change only its
-flag to false and redeploy. Existing history remains readable; new selection
-and dispatch stop. Work already accepted by DataForSEO may still finish and is
-normalized into the preserved source history.
+Watch completion rate, failures, latency, and current provider spend before
+expanding access. Operational activity is in **Operator → Providers**; balances,
+credits, spend, and invoices remain in the linked provider dashboard. To stop a
+platform safely, disable it in Belki's AI platforms section. Existing history
+remains readable; new selection and dispatch stop. Work already accepted by a
+provider may still finish and is normalized into the preserved platform history.
 
 Source behavior is intentionally explicit:
 
@@ -535,18 +678,18 @@ pnpm stripe:configure -- \
   --bootstrap-catalogue
 ```
 
-Create the live webhook destination with the same URL, exact event list, and
-event API version **`2025-03-31.basil`**. Test and live webhook destinations
-have different signing secrets.
+Under **Operator → Payments**, start a separate live Stripe account and copy its
+new unique webhook URL. Create the live webhook destination with that URL, the
+same exact event list, and event API version **`2025-03-31.basil`**. Test and
+live webhook destinations have different signing secrets.
 
-### OWNER SECRET CHECKPOINT B — live rotation
+### OWNER CREDENTIAL CHECKPOINT B — live account
 
-While payments are still disabled, replace the two Worker runtime secrets:
-
-1. `STRIPE_SECRET_KEY`: live `sk_live_...` server key.
-2. `STRIPE_WEBHOOK_SECRET`: live endpoint `whsec_...` signing secret.
-
-Do not change the five existing DataForSEO/bootstrap/crypto secrets.
+Complete the new Belki account with the `sk_live_...` server key, that
+endpoint's `whsec_...` signing secret, and the live catalogue/portal IDs. Belki
+tests and encrypts it without modifying the sandbox account. Do not change
+`APP_CRYPTO_KEY`; doing so would make every stored provider credential
+unreadable.
 
 Run a read-only live check using the non-secret IDs printed by the helper:
 
@@ -554,32 +697,30 @@ Run a read-only live check using the non-secret IDs printed by the helper:
 pnpm stripe:check -- \
   --live \
   --origin https://app.getbelki.com \
+  --webhook-url https://app.getbelki.com/api/webhooks/payments/... \
   --starter-price price_... \
   --studio-price price_... \
   --agency-price price_... \
   --portal-id bpc_...
 ```
 
-### 7.2 Activate live billing through Git
+### 7.2 Select the live installation default
 
-Merge a dedicated profile-only PR with:
+The managed profile remains:
 
 ```json
 {
   "DEPLOYMENT_MODE": "managed",
-  "PAYMENT_MODE": "stripe_direct",
-  "BILLING_PLAN_CHANGES_ENABLED": "true",
-  "TRACKING_SOURCE_GEMINI_ENABLED": "false",
-  "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED": "false",
-  "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED": "false",
-  "STRIPE_ENVIRONMENT": "live"
+  "PAYMENT_MODE": "enabled",
+  "BILLING_PLAN_CHANGES_ENABLED": "true"
 }
 ```
 
-Use only live Price/action-portal IDs. After Cloudflare reports the expected Git
-SHA/version, create one owner-controlled live invite and complete a Starter
-Checkout. The browser must leave the pricing screen only after the signed
-webhook makes the subscription active, then open `/onboarding/project`.
+After the live account passes its test, choose **Use for installation**. This
+changes only new Checkout sessions; existing sandbox subscriptions stay linked
+to the sandbox account. Create one owner-controlled live invite and complete a
+Starter Checkout. The browser must leave the pricing screen only after the
+signed webhook makes the subscription active, then open `/onboarding/project`.
 
 Complete the customer path before treating the release as healthy:
 
@@ -588,10 +729,11 @@ Complete the customer path before treating the release as healthy:
 2. Add at least one prompt and confirm `/prompts` shows it. Also verify that
    **Skip for now** reaches the project overview without an onboarding loop.
 3. Open Billing. Confirm managed workspaces show the plan, active prompt and
-   project allowances, source entitlements, and Stripe management action. Raw
-   provider costs must not be exposed to managed customers.
-4. Confirm a self-hosted workspace defaults to **Provider costs** and labels
-   the other view **Limits**; it must not show managed checkout actions.
+   project allowances, source entitlements, and Stripe management action.
+   Provider balances, credits, spend, and invoices must not appear there.
+4. Confirm a self-hosted workspace shows **Self-hosted limits** without provider
+   cost reporting or managed checkout actions. Open **Operator → Providers** and
+   confirm activity metrics and the external provider-dashboard links.
 5. Open the operator console through Cloudflare Access. Create and revoke a
    test invitation, and verify a workspace status change requires confirmation.
 
@@ -650,8 +792,9 @@ Cloudflare Access identity. Operators cannot manually overwrite Stripe-backed
 plan or allowance fields.
 
 Unsupported subscription shapes fail closed for operator review: trials,
-discounts, quantity other than one, multiple items, non-monthly/non-EUR Prices,
-missing automatic tax, unknown Prices, and foreign Subscription Schedules.
+discounts, quantity other than one, multiple items, non-monthly Prices, currency
+or amount mismatches against the selected account catalogue, missing automatic
+tax, unknown Prices, and foreign Subscription Schedules.
 
 ## 9. Rollback and direct-deploy fallback
 
@@ -686,29 +829,27 @@ billing reconciliation before reopening invitations.
 
 ## 10. Fresh self-hosted installation
 
-Self-hosters keep `DEPLOYMENT_MODE=self_hosted`, `PAYMENT_MODE=disabled`, and
-their own DataForSEO credentials as Worker runtime secrets. Stripe secrets and
-managed deployment profiles are unnecessary. The checked-in self-hosted
-configuration enables every tracking source and provides high local prompt and
-project limits; ChatGPT remains the default on existing and new projects until
-the owner enables more sources in Project Settings.
+Self-hosters keep `DEPLOYMENT_MODE=self_hosted` and `PAYMENT_MODE=disabled`.
+Stripe secrets and managed deployment profiles are unnecessary. Provider
+accounts are configured during onboarding and later managed through the
+operator dashboard. The checked-in self-hosted configuration provides high
+local prompt and project limits; ChatGPT remains the default on existing and
+new projects until the owner enables more platforms in Project Settings.
 
 ### Deploy from the public repository
 
 Once the repository is public, the Deploy to Cloudflare button in the README
 is the shortest fresh-install path. Cloudflare forks the repository, provisions
-the resources declared by `wrangler.jsonc`, collects the five required secrets,
+the resources declared by `wrangler.jsonc`, collects the two required secrets,
 and runs `pnpm deploy`, including all control and snapshot migrations. It does
 not enable Stripe or Belki's managed deployment profile.
 
 The repository must remain private until the public-release checklist is
 approved. Do not test the public button by changing repository visibility.
 
-Generate three independent values for `DATAFORSEO_WEBHOOK_TOKEN`,
-`APP_CRYPTO_KEY`, and `BOOTSTRAP_TOKEN`:
+Generate independent values for `APP_CRYPTO_KEY` and `BOOTSTRAP_TOKEN`:
 
 ```bash
-openssl rand -base64 32
 openssl rand -base64 32
 openssl rand -base64 32
 ```
@@ -719,12 +860,9 @@ variables, source files, command arguments, or screenshots.
 
 ### Deploy manually
 
-Set the five required secrets interactively:
+Set the two required application secrets interactively:
 
 ```bash
-pnpm exec wrangler secret put DATAFORSEO_LOGIN
-pnpm exec wrangler secret put DATAFORSEO_PASSWORD
-pnpm exec wrangler secret put DATAFORSEO_WEBHOOK_TOKEN
 pnpm exec wrangler secret put APP_CRYPTO_KEY
 pnpm exec wrangler secret put BOOTSTRAP_TOKEN
 ```

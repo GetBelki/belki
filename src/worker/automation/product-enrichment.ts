@@ -6,7 +6,8 @@ import {
   parseProductInfoPayload,
   postProductInfoTask,
 } from "../lib/dataforseo-merchant";
-import { platformDataForSeoCredentials } from "../lib/provider-credentials";
+import { registeredDataForSeoCredentials } from "../providers/dataforseo-credentials";
+import { dataForSeoWebhookToken } from "../providers/dataforseo";
 import { commitUsage, releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 import { normalizeUrl } from "../lib/domain";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
@@ -478,7 +479,8 @@ async function submitJob(env: Env, jobId: string): Promise<void> {
     ).bind(updatedAt, job.target_id),
   ]);
   try {
-    const response = await postProductInfoTask(platformDataForSeoCredentials(env), {
+    const webhookToken = await dataForSeoWebhookToken(env);
+    const response = await postProductInfoTask(await registeredDataForSeoCredentials(env), {
       ...(job.google_product_id ? { product_id: job.google_product_id } : {}),
       ...(job.data_docid ? { data_docid: job.data_docid } : {}),
       ...(job.gid ? { gid: job.gid } : {}),
@@ -486,7 +488,7 @@ async function submitJob(env: Env, jobId: string): Promise<void> {
       language_code: job.language_code,
       priority: job.priority,
       tag: job.provider_tag,
-      postback_url: `${workspacePublicAppOrigin(env, job.public_base_url)}/api/webhooks/dataforseo/product-info?token=${encodeURIComponent(env.DATAFORSEO_WEBHOOK_TOKEN)}&id=$id&tag=$tag`,
+      postback_url: `${workspacePublicAppOrigin(env, job.public_base_url)}/api/webhooks/dataforseo/product-info?token=${encodeURIComponent(webhookToken)}&id=$id&tag=$tag`,
       postback_data: "advanced",
     });
     const task = response.tasks[0];
@@ -794,7 +796,7 @@ export async function verifyProductEnrichmentTag(
 }
 
 export async function collectReadyProductInfoTasks(env: Env): Promise<number> {
-  const credentials = platformDataForSeoCredentials(env);
+  const credentials = await registeredDataForSeoCredentials(env);
   const ready = await getProductInfoTasksReady(credentials);
   let recovered = 0;
   for (const task of ready) {

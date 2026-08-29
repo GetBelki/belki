@@ -10,6 +10,7 @@ import {
   ShoppingBag,
   Settings,
   ShieldCheck,
+  KeyRound,
   Users,
   X,
 } from "lucide-react";
@@ -48,6 +49,8 @@ const NAVIGATION = [
 
 export function OperatorNavigation({ pathname }: { pathname: string }) {
   const consoleActive = pathname === "/operator";
+  const providersActive = pathname.startsWith("/operator/providers");
+  const paymentsActive = pathname.startsWith("/operator/payments");
   const citationsActive = pathname.startsWith("/operator/insights/citations");
   const sourceDiscoveryActive = pathname.startsWith(
     "/operator/insights/source-discovery",
@@ -56,6 +59,20 @@ export function OperatorNavigation({ pathname }: { pathname: string }) {
   return (
     <>
       <p>Operator</p>
+      <a
+        aria-current={providersActive ? "page" : undefined}
+        className={cn("nav-item", "operator-nav-item", providersActive && "active")}
+        href="/operator/providers"
+      >
+        <KeyRound size={17} /> <span>Providers</span>
+      </a>
+      <a
+        aria-current={paymentsActive ? "page" : undefined}
+        className={cn("nav-item", "operator-nav-item", paymentsActive && "active")}
+        href="/operator/payments"
+      >
+        <BillingIcon size={17} /> <span>Payments</span>
+      </a>
       <a
         aria-current={consoleActive ? "page" : undefined}
         className={cn("nav-item", "operator-nav-item", consoleActive && "active")}

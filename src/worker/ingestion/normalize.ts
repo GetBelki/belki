@@ -1,6 +1,7 @@
 import type {
   NormalizeQueueMessage,
   RollupQueueMessage,
+  CaptureProvider,
   TrackingSource,
 } from "../../shared/contracts";
 import { resolveProviderCost } from "../../shared/provider-cost";
@@ -10,13 +11,14 @@ import {
   normalizeBrand,
   normalizeUrl,
 } from "../lib/domain";
-import { getTaskHtml } from "../lib/dataforseo";
-import { platformDataForSeoCredentials } from "../lib/provider-credentials";
+import { getTaskHtml } from "../providers/dataforseo";
+import type { DataForSeoCredentials } from "../lib/provider-credentials";
 import { jsonParse, nowIso } from "../lib/http";
 import { sha256 } from "../lib/crypto";
 import { getShard } from "../lib/shards";
 import { promptPurgeRequested } from "../lib/prompt-purges";
-import { parseTrackingPayload } from "./dataforseo-schema";
+import { parseCapturePayload } from "../providers/normalize";
+import { loadCaptureProviderCredential } from "../providers/accounts";
 import { enqueueEntityExtractionForSnapshot } from "../automation/entity-extraction";
 import { normalizeAdItem } from "../lib/ads";
 
@@ -33,6 +35,14 @@ interface JobRow {
   deleted_at: string | null;
   purging: number;
   tracking_source: TrackingSource;
+  provider_account_id: string | null;
+  capture_provider: CaptureProvider;
+  capture_provider_attempt_id: string | null;
+  capture_adapter_version: string | null;
+  credential_version: number | null;
+  query_text: string;
+  location_code: number;
+  language_code: string;
 }
 
 interface BrandRow {
@@ -114,14 +124,18 @@ export async function normalizeSnapshot(
     `SELECT
       job.id, job.workspace_id, job.project_id, job.tracked_query_id, job.shard_id,
       job.capture_html, job.delivery_method, job.request_cost_usd, job.status,
-      job.tracking_source,
-      query.deleted_at,
+      job.tracking_source, job.provider_account_id, job.capture_provider,
+      job.capture_provider_attempt_id, job.capture_adapter_version,
+      attempt.credential_version,
+      query.query_text, query.location_code, query.language_code, query.deleted_at,
       EXISTS(
         SELECT 1 FROM prompt_purge_jobs purge
         WHERE purge.tracked_query_id = job.tracked_query_id
       ) AS purging
      FROM crawl_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
+     LEFT JOIN capture_provider_attempts attempt
+       ON attempt.id = job.capture_provider_attempt_id
      WHERE job.id = ?`,
   )
     .bind(message.jobId)
@@ -146,12 +160,17 @@ export async function normalizeSnapshot(
       await env.EVIDENCE_BUCKET.delete(message.rawR2Key);
       return null;
     }
-    await env.CONTROL_DB.prepare(
-      `UPDATE crawl_jobs SET status = 'completed', completed_at = ?, updated_at = ?
-       WHERE id = ? AND status != 'cancelled'`,
-    )
-      .bind(nowIso(), nowIso(), job.id)
-      .run();
+    const completedAt = nowIso();
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs SET status = 'completed', completed_at = ?, updated_at = ?
+         WHERE id = ? AND status != 'cancelled'`,
+      ).bind(completedAt, completedAt, job.id),
+      env.CONTROL_DB.prepare(
+        `UPDATE capture_provider_attempts SET status = 'completed', completed_at = ?,
+          updated_at = ? WHERE id = ?`,
+      ).bind(completedAt, completedAt, job.capture_provider_attempt_id),
+    ]);
     if (job.tracking_source === "chatgpt") {
       await enqueueEntityExtractionForSnapshot(env, {
         id: existing.id,
@@ -165,7 +184,17 @@ export async function normalizeSnapshot(
   }
 
   const rawPayload = await readRawPayload(env, message);
-  const payload = parseTrackingPayload(rawPayload, job.tracking_source);
+  const payload = parseCapturePayload(
+    job.capture_provider,
+    rawPayload,
+    job.tracking_source,
+    {
+      taskId: message.taskId,
+      query: job.query_text,
+      locationCode: job.location_code,
+      languageCode: job.language_code,
+    },
+  );
   const providerTask =
     payload.tasks.find((task) => task.id === message.taskId) ?? payload.tasks[0];
   const result = providerTask?.result?.[0];
@@ -204,10 +233,27 @@ export async function normalizeSnapshot(
   let htmlR2Key: string | null = null;
   if (
     job.tracking_source === "chatgpt" &&
+    job.capture_provider === "dataforseo" &&
     job.capture_html === 1 &&
     job.delivery_method !== "live"
   ) {
-    const html = await getTaskHtml(platformDataForSeoCredentials(env), message.taskId);
+    if (!job.provider_account_id) {
+      throw new Error("DataForSEO job is missing its provider account");
+    }
+    const credentialInput = await loadCaptureProviderCredential(
+      env,
+      job.provider_account_id,
+      job.credential_version,
+    );
+    if (credentialInput.provider !== "dataforseo") {
+      throw new Error("DataForSEO job has incompatible credentials");
+    }
+    const credentials: DataForSeoCredentials = {
+      accountId: job.provider_account_id,
+      login: credentialInput.credentials.login,
+      password: credentialInput.credentials.password,
+    };
+    const html = await getTaskHtml(credentials, message.taskId);
     htmlR2Key = `html/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${message.taskId}.html`;
     await env.EVIDENCE_BUCKET.put(htmlR2Key, html, {
       httpMetadata: { contentType: "text/html; charset=utf-8" },
@@ -236,8 +282,9 @@ export async function normalizeSnapshot(
           items_count, item_types_json, fan_out_queries_json,
           fan_out_telemetry_status, raw_r2_key,
           html_r2_key, provider_cost_usd, provider_status_code,
-          provider_status_message, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          provider_status_message, capture_provider, capture_provider_attempt_id,
+          capture_adapter_version, created_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       )
       .bind(
         snapshotId,
@@ -266,6 +313,9 @@ export async function normalizeSnapshot(
         providerCost,
         providerTask.status_code ?? null,
         providerTask.status_message ?? null,
+        job.capture_provider,
+        job.capture_provider_attempt_id,
+        job.capture_adapter_version,
         createdAt,
       ),
   );
@@ -646,8 +696,9 @@ export async function normalizeSnapshot(
         dataforseo_task_id, tracking_source, surface_present,
         captured_at, model, check_url, answer_hash,
         cited_domains_count, retrieved_domains_count, brand_entities_count,
-        products_count, has_product_block, raw_r2_key, html_r2_key, created_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        products_count, has_product_block, raw_r2_key, html_r2_key,
+        capture_provider, capture_provider_attempt_id, capture_adapter_version, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     ).bind(
       snapshotId,
       job.id,
@@ -669,6 +720,9 @@ export async function normalizeSnapshot(
       productsCount > 0 ? 1 : 0,
       message.rawR2Key,
       htmlR2Key,
+      job.capture_provider,
+      job.capture_provider_attempt_id,
+      job.capture_adapter_version,
       createdAt,
     ),
     env.CONTROL_DB.prepare(
@@ -684,6 +738,17 @@ export async function normalizeSnapshot(
       htmlR2Key,
       nowIso(),
       job.id,
+    ),
+    env.CONTROL_DB.prepare(
+      `UPDATE capture_provider_attempts SET status = 'completed',
+        raw_r2_key = ?, request_cost_usd = ?, completed_at = ?, updated_at = ?
+       WHERE id = ?`,
+    ).bind(
+      message.rawR2Key,
+      providerCost,
+      nowIso(),
+      nowIso(),
+      job.capture_provider_attempt_id,
     ),
     env.CONTROL_DB.prepare(
       `UPDATE shard_registry SET

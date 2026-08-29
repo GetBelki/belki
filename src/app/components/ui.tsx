@@ -216,7 +216,7 @@ export function Select({
 }: {
   value?: string;
   onValueChange: (value: string) => void;
-  options: Array<{ value: string; label: string; icon?: ReactNode }>;
+  options: Array<{ value: string; label: string; icon?: ReactNode; disabled?: boolean }>;
   placeholder?: string;
   ariaLabel?: string;
 }) {
@@ -241,6 +241,7 @@ export function Select({
             {options.map((option) => (
               <SelectPrimitive.Item
                 className="select-item"
+                disabled={option.disabled}
                 key={option.value}
                 value={option.value}
               >

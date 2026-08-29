@@ -277,20 +277,20 @@ function OverviewProductList({
 }
 
 const SOURCE_TREND_COLORS = [
-  "#2563eb",
+  "#1e73be",
   "#16a34a",
   "#d97706",
-  "#9333ea",
+  "#0891b2",
   "#dc2626",
   "#18181b",
 ];
 
 const BRAND_TREND_COLORS = [
   "#18181b",
-  "#2563eb",
+  "#1e73be",
   "#16a34a",
   "#d97706",
-  "#9333ea",
+  "#0891b2",
 ];
 
 function percentagePoints(value: number | null | undefined): string {

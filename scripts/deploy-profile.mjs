@@ -29,11 +29,10 @@ const allowedVars = new Set([
   "DEPLOYMENT_MODE",
   "PAYMENT_MODE",
   "BILLING_PLAN_CHANGES_ENABLED",
-  "TRACKING_SOURCE_GEMINI_ENABLED",
-  "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED",
-  "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED",
   "PUBLIC_APP_ORIGIN",
   "EMAIL_FROM_ADDRESS",
+  // Migration-only compatibility: a temporary profile can expose the previous
+  // non-secret Stripe catalogue long enough for Operator → Payments to import it.
   "STRIPE_ENVIRONMENT",
   "STRIPE_STARTER_PRICE_ID",
   "STRIPE_STUDIO_PRICE_ID",
@@ -56,22 +55,6 @@ for (const [name, value] of Object.entries(profile.vars)) {
 if (!profile.routes.every((route) => typeof route?.pattern === "string" && route.custom_domain === true)) {
   throw new Error("Managed deployment routes must be explicit custom domains.");
 }
-if (profile.vars.STRIPE_ENVIRONMENT !== "test" && profile.vars.STRIPE_ENVIRONMENT !== "live") {
-  throw new Error("STRIPE_ENVIRONMENT must be test or live.");
-}
-if (profile.vars.PAYMENT_MODE !== "disabled") {
-  for (const name of [
-    "STRIPE_STARTER_PRICE_ID",
-    "STRIPE_STUDIO_PRICE_ID",
-    "STRIPE_AGENCY_PRICE_ID",
-    "STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID",
-  ]) {
-    if (!String(profile.vars[name] ?? "").match(name.endsWith("PORTAL_CONFIGURATION_ID") ? /^bpc_/u : /^price_/u)) {
-      throw new Error(`${name} is required when managed payments are enabled.`);
-    }
-  }
-}
-
 const generated = {
   ...base,
   workers_dev: profile.workers_dev,

@@ -14,17 +14,8 @@
   "packageManager": "pnpm@11.0.8",
   "cloudflare": {
     "bindings": {
-      "DATAFORSEO_LOGIN": {
-        "description": "Your DataForSEO API login."
-      },
-      "DATAFORSEO_PASSWORD": {
-        "description": "Your DataForSEO API password."
-      },
-      "DATAFORSEO_WEBHOOK_TOKEN": {
-        "description": "Generate a unique high-entropy value used to authenticate DataForSEO postbacks."
-      },
       "APP_CRYPTO_KEY": {
-        "description": "Generate an independent high-entropy value used to sign provider job tags."
+        "description": "Generate an independent high-entropy value used to encrypt provider credentials and authenticate provider jobs and callbacks."
       },
       "BOOTSTRAP_TOKEN": {
         "description": "Generate an independent high-entropy value. You will enter it once on the first-run setup screen."
@@ -51,6 +42,7 @@
     "stripe:configure": "node scripts/stripe-configure.mjs",
     "stripe:check": "node scripts/stripe-configure.mjs --check",
     "deploy": "pnpm db:migrate:remote && wrangler deploy",
+    "deploy:guided": "bash scripts/deploy-guided.sh",
     "deploy:dry": "pnpm build && wrangler deploy --dry-run",
     "deploy:getbelki": "node scripts/deploy-profile.mjs --profile deployment/getbelki.json",
     "deploy:getbelki:with-migrations": "pnpm db:migrate:remote && pnpm deploy:getbelki",

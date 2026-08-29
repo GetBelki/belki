@@ -43,7 +43,7 @@ Use Belki as a fully managed service or deploy the open-source project in your o
 | Hosting and updates | Managed by Belki | Managed by the customer |
 | Subscription | Monthly Belki plan | No Belki subscription fee |
 | Infrastructure | Included and operated by Belki | Customer's Cloudflare account and usage costs |
-| Data provider | Managed by Belki | Customer supplies DataForSEO credentials and pays provider costs |
+| Data provider | Managed by Belki | Customer connects a supported provider and pays that provider directly |
 | Data location | Belki-managed infrastructure | Customer's own Cloudflare account |
 | Setup | Sign up and create a project | Deploy, configure secrets, and maintain the installation |
 
@@ -91,15 +91,15 @@ Do not expose internal workload units, credits, or provider-task calculations on
 
 Prefer to own the stack? Deploy the open-source Belki application to your Cloudflare account and keep control of the infrastructure, application data, and provider credentials. Belki uses Cloudflare Workers, D1, R2, Queues, Durable Objects, Cron Triggers, and Workers AI.
 
-The self-hosted edition is available under the Apache 2.0 license. It requires a Cloudflare Workers Paid account and your own DataForSEO credentials. You are responsible for deployment, provider and infrastructure charges, monitoring, updates, and backups.
+The self-hosted edition is available under the Apache 2.0 license. It requires a Cloudflare Workers Paid account and credentials for at least one supported capture provider. You are responsible for deployment, provider and infrastructure charges, monitoring, updates, and backups.
 
 ### Benefits
 
 - Your Cloudflare account and infrastructure.
-- Your DataForSEO credentials and provider relationship.
+- Your capture-provider credentials and provider relationships.
 - Full access to the source code under Apache 2.0.
 - Freedom to inspect, customize, and integrate the application.
-- All four tracking sources enabled by the default self-hosted configuration.
+- All four tracking sources available when the connected providers support them.
 
 ### CTAs
 
@@ -142,5 +142,8 @@ Use placeholders until the repository is public. The deployment CTA should point
 - Self-hosting is presented as an alternative operating model, not a fourth SaaS tier.
 - Self-hosting clearly discloses the Workers Paid and DataForSEO requirements and separate usage costs.
 - GitHub, deployment, and documentation links work before publication.
-- Plan values match the application configuration: €10/25/1/1, €29/75/5/2, and €149/250/30/4.
+- Plan values match GetBelki's current commercial catalogue: €10/25/1/1,
+  €29/75/5/2, and €149/250/30/4. Other Belki installations configure their own
+  plan count, IDs, names, descriptions, order, featured plan, entitlements,
+  allowed sources, payment currency, and amounts.
 - The existing early-access language is retained or removed consistently according to launch status.

@@ -14,13 +14,21 @@ export interface StripeRequestOptions {
 
 export type StripeEnvironment = "test" | "live";
 
+export interface StripeClientConfiguration {
+  environment: StripeEnvironment;
+  secretKey: string;
+}
+
 export function optionalBinding(env: object, name: string): string | null {
   const value = Reflect.get(env, name) as unknown;
   return typeof value === "string" && value.length > 0 ? value : null;
 }
 
 export function stripeEnvironment(env: object): StripeEnvironment {
-  const value = optionalBinding(env, "STRIPE_ENVIRONMENT");
+  const configured = Reflect.get(env, "environment") as unknown;
+  const value = configured === "test" || configured === "live"
+    ? configured
+    : optionalBinding(env, "STRIPE_ENVIRONMENT");
   if (value === "test" || value === "live") return value;
   throw new ApiError(
     503,
@@ -44,7 +52,10 @@ export function assertStripeLivemode(env: object, actual: boolean | number | nul
 }
 
 export function stripeSecret(env: object): string {
-  const value = optionalBinding(env, "STRIPE_SECRET_KEY");
+  const configured = Reflect.get(env, "secretKey") as unknown;
+  const value = typeof configured === "string" && configured.length > 0
+    ? configured
+    : optionalBinding(env, "STRIPE_SECRET_KEY");
   if (!value) throw new ApiError(503, "billing_not_configured", "Stripe billing is not configured.");
   const environment = stripeEnvironment(env);
   const allowedPrefixes = environment === "live" ? ["sk_live_", "rk_live_"] : ["sk_test_", "rk_test_"];
@@ -83,7 +94,7 @@ async function boundedText(response: Response): Promise<string> {
 }
 
 export async function stripeRequest<T extends Record<string, unknown>>(
-  env: Env,
+  env: object,
   path: string,
   options: StripeRequestOptions = {},
 ): Promise<T> {

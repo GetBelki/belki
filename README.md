@@ -36,6 +36,7 @@ month on larger self-hosted installations.
 ## Contents
 
 - [Supported AI platforms](#supported-ai-platforms)
+- [Capture providers](#capture-providers)
 - [Features](#features)
 - [Metrics](#metrics)
 - [Architecture](#architecture)
@@ -67,15 +68,83 @@ ChatGPT is enabled by default. Additional sources must be available in the
 deployment and allowed by the workspace plan. Claude and Perplexity are not part
 of the current release.
 
+## Capture providers
+
+Belki keeps AI-answer collection behind an internal provider interface. The
+rest of the product works with one normalized capture contract, so analytics,
+evidence, alerts, and exports do not need provider-specific code.
+
+The current provider order is DataForSEO, Bright Data, Cloro, then Oxylabs. An
+installation operator connects the first account during onboarding, can add or
+rotate accounts later under **Operator → Providers**, and chooses:
+
+- one installation-wide default provider;
+- an optional provider override for each AI platform; and
+- whether each AI platform is available for new collection.
+
+If a platform has no override, Belki starts with the installation default. If a
+selected override or default cannot serve that platform at dispatch time,
+routing advances through active, configured, compatible accounts by provider
+priority. Disabled or unconfigured accounts are never selected.
+
+| Provider | ChatGPT | Gemini | Google AI Mode | Google AI Overviews |
+|---|:---:|:---:|:---:|:---:|
+| DataForSEO | Yes | Yes | Yes | Yes |
+| Bright Data | Yes | — | — | — |
+| Cloro | Yes | Yes | Yes | Yes |
+| Oxylabs | Yes | — | Yes | Yes |
+
+Provider accounts belong to the installation, not to customer workspaces.
+Credentials are verified before storage, encrypted with `APP_CRYPTO_KEY`, and
+versioned when rotated. The API exposes configuration and health metadata but
+never returns stored secrets.
+
+Every collection attempt records its provider account, provider, adapter and
+credential versions, external task ID, state transitions, timestamps, and
+errors. **Operator → Providers** summarizes the last 30 days by account and AI
+platform: submitted, completed, failed or uncertain, in progress, success rate,
+average latency, and last activity.
+
+Provider plans, credits, balances, spend, and invoices remain in the provider's
+own dashboard. Belki links to those dashboards but does not reproduce provider
+billing or attempt to normalize monetary costs across vendors. Belki's Billing
+page remains responsible only for Belki subscriptions and workspace limits.
+
+```mermaid
+flowchart LR
+  Onboarding[Installation onboarding] --> First[Connect first provider]
+  Operator[Operator: Providers] --> Accounts[Provider accounts]
+  Operator --> DefaultChoice[Installation default]
+  Operator --> Routes[AI platform choices]
+
+  First --> Accounts
+  Accounts --> Vault[Encrypted, versioned credentials]
+  DefaultChoice --> Resolver[Provider resolver]
+  Routes --> Resolver
+  Vault --> Resolver
+
+  Prompt[Prompt + AI platform] --> Resolver
+  Resolver --> Compatible{Active, configured, compatible?}
+  Compatible -->|Yes| Adapter[Selected provider adapter]
+  Compatible -->|No| Stop[Do not dispatch]
+  Adapter --> Attempt[Tracked provider attempt]
+  Attempt --> Normalize[Normalized capture contract]
+  Normalize --> Product[Evidence, analytics, alerts, exports]
+
+  Operator -. credits and invoices .-> Vendor[Provider dashboard]
+```
+
 ## Features
 
 Belki has two deployment modes:
 
 - **Self-hosted:** the repository default. The installation owner supplies the
-  Cloudflare resources and DataForSEO credentials. Manual prompt runs are
-  available, and subscription billing is disabled.
+  Cloudflare resources and connects at least one supported capture provider
+  during onboarding. Manual prompt runs are available, and subscription billing
+  is disabled.
 - **Managed cloud:** a hosted subscription service using platform credentials,
-  Stripe billing, plan limits, signup codes, and protected operator tools.
+  modular Stripe or Dodo Payments billing, plan limits, signup codes, and
+  protected operator tools.
 
 Unless labeled otherwise, the features below are available in both modes.
 
@@ -83,7 +152,9 @@ Unless labeled otherwise, the features below are available in both modes.
 
 - Users can belong to multiple isolated workspaces and switch between them
   without mixing projects, memberships, billing, or analytics.
-- Guided onboarding creates the first project and its initial prompts.
+- Installation onboarding connects the first capture provider before project
+  setup. Guided workspace onboarding then creates the first project and its
+  initial prompts.
 - Every project defines an owned brand and optional primary domain for mention,
   citation, seller, and competitor comparisons.
 - Projects select one or more available AI platforms, subject to the active plan.
@@ -127,7 +198,7 @@ does not invalidate or hide completed historical position metrics.
   inspect a template, customize it, and add it with the same locale, schedule,
   source, and tag controls as a new prompt.
 - Deleting a prompt starts an asynchronous purge across control D1, its snapshot
-  shard, and R2. Anonymous billing totals remain for reporting accuracy.
+  shard, and R2. Aggregate usage history remains for operational integrity.
 
 ### Responses and evidence
 
@@ -250,23 +321,26 @@ Settings are divided by ownership boundary:
 - **Workspace:** workspace identity, active and archived projects, and signed
   webhook destinations.
 - **Diagnostics:** administrator-only checks for the control database, all 32
-  snapshot shards, DataForSEO secrets, Stripe mode, and required runtime
+  snapshot shards, capture-provider readiness, payment-provider mode, and required runtime
   bindings.
 
-Provider charges and estimated Workers AI costs are available in Billing as
-aggregate, daily, workload, and per-project views. Project-specific warning
-thresholds inform administrators but do not automatically stop a workload.
+Capture-provider plans, credits, invoices, and monetary spend remain in each
+provider's dashboard. The operator provider page reports comparable activity
+instead: submitted, completed, failed or uncertain, and in-progress attempts,
+plus success rate, latency, and last activity by provider and AI platform.
 
 ### Billing and subscriptions
 
-Self-hosted installations report provider and inference costs without enforcing
-a subscription plan.
+Self-hosted installations show their configured Belki limits without enforcing
+a subscription plan. Provider billing is not duplicated inside Belki.
 
 Managed cloud adds:
 
+- an installation-defined subscription catalogue with arbitrary plan names,
+  ordering, limits, allowed sources, currency, and prices;
 - current subscription, monthly limits, and usage reporting;
-- Stripe Checkout and an action-only Customer Portal;
-- immediate, prorated upgrades confirmed by Stripe;
+- provider-hosted Checkout and customer management through Stripe or Dodo;
+- immediate, prorated upgrades confirmed by the selected payment provider;
 - downgrades scheduled for renewal with an exact transition preview;
 - replacement or cancellation of a pending downgrade;
 - non-destructive allowance enforcement that archives excess projects, pauses
@@ -283,7 +357,7 @@ Managed cloud adds:
 - Inspect managed workspaces, subscription state, allowances, and operator
   interventions.
 - Suspend or restore a workspace for support and abuse handling, and reconcile
-  state that normally follows verified Stripe webhooks.
+  state that normally follows verified payment-provider webhooks.
 - Analyze aggregate citation trends across retained managed projects with source,
   domain, period, and project filters.
 - Analyze aggregate fan-out telemetry, model activity, query signals, year terms,
@@ -319,15 +393,31 @@ allowance.
 ```mermaid
 flowchart LR
   Browser[Belki React SPA] --> API[Hono Worker API]
+  Operator[Installation operator] --> API
   Cron[Cloudflare Cron Triggers] --> StandardQ[Scheduled task queue]
   API --> LiveQ[Manual task queue]
 
-  StandardQ --> Adapter[Source-aware DataForSEO adapter]
-  LiveQ --> Adapter
-  Adapter --> Surfaces[ChatGPT / Gemini / AI Mode / AI Overviews]
-  Surfaces --> Postback[Authenticated provider result]
-  Postback --> R2[(Private R2 evidence)]
-  Postback --> NormalizeQ[Normalization queue]
+  API --> Control[(Control D1)]
+  Control --> ProviderConfig[Accounts / defaults / AI platform choices]
+  Crypto[[APP_CRYPTO_KEY]] -. credential decryption .-> Resolver[Provider resolver]
+  ProviderConfig --> Resolver
+  StandardQ --> Resolver
+  LiveQ --> Resolver
+
+  Resolver --> Registry[Provider registry]
+  Registry --> DFSAdapter[DataForSEO adapter]
+  Registry --> BrightAdapter[Bright Data adapter]
+  Registry --> CloroAdapter[Cloro adapter]
+  Registry --> OxyAdapter[Oxylabs adapter]
+  DFSAdapter --> Providers[External AI capture providers]
+  BrightAdapter --> Providers
+  CloroAdapter --> Providers
+  OxyAdapter --> Providers
+  Resolver --> Attempts[Provider attempt provenance]
+  Providers --> Result[Authenticated or synchronous result]
+  Result --> Attempts
+  Result --> R2[(Private R2 evidence)]
+  Result --> NormalizeQ[Normalization queue]
 
   NormalizeQ --> Shards[(32 snapshot D1 shards)]
   NormalizeQ --> Control[(Control D1)]
@@ -353,26 +443,36 @@ flowchart LR
 
 The control database owns workspaces, users, projects, prompts, schedules, job
 state, compact snapshot indexes, rollups, ads, entities, enrichment state,
-alerts, billing, and exports. Each prompt is assigned to one snapshot shard for
-its lifetime, avoiding cross-database joins on detail reads.
+alerts, Belki billing, provider configuration and attempt provenance, and
+exports. Each prompt is assigned to one snapshot shard for its lifetime,
+avoiding cross-database joins on detail reads. Provider credentials are stored
+as encrypted, versioned records in the control database; `APP_CRYPTO_KEY`
+remains a Worker secret and is never stored beside them.
 
 ### Capture and analysis flow
 
 ```mermaid
 flowchart TD
   Prompt[Scheduled or manually requested prompt] --> Source[Enabled AI platform]
-  Source --> Mode{Run type}
-  Mode -->|Scheduled| Standard[Standard task with signed postback]
-  Mode -->|Self-hosted manual run| Live[Live provider request]
-  Standard --> Capture[Source-specific result]
-  Live --> Capture
-  Standard -. missed postback recovery .-> Ready[Provider ready-task lookup]
-  Ready --> Capture
+  Source --> Resolve[Resolve platform override or installation default]
+  Resolve --> Compatible{Compatible provider account available?}
+  Compatible -->|No| Blocked[Keep failure state; do not dispatch]
+  Compatible -->|Yes| Attempt[Create versioned provider attempt]
+  Attempt --> Adapter[Dispatch through selected adapter]
+  Adapter --> Mode{Provider execution mode}
+  Mode -->|Asynchronous| Async[Submit task with signed callback]
+  Mode -->|Synchronous| Direct[Wait for provider response]
+  Async --> Callback[Authenticated provider callback]
+  Async -. missed callback recovery .-> Recover[Adapter-specific reconciliation]
+  Callback --> Capture[Provider result]
+  Recover --> Capture
+  Direct --> Capture
+  Capture --> AttemptState[Update attempt state and provenance]
 
   Capture --> Evidence[Store raw evidence in R2]
-  Evidence --> Normalize[Validate and normalize source result]
+  Evidence --> Normalize[Normalize provider payload into Belki contract]
   Normalize --> Snapshot[Persist answer / sources / products / ads]
-  Snapshot --> Rollup[Update analytics and billing]
+  Snapshot --> Rollup[Update analytics and internal usage]
   Snapshot --> Entities{Entity extraction enabled?}
   Snapshot --> Ads{Ad assets present?}
   Snapshot --> Shopping{Eligible product enrichment?}
@@ -392,10 +492,11 @@ flowchart TD
 - Node.js 24 or newer
 - pnpm 11
 - A Cloudflare account with Workers Paid
-- DataForSEO credentials with access to the selected LLM Scraper and SERP APIs
+- Credentials for at least one supported capture provider
 - DataForSEO Merchant Google Product Info access for optional Shopping enrichment
 - A Cloudflare Email Sending domain only when invitation emails are required
-- Stripe credentials only for managed cloud subscriptions
+- A Stripe or Dodo Payments account only when managed subscriptions are enabled
+  (configured in the operator UI)
 
 Workers Paid is required by the default topology because it declares one control
 database and 32 snapshot databases. Workers Free permits fewer D1 databases than
@@ -415,13 +516,12 @@ This flow is intended for the public release of this repository. Until then,
 the repository remains private and the Deploy button is only a preview of the
 future installation path.
 
-1. Create a Cloudflare Workers Paid account and obtain DataForSEO API
-   credentials.
-2. Generate three different secrets locally. Keep the outputs out of Git,
+1. Create a Cloudflare Workers Paid account and choose an initial capture
+   provider: DataForSEO, Bright Data, Cloro, or Oxylabs.
+2. Generate two different secrets locally. Keep the outputs out of Git,
    screenshots, issue reports, and shell history shared with other people.
 
    ```bash
-   openssl rand -base64 32
    openssl rand -base64 32
    openssl rand -base64 32
    ```
@@ -433,29 +533,31 @@ future installation path.
 
    [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/GetBelki/belki)
 
-4. Enter only these five required secrets when Cloudflare asks for bindings:
+4. Enter only these two required application secrets when Cloudflare asks for
+   bindings:
 
    | Secret | Value |
    |---|---|
-   | `DATAFORSEO_LOGIN` | Your DataForSEO API login |
-   | `DATAFORSEO_PASSWORD` | Your DataForSEO API password |
-   | `DATAFORSEO_WEBHOOK_TOKEN` | First generated value |
-   | `APP_CRYPTO_KEY` | Second generated value |
-   | `BOOTSTRAP_TOKEN` | Third generated value; save it for step 6 |
+   | `APP_CRYPTO_KEY` | First generated value; encrypts provider credentials and authenticates provider callbacks |
+   | `BOOTSTRAP_TOKEN` | Second generated value; save it for step 6 |
 
 5. Wait for the deployment and migrations to finish, then open the generated
    `workers.dev` URL. Leaving `PUBLIC_APP_ORIGIN` empty is intentional for this
    first deployment: setup records the origin you opened.
 6. The first-run screen appears automatically. Enter the exact
    `BOOTSTRAP_TOKEN`, owner details, and workspace details to create the first
-   account. The token cannot create a second owner after setup is complete.
+   account. Then select the initial capture provider and enter its credentials.
+   Finally choose managed subscriptions—defining the installation's plans and
+   configuring either Stripe or Dodo—or self-hosted/in-house mode without
+   payments. Belki verifies and encrypts all configured credentials before use.
+   The token cannot create a second owner after setup is complete.
 7. Create a project and a test prompt, enable only the sources you intend to
    use, and run it once before scheduling recurring collection.
 8. Clone your new fork, authenticate Wrangler, and apply the checked-in R2
    lifecycle policy with `pnpm r2:lifecycle` before enabling original HTML
    capture.
 
-Self-hosted mode does not use Stripe. Invitation email is also optional: with
+Self-hosted mode does not use a payment provider. Invitation email is also optional: with
 the default empty sender, owners can copy invitation links directly from the
 application.
 
@@ -481,7 +583,7 @@ The hostname must belong to a Cloudflare zone in the same account and the
 origin must not contain a path or trailing slash. Deploy the change, open the
 custom domain, and update any workspace URL that was saved during the initial
 `workers.dev` setup under **Settings → Workspace**. The configured origin is
-authoritative for future DataForSEO postbacks and generated links. For an
+authoritative for future provider callbacks and generated links. For an
 existing installation that has already changed domains, use the repair steps
 in the [deployment runbook](docs/deployment-and-migration.md#101-repair-an-installation-after-changing-domains).
 
@@ -498,28 +600,32 @@ Configure these secrets in `.dev.vars`:
 
 | Secret | Purpose |
 |---|---|
-| `DATAFORSEO_LOGIN` | DataForSEO API login |
-| `DATAFORSEO_PASSWORD` | DataForSEO API password |
-| `DATAFORSEO_WEBHOOK_TOKEN` | Authenticates source-capture and product-info postbacks |
-| `APP_CRYPTO_KEY` | Signs provider job tags; changing it invalidates outstanding jobs |
+| `APP_CRYPTO_KEY` | Encrypts operator-owned capture and payment-provider credentials and authenticates provider jobs and callbacks; changing it makes stored credentials unreadable and invalidates outstanding jobs |
 | `BOOTSTRAP_TOKEN` | One-time token entered during first-run owner setup |
-| `STRIPE_SECRET_KEY` | Managed only: creates Checkout and billing-portal sessions |
-| `STRIPE_WEBHOOK_SECRET` | Managed only: verifies `/api/webhooks/stripe` before subscription changes |
 
-`STRIPE_ENVIRONMENT=test|live` is a non-secret Wrangler variable and must match
-the Stripe keys and the `stripe_livemode` recorded for managed workspaces.
-
-Use independent, high-entropy values for the three application secrets. For
-locally submitted Standard tasks, DataForSEO must be able to reach the Worker.
+Use independent, high-entropy values for the two application secrets. Add the
+first provider through the setup screen, then manage provider accounts, the
+default, and the provider for each AI platform under **Operator → Providers**.
+Managed installations also configure the payment account, environment, encrypted
+API/webhook secrets, installation-defined plan catalogue, and provider-specific
+webhook URL during installation or under **Operator → Payments**. The initial
+GetBelki catalogue is only an editable template: an installer can rename,
+reorder, add, or remove plans and set each plan's limits, allowed tracking
+sources, price, and currency before saving the first payment account. Payment
+secrets are never returned to the browser or stored as Worker bindings.
+For locally submitted asynchronous tasks, the provider must be able to reach
+the Worker.
 Use a deployed staging Worker or secure public tunnel and set the workspace
 public application URL accordingly. Self-hosted live runs do not need an
 inbound postback.
 
 ## Production deployment
 
-For resource provisioning, secret placement, Stripe configuration, Cloudflare
+For resource provisioning, secret placement, payment-provider configuration, Cloudflare
 Access, existing-install migration, verification, and rollback, read
 [`docs/deployment-and-migration.md`](docs/deployment-and-migration.md).
+Adapter ownership and the Stripe/Dodo integration contract are documented in
+[`docs/payment-provider-adapters.md`](docs/payment-provider-adapters.md).
 
 ### Self-hosted deployment
 
@@ -529,7 +635,7 @@ Builds:
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/GetBelki/belki)
 
-For a manual deployment, authenticate Wrangler, configure the five required
+For a manual deployment, authenticate Wrangler, configure the two required
 production secrets, and run:
 
 ```bash
@@ -551,9 +657,61 @@ reappearing after a custom-domain migration.
 `ai-tracker-evidence` bucket lifecycle configuration with the checked-in
 prefix-specific retention rules.
 
+For an interactive release that validates the checkout, verifies required
+Worker secret names, previews and applies every D1 migration, inspects the
+migrated provider/payment/plan state, deploys the Worker, and runs a public
+smoke check, use:
+
+```bash
+pnpm deploy:guided
+```
+
+The assistant asks whether this is a GetBelki or self-hosted deployment. For a
+repeatable non-interactive invocation, pass the target explicitly:
+
+```bash
+pnpm deploy:guided -- --target self-hosted --url https://tracker.example.com --yes
+pnpm deploy:guided -- --target getbelki --yes
+```
+
+A pre-launch installation whose only billing state is disposable sandbox data
+can explicitly reset payments while keeping projects, captures, users, provider
+configuration, and logical plan definitions:
+
+```bash
+pnpm deploy:guided -- --target getbelki --reset-test-payments
+```
+
+The reset runs after the additive migrations and before Worker publication. It
+prints the affected accounts/workspaces and refuses to continue if any live or
+ambiguous payment marker exists. It then records a CONTROL_DB Time Travel
+bookmark and requires the exact phrase `DISCARD-TEST-PAYMENTS`; `--yes` does not
+bypass that phrase. For a non-interactive run, the destructive confirmation
+must also be explicit:
+
+```bash
+pnpm deploy:guided -- --target getbelki --reset-test-payments \
+  --confirm-reset-test-payments DISCARD-TEST-PAYMENTS --yes
+```
+
+This resets Belki's database only. Cancel the discarded subscription and remove
+its legacy webhook in the provider's sandbox dashboard; the deployment helper
+does not mutate external Stripe or Dodo objects.
+
+Provider credentials and commercial choices are deliberately completed in the
+authenticated Belki UI after deployment. This prevents secrets from appearing
+in shell history and ensures each account is remotely verified before Belki
+encrypts it in D1. The script prints direct links and the remaining checklist.
+
 Self-hosted mode is the repository default: `DEPLOYMENT_MODE=self_hosted` and
-`PAYMENT_MODE=disabled`. DataForSEO credentials remain in encrypted Worker
-secrets and are never stored in D1 or returned to the browser.
+`PAYMENT_MODE=disabled`. During installation onboarding, the operator connects
+the first capture provider and then explicitly chooses **Self-hosted / in-house**
+or **Managed subscriptions**. The self-hosted path requires no payment account
+and disables Checkout. It can later be changed to managed under
+**Operator → Payments** by adding or activating a verified payment account.
+Belki encrypts provider credentials with `APP_CRYPTO_KEY` before storing them in
+the control database; credentials can be replaced but are never returned to the
+browser.
 
 ### Managed production deployment
 
@@ -585,8 +743,17 @@ flowchart LR
 
 ## Managed cloud
 
-Managed mode uses one platform DataForSEO account and sells prompt tracking,
-not provider credentials or API credits.
+Managed mode uses operator-owned capture-provider accounts and sells prompt
+tracking, not provider credentials or API credits. The installation operator
+can choose a default provider and override it for each AI platform.
+
+The table below is GetBelki's current commercial catalogue, not a repository-wide
+requirement. A fresh Belki installation starts with this editable template and
+can define 1–8 plans of its own while connecting its first payment account. For
+each plan the operator sets a stable internal ID, customer-facing name and
+description, display order, featured state, monthly usage allowance, project and
+prompt limits, allowed tracking sources, source limit, ISO 4217 currency, and
+monthly price.
 
 | Plan | Price | Active prompts | Projects | Tracking sources per project | Seats |
 |---|---:|---:|---:|---|---:|
@@ -598,14 +765,37 @@ Optional sources use deployment feature flags so managed operators can release
 or disable them independently. Each additional source runs the project's active
 prompts independently.
 
-Set `DEPLOYMENT_MODE=managed`, `PAYMENT_MODE=stripe_direct`, and the matching
-`STRIPE_ENVIRONMENT`. Configure three separate Stripe Products and monthly Price
-IDs, the action-only Customer Portal, and both Stripe secrets. `stripe_managed`
-remains an unsupported preview for plan changes.
+Set `DEPLOYMENT_MODE=managed` and enable the `PAYMENT_MODE` runtime kill switch.
+After the operator creates the installation owner and capture-provider account,
+Belki asks for an installation mode. Managed setup requires exactly one verified
+payment account and lets the operator choose either Stripe or Dodo Payments.
+Rebill and Polar appear as disabled **Coming soon** entries so the roadmap is
+visible without implying that an unimplemented adapter can accept payments.
+Every provider account maps the installation's logical plans to that provider's
+external objects, so a later provider can use different IDs and amounts without
+changing customer entitlements:
+
+- Stripe uses a test/live secret key, webhook signing secret, one monthly Price
+  ID and amount per active installation plan, and an action Customer Portal
+  configuration ID.
+- Dodo Payments uses a test/live API key, Standard Webhooks signing secret, and
+  one monthly Product ID and amount per active installation plan. Its customer
+  portal is created through Dodo's API.
+
+Plan definitions become the shared installation catalogue when the first
+payment account is saved. Additional accounts reuse those definitions and only
+map them to their own Price/Product IDs and amounts. This prevents Stripe and
+Dodo from silently describing different entitlements.
+
+Copy the unique webhook URL shown for that account into the selected provider.
+Additional Stripe or Dodo accounts can be added later under
+**Operator → Payments**. Changing the installation default affects only new
+Checkout sessions; each existing workspace remains pinned to the account that
+created its subscription.
 
 Signup is email-bound and one-use. A platform operator creates a URL through the
 Platform operations page or `POST /api/v1/operator/signup-codes`. A workspace
-remains pending until a verified Stripe webhook activates it. Protect
+remains pending until a verified payment-provider webhook activates it. Protect
 both `/operator*` and `/api/v1/operator/*` with the same Cloudflare Access
 policy. Operator navigation intentionally performs a full document request so
 Access can issue or renew its authorization cookie before protected API data is
@@ -628,8 +818,9 @@ pre-submit failures and explicit provider rejections release the reservation.
 | Sunday at 04:00 UTC | Refresh the DataForSEO locale catalog and reconcile metric outboxes |
 
 The scheduler uses separate standard and live queues, signed provider job tags,
-idempotent postbacks, retryable normalization, and ready-task recovery. Cloudflare
-observability is enabled and scheduled handlers emit structured metrics.
+idempotent callbacks, retryable normalization, and adapter-specific recovery.
+Cloudflare observability is enabled and scheduled handlers emit structured
+metrics.
 Brand-only migration work uses a separate bulk path of up to 250 snapshots per
 minute; ordinary tracked-brand changes are forward-effective and do not start a
 historical project-wide rebuild.
@@ -641,7 +832,11 @@ historical project-wide rebuild.
   checks, hashed one-use tokens, and bounded session lifetime.
 - Invitation links expire after 7 days; password-reset links expire after 1
   hour; sessions expire after 14 days.
-- DataForSEO postbacks require the webhook token and a valid signed job tag.
+- Stored provider credentials use AES-256-GCM with key material derived from
+  `APP_CRYPTO_KEY`; rotation creates a new credential version without exposing
+  prior values.
+- Provider callbacks require a valid signed job tag and are matched to the
+  provider account and external task recorded for the attempt.
 - Stripe webhook signatures are verified before subscription state changes.
 - Managed operator endpoints combine Cloudflare Access identity with an internal
   operator allowlist.
@@ -657,8 +852,8 @@ historical project-wide rebuild.
 | Completed exports | 7 days |
 
 Original HTML capture is opt-in per project. Permanent prompt deletion removes
-its detailed D1 and R2 evidence asynchronously while preserving anonymous
-billing totals.
+its detailed D1 and R2 evidence asynchronously while preserving aggregate usage
+history needed for operational integrity.
 
 ## Verification
 
@@ -672,7 +867,7 @@ pnpm deploy:dry
 
 Maintainers changing Belki's managed deployment must additionally run
 `pnpm deploy:getbelki:dry`. Self-hosters do not need the managed deployment
-profile or Stripe credentials.
+profile or payment-provider credentials.
 
 `pnpm check` runs application and Worker type checking, strict linting, unit
 tests, Workers integration tests, and the production build. GitHub Actions uses
@@ -692,9 +887,12 @@ Fixture shape, metrics, and acceptance thresholds are documented in
 ## Repository map
 
 - `src/app`: React dashboard, onboarding, authentication, and product experience
-- `src/worker`: Hono API, source adapters, ingestion, analytics, automation, and scheduled work
-- `src/shared`: request schemas, source definitions, plan access, and queue contracts
-- `migrations/control`: tenancy, orchestration, analytics, entities, ads, enrichment, billing, and project settings
+- `src/worker`: Hono API, provider adapters, routing, ingestion, analytics,
+  automation, and scheduled work
+- `src/shared`: request schemas, provider and source definitions, plan access,
+  activity summaries, and queue contracts
+- `migrations/control`: tenancy, provider accounts and attempts, orchestration,
+  analytics, entities, ads, enrichment, billing, and project settings
 - `migrations/snapshot`: detailed response, citation, product, and ad evidence
 - `deployment`: environment-specific deployment profiles
 - `infrastructure`: R2 lifecycle configuration
