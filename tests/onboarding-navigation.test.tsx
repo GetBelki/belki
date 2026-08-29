@@ -3,6 +3,9 @@ import type { Session } from "../src/app/lib/api";
 import {
   needsProjectOnboarding,
   onboardingDestination,
+  OPERATOR_PAYMENT_ONBOARDING_PATH,
+  OPERATOR_PROVIDER_ONBOARDING_PATH,
+  requiredOperatorOnboardingPath,
 } from "../src/app/lib/onboarding-navigation";
 
 function session(overrides: Partial<Session> = {}): Session {
@@ -41,8 +44,8 @@ describe("project onboarding navigation", () => {
   it("keeps payment, operator, and onboarding routes reachable", () => {
     expect(needsProjectOnboarding(session(), "/onboarding/project")).toBe(false);
     expect(needsProjectOnboarding(session(), "/onboarding/prompts")).toBe(false);
-    expect(needsProjectOnboarding(session(), "/onboarding/provider")).toBe(false);
-    expect(needsProjectOnboarding(session(), "/onboarding/payments")).toBe(false);
+    expect(needsProjectOnboarding(session(), OPERATOR_PROVIDER_ONBOARDING_PATH)).toBe(false);
+    expect(needsProjectOnboarding(session(), OPERATOR_PAYMENT_ONBOARDING_PATH)).toBe(false);
     expect(needsProjectOnboarding(session(), "/billing")).toBe(false);
     expect(needsProjectOnboarding(session({ isPlatformOperator: true }), "/operator")).toBe(false);
     expect(needsProjectOnboarding(
@@ -81,5 +84,22 @@ describe("project onboarding navigation", () => {
   it("chooses the correct continuation after checkout", () => {
     expect(onboardingDestination(0)).toBe("/onboarding/project");
     expect(onboardingDestination(1)).toBe("/onboarding/prompts");
+  });
+
+  it("places sensitive installation setup behind the Operator Access boundary", () => {
+    expect(OPERATOR_PROVIDER_ONBOARDING_PATH).toBe("/operator/onboarding/provider");
+    expect(OPERATOR_PAYMENT_ONBOARDING_PATH).toBe("/operator/onboarding/payments");
+    expect(requiredOperatorOnboardingPath({
+      isPlatformOperator: true,
+      pathname: "/",
+      paymentSetupRequired: true,
+      providerSetupRequired: false,
+    })).toBe(OPERATOR_PAYMENT_ONBOARDING_PATH);
+    expect(requiredOperatorOnboardingPath({
+      isPlatformOperator: true,
+      pathname: OPERATOR_PAYMENT_ONBOARDING_PATH,
+      paymentSetupRequired: true,
+      providerSetupRequired: false,
+    })).toBeNull();
   });
 });
