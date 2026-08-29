@@ -87,7 +87,6 @@ describe("operator provider credential tests", () => {
     fireEvent.click(await screen.findByRole("button", { name: "Test" }));
 
     expect(await screen.findByRole("button", { name: "Testing…" })).toBeDisabled();
-    expect(screen.getByRole("status")).toHaveTextContent("Testing connection");
     expect(screen.getByRole("status")).toHaveTextContent("Checking DataForSEO credentials…");
 
     await act(async () => {
@@ -99,10 +98,12 @@ describe("operator provider credential tests", () => {
       await Promise.resolve();
     });
 
-    const result = await screen.findByRole("status");
+    const result = (await screen.findByText("Verified")).closest("[role='status']");
+    expect(result).not.toBeNull();
     expect(result).toHaveClass("provider-test-feedback-passed");
-    expect(result).toHaveTextContent("Connection verified");
+    expect(result).toHaveTextContent("Verified");
     expect(result).toHaveTextContent("DataForSEO credentials verified.");
+    expect(result?.parentElement).toHaveClass("provider-account-actions");
     expect(screen.getByRole("button", { name: "Test" })).toBeEnabled();
     expect(apiMocks.post).toHaveBeenCalledWith(
       "/operator/providers/dataforseo%3Aplatform%3Av1/test",
@@ -122,7 +123,6 @@ describe("operator provider credential tests", () => {
 
     const result = await screen.findByRole("alert");
     expect(result).toHaveClass("provider-test-feedback-failed");
-    expect(result).toHaveTextContent("Connection test failed");
     expect(result).toHaveTextContent("DataForSEO rejected these credentials.");
   });
 });

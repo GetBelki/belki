@@ -268,14 +268,14 @@ export default function OperatorPaymentsPage() {
                     <Button disabled={account.credentialSource === "environment"} onClick={() => setRotating(account)} variant="ghost"><KeyRound size={14} /> Credentials</Button>
                     <Button disabled={account.credentialSource === "environment"} onClick={() => setCatalogue(account)} variant="ghost">Plan catalogue</Button>
                     <Button disabled={account.isDefault || updateAccount.isPending} onClick={() => updateAccount.mutate({ id: account.id, status: account.status === "active" ? "disabled" : "active" })} variant="ghost">{account.status === "active" ? "Disable" : "Enable"}</Button>
+                    <ProviderTestFeedback
+                      error={testError}
+                      label={account.providerLabel}
+                      pending={isTesting}
+                      result={testResult}
+                    />
                   </div>
                   {makeDefault.isError ? <p className="form-error">{makeDefault.error.message}</p> : null}
-                  <ProviderTestFeedback
-                    error={testError}
-                    label={account.providerLabel}
-                    pending={isTesting}
-                    result={testResult}
-                  />
                 </Card>
               );
             })}

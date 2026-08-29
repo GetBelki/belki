@@ -273,13 +273,13 @@ export default function OperatorProvidersPage() {
                   <Button disabled={account.isDefault || updateAccount.isPending} onClick={() => updateAccount.mutate({ id: account.id, status: account.status === "active" ? "disabled" : "active" })} variant="ghost">
                     {account.status === "active" ? "Disable" : "Enable"}
                   </Button>
+                  <ProviderTestFeedback
+                    error={testError}
+                    label={account.providerLabel}
+                    pending={isTesting}
+                    result={testResult}
+                  />
                 </div>
-                <ProviderTestFeedback
-                  error={testError}
-                  label={account.providerLabel}
-                  pending={isTesting}
-                  result={testResult}
-                />
               </Card>;
             })}
           </div>
