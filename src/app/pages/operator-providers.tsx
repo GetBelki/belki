@@ -1,10 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  CheckCircle2,
   ExternalLink,
   KeyRound,
   Plus,
-  RefreshCw,
   Route,
   Star,
 } from "lucide-react";
@@ -23,6 +21,12 @@ import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
 import { PageHeader } from "../components/layout";
 import { OperatorDataFailure } from "../components/operator-access";
 import { ProviderIcon } from "../components/provider-icon";
+import {
+  ProviderTestButtonContent,
+  ProviderTestFeedback,
+  ProviderTestStatus,
+  type ProviderTestResult,
+} from "../components/provider-test-feedback";
 import {
   ProviderAccountForm,
   ProviderCredentialForm,
@@ -156,7 +160,9 @@ export default function OperatorProvidersPage() {
     },
   });
   const testAccount = useMutation({
-    mutationFn: (id: string) => post(`/operator/providers/${encodeURIComponent(id)}/test`),
+    mutationFn: (id: string) => post<ProviderTestResult>(
+      `/operator/providers/${encodeURIComponent(id)}/test`,
+    ),
     onSuccess: refresh,
   });
   const makeDefault = useMutation({
@@ -209,6 +215,14 @@ export default function OperatorProvidersPage() {
               const accountActivity = activity?.byAccount.find(
                 (item) => item.providerAccountId === account.id,
               ) ?? EMPTY_ACTIVITY;
+              const isCurrentTest = testAccount.variables === account.id;
+              const isTesting = isCurrentTest && testAccount.isPending;
+              const testResult = isCurrentTest && testAccount.isSuccess
+                ? testAccount.data
+                : null;
+              const testError = isCurrentTest && testAccount.isError
+                ? testAccount.error
+                : null;
               return <Card className="provider-account-card" key={account.id}>
                 <div className="provider-account-heading">
                   <div className="provider-account-identity">
@@ -239,19 +253,33 @@ export default function OperatorProvidersPage() {
                 <div className="provider-account-meta">
                   <span><KeyRound size={14} /> {account.credentialSource === "environment" ? "Worker secret" : `Encrypted version ${account.credentialVersion ?? "—"}`}</span>
                   <span><Route size={14} /> {account.supportedSources.map((source) => TRACKING_SOURCE_LABELS[source]).join(", ")}</span>
-                  <span className={account.lastTestStatus === "failed" ? "provider-test-failed" : undefined}>
-                    <CheckCircle2 size={14} /> {account.lastTestMessage ?? "Not tested from the dashboard"}
-                  </span>
+                  <ProviderTestStatus
+                    message={account.lastTestMessage}
+                    status={account.lastTestStatus}
+                    untestedMessage="Not tested from the dashboard"
+                  />
                 </div>
                 <div className="provider-account-actions">
                   {!account.isDefault ? <Button disabled={!account.credentialConfigured || account.status !== "active" || makeDefault.isPending} onClick={() => makeDefault.mutate(account.id)} variant="secondary"><Star size={14} /> Make default</Button> : null}
                   <Button asChild variant="secondary"><a href={CAPTURE_PROVIDER_DASHBOARD_URLS[account.provider]} rel="noreferrer" target="_blank">Provider dashboard <ExternalLink size={13} /></a></Button>
-                  <Button disabled={testAccount.isPending || !account.credentialConfigured} onClick={() => testAccount.mutate(account.id)} variant="ghost"><RefreshCw size={14} /> Test</Button>
+                  <Button
+                    disabled={testAccount.isPending || !account.credentialConfigured}
+                    onClick={() => testAccount.mutate(account.id)}
+                    variant="ghost"
+                  >
+                    <ProviderTestButtonContent pending={isTesting} />
+                  </Button>
                   <Button onClick={() => setRotating(account)} variant="ghost"><KeyRound size={14} /> Replace credentials</Button>
                   <Button disabled={account.isDefault || updateAccount.isPending} onClick={() => updateAccount.mutate({ id: account.id, status: account.status === "active" ? "disabled" : "active" })} variant="ghost">
                     {account.status === "active" ? "Disable" : "Enable"}
                   </Button>
                 </div>
+                <ProviderTestFeedback
+                  error={testError}
+                  label={account.providerLabel}
+                  pending={isTesting}
+                  result={testResult}
+                />
               </Card>;
             })}
           </div>
