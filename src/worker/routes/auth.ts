@@ -43,6 +43,8 @@ import {
   type ProjectSummaryRow,
 } from "../lib/projects";
 import { z } from "zod";
+import { hasConfiguredCaptureProvider } from "../providers/accounts";
+import { hasConfiguredPaymentProvider } from "../payments/accounts";
 
 interface LoginRow {
   id: string;
@@ -70,12 +72,18 @@ const UserParamSchema = z.object({ id: z.string().uuid() });
 const InvitationParamSchema = z.object({ id: z.string().uuid() });
 
 authRoutes.get("/status", async (c) => {
-  const owner = await c.env.CONTROL_DB.prepare(
-    "SELECT COUNT(*) AS count FROM memberships WHERE role = 'owner'",
-  ).first<{ count: number }>();
+  const [owner, providerConfigured, paymentConfigured] = await Promise.all([
+    c.env.CONTROL_DB.prepare(
+      "SELECT COUNT(*) AS count FROM memberships WHERE role = 'owner'",
+    ).first<{ count: number }>(),
+    hasConfiguredCaptureProvider(c.env),
+    hasConfiguredPaymentProvider(c.env),
+  ]);
   return c.json({
     data: {
       setupRequired: (owner?.count ?? 0) === 0,
+      providerSetupRequired: !providerConfigured,
+      paymentSetupRequired: !paymentConfigured,
       emailDeliveryConfigured: emailDeliveryConfigured(c.env),
     },
   });
@@ -210,12 +218,14 @@ authRoutes.get("/auth/session", async (c) => {
     c.env.CONTROL_DB.batch([
       ...projectListStatements(c.env.CONTROL_DB, principal.workspaceId),
       c.env.CONTROL_DB.prepare(
-        `SELECT id, name, status, plan_key, public_base_url AS publicBaseUrl
+        `SELECT id, name, status, COALESCE(billing_plan_id, plan_key) AS plan_key,
+          public_base_url AS publicBaseUrl
          FROM workspaces WHERE id = ?`,
       )
         .bind(principal.workspaceId),
       c.env.CONTROL_DB.prepare(
-        `SELECT workspace.id, workspace.name, workspace.status, workspace.plan_key,
+        `SELECT workspace.id, workspace.name, workspace.status,
+          COALESCE(workspace.billing_plan_id, workspace.plan_key) AS plan_key,
           membership.role
          FROM memberships membership
          JOIN workspaces workspace ON workspace.id = membership.workspace_id
@@ -276,7 +286,8 @@ authRoutes.get("/auth/session", async (c) => {
 authRoutes.get("/auth/workspaces", async (c) => {
   const principal = c.get("principal");
   const workspaces = await c.env.CONTROL_DB.prepare(
-    `SELECT workspace.id, workspace.name, workspace.status, workspace.plan_key,
+    `SELECT workspace.id, workspace.name, workspace.status,
+      COALESCE(workspace.billing_plan_id, workspace.plan_key) AS plan_key,
       membership.role
      FROM memberships membership
      JOIN workspaces workspace ON workspace.id = membership.workspace_id

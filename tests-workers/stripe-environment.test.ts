@@ -25,4 +25,18 @@ describe("Stripe environment isolation", () => {
     expect(() => assertStripeLivemode(testEnv, true)).toThrowError(/different test\/live environment/u);
     expect(() => assertStripeLivemode(testEnv, null)).toThrowError(/different test\/live environment/u);
   });
+
+  it("accepts a resolved database account without Worker Stripe bindings", () => {
+    const account = {
+      environment: "test" as const,
+      secretKey: "sk_test_database_credential",
+    };
+
+    expect(stripeEnvironment(account)).toBe("test");
+    expect(stripeSecret(account)).toBe("sk_test_database_credential");
+    expect(() => stripeSecret({
+      ...account,
+      secretKey: "sk_live_wrong_environment",
+    })).toThrowError(/does not match/u);
+  });
 });

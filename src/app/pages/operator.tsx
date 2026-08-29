@@ -47,6 +47,7 @@ interface ManagedWorkspace {
   name: string;
   status: OperatorWorkspaceStatus;
   plan_key: string;
+  plan_name: string | null;
   subscription_status: string;
   monthly_units: number;
   project_limit: number;
@@ -56,6 +57,9 @@ interface ManagedWorkspace {
   projects: number;
   prompts: number;
   stripe_livemode: number | null;
+  payment_provider: string | null;
+  payment_provider_label: string | null;
+  payment_environment: "test" | "live" | null;
 }
 
 export default function OperatorPage() {
@@ -158,7 +162,7 @@ export default function OperatorPage() {
             rows={workspaceData.map((workspace) => ({
               id: workspace.id,
               workspace: <div className="primary-cell operator-workspace-cell"><strong>{workspace.name}</strong><span>{workspace.seats} {workspace.seats === 1 ? "seat" : "seats"} · {workspace.projects} {workspace.projects === 1 ? "project" : "projects"}</span></div>,
-              subscription: <div className="primary-cell operator-subscription-cell"><strong>{operatorPlanLabel(workspace.plan_key)}</strong><span>{workspace.plan_key === "self_hosted" ? "Belki workspace" : workspace.stripe_livemode === 1 ? "Stripe production" : workspace.stripe_livemode === 0 ? "Stripe sandbox" : operatorPlanLabel(workspace.subscription_status)}</span></div>,
+              subscription: <div className="primary-cell operator-subscription-cell"><strong>{workspace.plan_name ?? operatorPlanLabel(workspace.plan_key)}</strong><span>{workspace.plan_key === "self_hosted" ? "Belki workspace" : workspace.payment_provider_label ? `${workspace.payment_provider_label} ${workspace.payment_environment === "live" ? "production" : "sandbox"}` : operatorPlanLabel(workspace.subscription_status)}</span></div>,
               usage: <div className="operator-usage-cell"><span><strong>{operatorLimitUsage(workspace.prompts, workspace.prompt_limit)}</strong><small>Prompts</small></span><span><strong>{operatorLimitUsage(workspace.projects, workspace.project_limit)}</strong><small>Projects</small></span><span><strong>{workspace.source_limit}</strong><small>Sources / project</small></span></div>,
               status: <span className={`operator-status-text operator-status-${workspace.status}`}>{operatorStatusLabel(workspace.status)}</span>,
               actions: <Button aria-label={`Manage ${workspace.name}`} className="operator-manage-button" onClick={() => openWorkspaceManager(workspace)} variant="secondary"><Settings2 size={14} /> Manage</Button>,
@@ -225,7 +229,7 @@ export default function OperatorPage() {
         <div className="form-stack">
           <div className="operator-workspace-dialog-summary">
             <div><span>Workspace</span><strong>{statusChange?.workspace.name}</strong></div>
-            <div><span>Subscription</span><strong>{operatorPlanLabel(statusChange?.workspace.plan_key ?? "")}</strong></div>
+            <div><span>Subscription</span><strong>{statusChange?.workspace.plan_name ?? operatorPlanLabel(statusChange?.workspace.plan_key ?? "")}</strong></div>
             <div><span>Current status</span><strong>{statusChange ? operatorStatusLabel(statusChange.workspace.status) : ""}</strong></div>
           </div>
           <div className="operator-status-field">

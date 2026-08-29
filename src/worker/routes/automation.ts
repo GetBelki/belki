@@ -19,6 +19,8 @@ import { projectTrackingSources } from "../lib/tracking-sources";
 import { preserveBrandMetricsHistory } from "../lib/brand-metrics-state";
 import { emailDeliveryConfigured } from "../lib/email-config";
 import { configuredPublicAppOrigin } from "../lib/public-origin";
+import { hasConfiguredCaptureProviderType } from "../providers/accounts";
+import { paymentProviderConfiguration } from "../payments/accounts";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 
@@ -723,7 +725,7 @@ automationRoutes.patch(
 
 automationRoutes.get("/settings/health", async (c) => {
   const principal = requireRole(c, "admin");
-  const [workspace, jobs, shards, dlq] = await Promise.all([
+  const [workspace, jobs, shards, dlq, payments] = await Promise.all([
     c.env.CONTROL_DB.prepare(
       `SELECT id, name, public_base_url, monthly_run_cap, timezone
        FROM workspaces WHERE id = ?`,
@@ -752,7 +754,11 @@ automationRoutes.get("/settings/health", async (c) => {
        WHERE status = 'failed'
          AND julianday(received_at) >= julianday('now', '-24 hours')`,
     ).first(),
+    paymentProviderConfiguration(c.env),
   ]);
+  const defaultPayment = payments.accounts.find(
+    (account) => account.id === payments.defaultProviderAccountId,
+  );
   return c.json({
     data: {
       workspace,
@@ -761,22 +767,20 @@ automationRoutes.get("/settings/health", async (c) => {
       failedIngestEvents: dlq,
       provider: {
         dataForSeo: {
-          configured: Boolean(c.env.DATAFORSEO_LOGIN && c.env.DATAFORSEO_PASSWORD),
-          source: "worker_secret",
+          configured: await hasConfiguredCaptureProviderType(c.env, "dataforseo"),
+          source: "provider_registry",
           account: "Platform DataForSEO account",
         },
-        stripe: {
-          configured: String(c.env.PAYMENT_MODE) === "disabled" || Boolean(
-            Reflect.get(c.env, "STRIPE_SECRET_KEY") &&
-            Reflect.get(c.env, "STRIPE_WEBHOOK_SECRET") &&
-            c.env.STRIPE_STARTER_PRICE_ID &&
-            c.env.STRIPE_STUDIO_PRICE_ID &&
-            c.env.STRIPE_AGENCY_PRICE_ID &&
-            (String(c.env.PAYMENT_MODE) !== "stripe_direct" || c.env.STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID),
+        payments: {
+          configured: !payments.required || Boolean(
+            payments.enabled && defaultPayment?.credentialConfigured,
           ),
           mode: String(c.env.PAYMENT_MODE),
+          provider: defaultPayment?.provider ?? null,
+          providerLabel: defaultPayment?.providerLabel ?? null,
+          environment: defaultPayment?.environment ?? null,
           planChangesEnabled: String(c.env.BILLING_PLAN_CHANGES_ENABLED) === "true",
-          source: "worker_secret",
+          source: defaultPayment?.credentialSource ?? null,
         },
         email: {
           configured: emailDeliveryConfigured(c.env),

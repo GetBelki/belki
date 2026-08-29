@@ -3,6 +3,103 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 describe("control database migrations", () => {
+  it("adds capture providers and provenance without rebuilding job or snapshot tables", () => {
+    const controlSql = readFileSync(
+      resolve("migrations/control/0029_capture_providers.sql"),
+      "utf8",
+    );
+    const snapshotSql = readFileSync(
+      resolve("migrations/snapshot/0007_capture_providers.sql"),
+      "utf8",
+    );
+
+    expect(controlSql).toMatch(/CREATE TABLE capture_provider_accounts/i);
+    expect(controlSql).toMatch(/CREATE TABLE capture_provider_credentials/i);
+    expect(controlSql).toMatch(/CREATE TABLE capture_provider_routes/i);
+    expect(controlSql).toMatch(/CREATE TABLE capture_provider_attempts/i);
+    expect(controlSql).toMatch(/capture_provider_attempts_activity_idx/i);
+    expect(controlSql).toMatch(/ADD COLUMN capture_provider/i);
+    expect(controlSql).toMatch(
+      /project_tracking_sources WHERE source = 'gemini' AND enabled = 1/i,
+    );
+    expect(snapshotSql).toMatch(/ADD COLUMN capture_provider_attempt_id/i);
+    expect(`${controlSql}\n${snapshotSql}`).not.toMatch(/DROP TABLE/i);
+    expect(`${controlSql}\n${snapshotSql}`).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
+
+  it("adds modular payment accounts, encrypted credentials, and provider-neutral links additively", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0030_payment_providers.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/CREATE TABLE payment_provider_accounts/i);
+    expect(sql).toMatch(/CREATE TABLE payment_provider_credentials/i);
+    expect(sql).toMatch(/CREATE TABLE payment_provider_plan_catalog/i);
+    expect(sql).toMatch(/CREATE TABLE payment_configuration/i);
+    expect(sql).toMatch(/mode IN \('undecided', 'self_hosted', 'managed'\)/i);
+    expect(sql).toMatch(/THEN 'managed' ELSE 'undecided'/i);
+    expect(sql).toMatch(/CREATE TABLE workspace_billing_subscriptions/i);
+    expect(sql).toMatch(/ADD COLUMN payment_provider_account_id/i);
+    expect(sql).toMatch(/ADD COLUMN external_subscription_id/i);
+    expect(sql).toMatch(/billing_events_provider_external_idx/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
+
+  it("adds installation-defined billing plans without rebuilding legacy billing tables", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0031_dynamic_billing_plans.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/CREATE TABLE billing_plans/i);
+    expect(sql).toMatch(/CREATE TABLE payment_provider_plan_mappings/i);
+    expect(sql).toMatch(/ADD COLUMN billing_plan_id/i);
+    expect(sql).toMatch(/ADD COLUMN from_billing_plan_id/i);
+    expect(sql).toMatch(/ADD COLUMN to_billing_plan_id/i);
+    expect(sql).toMatch(/ADD COLUMN allowed_sources_json/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
+
+  it("keeps the pre-launch payment reset explicit, live-guarded, and billing-only", () => {
+    const resetSql = readFileSync(
+      resolve("scripts/reset-test-payments.sql"),
+      "utf8",
+    );
+    const resetRunner = readFileSync(
+      resolve("scripts/reset-test-payments.mjs"),
+      "utf8",
+    );
+    const guidedDeploy = readFileSync(
+      resolve("scripts/deploy-guided.sh"),
+      "utf8",
+    );
+
+    expect(resetSql).toMatch(/DELETE FROM payment_provider_accounts WHERE environment = 'test'/i);
+    expect(resetSql).toMatch(/DELETE FROM workspace_billing_subscriptions WHERE environment = 'test'/i);
+    expect(resetSql).toMatch(/plan_key = 'self_hosted'/i);
+    expect(resetSql).toMatch(/mode = 'undecided'/i);
+    expect(resetSql).not.toMatch(
+      /DELETE FROM\s+(?:workspaces|projects|tracked_queries|snapshot_index|capture_provider_accounts|billing_plans|usage_events|users)/i,
+    );
+    expect(resetRunner).toMatch(/DISCARD-TEST-PAYMENTS/);
+    expect(resetRunner).toMatch(/live_provider_accounts/);
+    expect(resetRunner).toMatch(/ambiguous_payment_records/);
+    expect(resetRunner).toMatch(/if \(!audit\.safe\) process\.exit\(2\)/);
+    expect(resetRunner).toMatch(/executeFile\(cleanupPath\)/);
+    expect(resetRunner).not.toMatch(/executeJson\(\{ file: cleanupPath \}\)/);
+    expect(guidedDeploy).toMatch(/--reset-test-payments/);
+    expect(guidedDeploy).toMatch(/d1 time-travel info CONTROL_DB --json/);
+    expect(guidedDeploy.indexOf("run pnpm db:migrate:remote")).toBeLessThan(
+      guidedDeploy.indexOf("run node scripts/reset-test-payments.mjs"),
+    );
+    expect(guidedDeploy.indexOf("run node scripts/reset-test-payments.mjs")).toBeLessThan(
+      guidedDeploy.indexOf('log "Publishing Worker"'),
+    );
+  });
+
   it("adds tracking sources without rebuilding the crawl_jobs parent table", () => {
     const sql = readFileSync(
       resolve("migrations/control/0017_tracking_sources.sql"),

@@ -20,6 +20,14 @@ describe("operator navigation", () => {
       "href",
       "/operator",
     );
+    expect(screen.getByRole("link", { name: "Providers" })).toHaveAttribute(
+      "href",
+      "/operator/providers",
+    );
+    expect(screen.getByRole("link", { name: "Payments" })).toHaveAttribute(
+      "href",
+      "/operator/payments",
+    );
     expect(screen.getByRole("link", { name: "Citation trends" })).toHaveAttribute(
       "aria-current",
       "page",

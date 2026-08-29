@@ -17,11 +17,19 @@ import { authRoutes } from "./routes/auth";
 import { coreRoutes } from "./routes/core";
 import { onboardingRoutes } from "./routes/onboarding";
 import { operatorInsightRoutes } from "./routes/operator-insights";
-import { billingRoutes, handleStripeWebhook, reconcileBillingPlanChanges } from "./routes/billing";
+import { providerRoutes } from "./routes/providers";
+import { paymentProviderRoutes } from "./routes/payment-providers";
+import {
+  billingRoutes,
+  handlePaymentWebhook,
+  handleStripeWebhook,
+  reconcileBillingPlanChanges,
+} from "./routes/billing";
 import type { AppEnv } from "./lib/app";
 import { authMiddleware } from "./lib/auth";
 import { errorResponse, nowIso, requestId } from "./lib/http";
-import { timingSafeTextEqual, verifySignedJobTag } from "./lib/crypto";
+import { verifySignedJobTag } from "./lib/crypto";
+import { verifyDataForSeoWebhookToken } from "./providers/dataforseo";
 import { missingDefaultSecurityHeaders } from "./lib/security-headers";
 import { RequestTiming } from "./lib/timing";
 import { dispatchLiveBatch, dispatchStandardBatch, collectReadyTasks } from "./ingestion/dispatch";
@@ -108,17 +116,19 @@ app.post("/api/webhooks/dataforseo/:source", async (c) => {
     !token ||
     !taskId ||
     !tag ||
-    !(await timingSafeTextEqual(token, c.env.DATAFORSEO_WEBHOOK_TOKEN))
+    !(await verifyDataForSeoWebhookToken(c.env, token))
   ) {
     return c.text("unauthorized", 401);
   }
   const jobId = await verifySignedJobTag(tag, c.env.APP_CRYPTO_KEY);
   if (!jobId) return c.text("unauthorized", 401);
   const job = await c.env.CONTROL_DB.prepare(
-    `SELECT job.id, job.workspace_id, job.project_id, job.tracking_source
+    `SELECT job.id, job.workspace_id, job.project_id, job.tracking_source,
+      job.capture_provider_attempt_id
      FROM crawl_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
      WHERE job.id = ? AND job.provider_tag = ? AND job.tracking_source = ?
+       AND job.capture_provider = 'dataforseo'
        AND query.deleted_at IS NULL
        AND NOT EXISTS (
          SELECT 1 FROM prompt_purge_jobs purge
@@ -131,6 +141,7 @@ app.post("/api/webhooks/dataforseo/:source", async (c) => {
       workspace_id: string;
       project_id: string;
       tracking_source: string;
+      capture_provider_attempt_id: string | null;
     }>();
   if (!job) return c.text("not found", 404);
   const contentLength = Number(c.req.header("content-length") ?? "0");
@@ -163,6 +174,11 @@ app.post("/api/webhooks/dataforseo/:source", async (c) => {
            )`,
       ).bind(taskId, rawKey, nowIso(), jobId),
       c.env.CONTROL_DB.prepare(
+        `UPDATE capture_provider_attempts SET status = 'normalizing',
+          external_task_id = COALESCE(external_task_id, ?), raw_r2_key = ?, updated_at = ?
+         WHERE id = ?`,
+      ).bind(taskId, rawKey, nowIso(), job.capture_provider_attempt_id),
+      c.env.CONTROL_DB.prepare(
         `INSERT INTO ingest_events (
           id, crawl_job_id, dataforseo_task_id, event_type, status, r2_key, received_at
         ) VALUES (?, ?, ?, 'postback', 'accepted', ?, ?)`,
@@ -189,7 +205,7 @@ app.post("/api/webhooks/dataforseo/product-info", async (c) => {
     !token ||
     !taskId ||
     !tag ||
-    !(await timingSafeTextEqual(token, c.env.DATAFORSEO_WEBHOOK_TOKEN))
+    !(await verifyDataForSeoWebhookToken(c.env, token))
   ) {
     return c.text("unauthorized", 401);
   }
@@ -211,11 +227,14 @@ app.post("/api/webhooks/dataforseo/product-info", async (c) => {
 });
 
 app.post("/api/webhooks/stripe", handleStripeWebhook);
+app.post("/api/webhooks/payments/:endpointKey", handlePaymentWebhook);
 
 app.use("/api/v1/*", authMiddleware);
 app.route("/api/v1", authRoutes);
 app.route("/api/v1", onboardingRoutes);
 app.route("/api/v1", operatorInsightRoutes);
+app.route("/api/v1", providerRoutes);
+app.route("/api/v1", paymentProviderRoutes);
 app.route("/api/v1", billingRoutes);
 app.route("/api/v1", coreRoutes);
 app.route("/api/v1", analyticsRoutes);

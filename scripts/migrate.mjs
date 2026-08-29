@@ -2,6 +2,7 @@ import { spawnSync } from "node:child_process";
 import { resolve } from "node:path";
 
 const target = process.argv.includes("--remote") ? "--remote" : "--local";
+const assumeYes = process.argv.includes("--yes");
 const persistIndex = process.argv.indexOf("--persist-to");
 const persistPath = persistIndex >= 0 ? process.argv[persistIndex + 1] : undefined;
 if (persistIndex >= 0 && (!persistPath || target === "--remote")) {
@@ -27,7 +28,7 @@ for (const binding of bindings) {
         "d1", "migrations", "apply", binding, target,
         ...(persistPath ? ["--persist-to", resolve(persistPath)] : []),
       ],
-      { stdio: "inherit" },
+      { stdio: assumeYes ? ["ignore", "inherit", "inherit"] : "inherit" },
     );
     if (result.status === 0) break;
     if (attempt === maxAttempts) process.exit(result.status ?? 1);

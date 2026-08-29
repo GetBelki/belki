@@ -1,25 +1,23 @@
 import type { PlanKey, TrackingSource } from "../../shared/contracts";
+import { DEFAULT_BILLING_PLANS } from "../../shared/billing-plans";
 import { DEFAULT_TRACKING_SOURCES, TRACKING_SOURCES } from "../../shared/tracking-sources";
-import { ApiError } from "./http";
+import { ApiError, jsonParse } from "./http";
+import { captureProviderConfiguration } from "../providers/accounts";
 
 export interface SourceEntitlement {
   allowedSources: TrackingSource[];
   sourceLimit: number;
 }
 
-function flag(env: Env, name: string): boolean {
-  return Reflect.get(env, name) === "true";
+export async function sourceAvailable(env: Env, source: TrackingSource): Promise<boolean> {
+  return (await availableSources(env)).includes(source);
 }
 
-export function sourceAvailable(env: Env, source: TrackingSource): boolean {
-  if (source === "chatgpt") return true;
-  if (source === "gemini") return flag(env, "TRACKING_SOURCE_GEMINI_ENABLED");
-  if (source === "google_ai_mode") return flag(env, "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED");
-  return flag(env, "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED");
-}
-
-export function availableSources(env: Env): TrackingSource[] {
-  return TRACKING_SOURCES.filter((source) => sourceAvailable(env, source));
+export async function availableSources(env: Env): Promise<TrackingSource[]> {
+  const configuration = await captureProviderConfiguration(env);
+  return configuration.routes
+    .filter((route) => route.enabled && route.effectiveProviderAccountId !== null)
+    .map((route) => route.trackingSource);
 }
 
 export function scheduledForTrackingSource(
@@ -35,8 +33,13 @@ export function scheduledForTrackingSource(
 }
 
 export function planSourceEntitlement(planKey: PlanKey): SourceEntitlement {
-  if (planKey === "starter") return { allowedSources: ["chatgpt"], sourceLimit: 1 };
-  if (planKey === "studio") return { allowedSources: [...TRACKING_SOURCES], sourceLimit: 2 };
+  const templatePlan = DEFAULT_BILLING_PLANS.find((plan) => plan.id === planKey);
+  if (templatePlan) {
+    return {
+      allowedSources: [...templatePlan.allowedSources],
+      sourceLimit: templatePlan.sourceLimit,
+    };
+  }
   return { allowedSources: [...TRACKING_SOURCES], sourceLimit: 4 };
 }
 
@@ -45,14 +48,25 @@ export async function workspaceSourceEntitlement(
   workspaceId: string,
 ): Promise<SourceEntitlement & { planKey: PlanKey }> {
   const row = await env.CONTROL_DB.prepare(
-    "SELECT plan_key, source_limit FROM billing_accounts WHERE workspace_id = ?",
-  ).bind(workspaceId).first<{ plan_key: PlanKey; source_limit: number }>();
+    `SELECT plan_key, billing_plan_id, source_limit, allowed_sources_json
+     FROM billing_accounts WHERE workspace_id = ?`,
+  ).bind(workspaceId).first<{
+    plan_key: PlanKey;
+    billing_plan_id: string | null;
+    source_limit: number;
+    allowed_sources_json: string;
+  }>();
   if (!row) throw new ApiError(500, "entitlement_not_configured", "Workspace source access is not configured.");
-  const configured = planSourceEntitlement(row.plan_key);
+  const storedSources = jsonParse<TrackingSource[]>(row.allowed_sources_json, [])
+    .filter((source) => TRACKING_SOURCES.includes(source));
+  const configured = storedSources.length
+    ? { allowedSources: storedSources, sourceLimit: Number(row.source_limit) }
+    : planSourceEntitlement(row.plan_key);
+  const available = await availableSources(env);
   return {
-    planKey: row.plan_key,
-    allowedSources: configured.allowedSources.filter((source) => sourceAvailable(env, source)),
-    sourceLimit: Math.min(Number(row.source_limit), configured.sourceLimit),
+    planKey: row.billing_plan_id ?? row.plan_key,
+    allowedSources: configured.allowedSources.filter((source) => available.includes(source)),
+    sourceLimit: Math.min(Number(row.source_limit), configured.sourceLimit, configured.allowedSources.length),
   };
 }
 

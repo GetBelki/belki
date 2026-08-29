@@ -14,11 +14,10 @@ import {
   QueryInputSchema,
   QueryUpdateSchema,
   WorkspaceUpdateSchema,
-  type PlanKey,
   type Schedule,
   type TrackingSource,
 } from "../../shared/contracts";
-import { DEFAULT_TRACKING_SOURCES } from "../../shared/tracking-sources";
+import { DEFAULT_TRACKING_SOURCES, TRACKING_SOURCES } from "../../shared/tracking-sources";
 import type { AppEnv } from "../lib/app";
 import { requireRole } from "../lib/auth";
 import { prepareAudit, writeAudit } from "../lib/audit";
@@ -59,11 +58,15 @@ import {
 import {
   assertTrackingSourcesAllowed,
   availableSources,
-  planSourceEntitlement,
   projectTrackingSources,
   scheduledForTrackingSource,
   workspaceSourceEntitlement,
 } from "../lib/tracking-sources";
+import {
+  captureProviderJobRoute,
+  prepareCaptureProviderAttempt,
+  resolveCaptureProviderAccount,
+} from "../providers/accounts";
 
 const IdParamSchema = z.object({ id: z.string().uuid() });
 const ProjectIdParamSchema = z.object({ projectId: z.string().uuid() });
@@ -356,7 +359,8 @@ coreRoutes.get(
           project.html_capture_enabled,
           product_enrichment_enabled, entity_extraction_enabled,
           entity_auto_track_enabled, raw_retention_days, html_retention_days,
-          billing.plan_key, billing.source_limit,
+          billing.plan_key, billing.billing_plan_id, billing.source_limit,
+          billing.allowed_sources_json,
           COALESCE((
             SELECT json_group_array(source.source)
             FROM (
@@ -385,15 +389,20 @@ coreRoutes.get(
           entity_auto_track_enabled: number;
           raw_retention_days: number;
           html_retention_days: number;
-          plan_key: PlanKey;
+          plan_key: string;
+          billing_plan_id: string | null;
           source_limit: number;
+          allowed_sources_json: string;
           tracking_sources_json: string;
         }>(),
     );
     const project = result.results[0];
     if (!project) throw new ApiError(404, "project_not_found", "Project not found.");
-    const availableTrackingSources = availableSources(c.env);
-    const configuredEntitlement = planSourceEntitlement(project.plan_key);
+    const availableTrackingSources = await availableSources(c.env);
+    const configuredSources = jsonParse<TrackingSource[]>(
+      project.allowed_sources_json,
+      [...DEFAULT_TRACKING_SOURCES],
+    ).filter((source) => TRACKING_SOURCES.includes(source));
     const sources = jsonParse<TrackingSource[]>(
       project.tracking_sources_json,
       [],
@@ -411,12 +420,12 @@ coreRoutes.get(
         htmlRetentionDays: project.html_retention_days,
         trackingSources: sources.length ? sources : [...DEFAULT_TRACKING_SOURCES],
         availableTrackingSources,
-        allowedTrackingSources: configuredEntitlement.allowedSources.filter((source) =>
+        allowedTrackingSources: configuredSources.filter((source) =>
           availableTrackingSources.includes(source),
         ),
         trackingSourceLimit: Math.min(
           Number(project.source_limit),
-          configuredEntitlement.sourceLimit,
+          configuredSources.length,
         ),
       },
     });
@@ -1483,6 +1492,9 @@ coreRoutes.post(
     }
 
     const jobId = crypto.randomUUID();
+    const providerRoute = captureProviderJobRoute(
+      await resolveCaptureProviderAccount(c.env, input.source),
+    );
     const tag = await createSignedJobTag(jobId, c.env.APP_CRYPTO_KEY);
     const now = nowIso();
     const delivery = manualJobDelivery(
@@ -1498,12 +1510,17 @@ coreRoutes.post(
     } as const;
     await reserveUsage(c.env, principal.workspaceId, usageInput);
     try {
-      await c.env.CONTROL_DB.prepare(
+      await c.env.CONTROL_DB.batch([
+        c.env.CONTROL_DB.prepare(
         `INSERT INTO crawl_jobs (
           id, workspace_id, project_id, tracked_query_id, shard_id, tracking_source, run_type,
           delivery_method, status, scheduled_for, provider_tag, capture_html,
-          provider_account_id, usage_reservation_id, usage_units, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, 'manual', ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
+          provider_account_id, capture_provider, capture_provider_attempt_id,
+          capture_adapter_version, usage_reservation_id, usage_units, created_at, updated_at
+        ) VALUES (
+          ?, ?, ?, ?, ?, ?, 'manual', ?, 'queued', ?, ?,
+          ?, ?, ?, ?, ?, ?, ?, ?, ?
+        )`,
       )
         .bind(
           jobId,
@@ -1516,13 +1533,18 @@ coreRoutes.post(
           scheduledForTrackingSource(now, input.source),
           tag,
           delivery.captureHtml ? 1 : 0,
-          "dataforseo:platform:v1",
+          providerRoute.providerAccountId,
+          providerRoute.provider,
+          providerRoute.attemptId,
+          providerRoute.adapterVersion,
           jobId,
           usageInput.units,
           now,
           now,
         )
-        .run();
+        ,
+        prepareCaptureProviderAttempt(c.env.CONTROL_DB, jobId, providerRoute, now),
+      ]);
       await (delivery.queue === "standard" ? c.env.STANDARD_QUEUE : c.env.LIVE_QUEUE)
         .send({ jobId });
     } catch (error) {

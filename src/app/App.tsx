@@ -79,6 +79,10 @@ const UsersPage = lazy(() =>
 const BillingPage = lazy(() => import("./pages/billing"));
 const SettingsPage = lazy(() => import("./pages/settings"));
 const OperatorPage = lazy(() => import("./pages/operator"));
+const OperatorProvidersPage = lazy(() => import("./pages/operator-providers"));
+const ProviderOnboardingPage = lazy(() => import("./pages/provider-onboarding"));
+const OperatorPaymentsPage = lazy(() => import("./pages/operator-payments"));
+const PaymentOnboardingPage = lazy(() => import("./pages/payment-onboarding"));
 const OperatorCitationTrendsPage = lazy(() =>
   import("./pages/operator-insights").then((module) => ({
     default: module.OperatorCitationTrendsPage,
@@ -105,7 +109,12 @@ export function App() {
   const location = useLocation();
   const status = useQuery({
     queryKey: ["status"],
-    queryFn: () => api<{ setupRequired: boolean; emailDeliveryConfigured: boolean }>("/status"),
+    queryFn: () => api<{
+      setupRequired: boolean;
+      providerSetupRequired: boolean;
+      paymentSetupRequired: boolean;
+      emailDeliveryConfigured: boolean;
+    }>("/status"),
   });
   const session = useQuery({
     queryKey: ["session"],
@@ -129,6 +138,20 @@ export function App() {
   if (!session.data) {
     return <LoginPage emailDeliveryConfigured={status.data?.emailDeliveryConfigured ?? false} />;
   }
+  if (
+    status.data?.providerSetupRequired
+    && session.data.isPlatformOperator
+    && location.pathname !== "/onboarding/provider"
+  ) {
+    return <Navigate to="/onboarding/provider" replace />;
+  }
+  if (
+    status.data?.paymentSetupRequired
+    && session.data.isPlatformOperator
+    && location.pathname !== "/onboarding/payments"
+  ) {
+    return <Navigate to="/onboarding/payments" replace />;
+  }
   if (session.data.workspace.status === "pending_payment" && location.pathname !== "/billing") {
     return <Navigate to="/billing" replace />;
   }
@@ -140,6 +163,8 @@ export function App() {
     <AppProvider session={session.data}>
       <Suspense fallback={<AppLoader />}>
         <Routes>
+          <Route path="/onboarding/provider" element={<ProviderOnboardingPage />} />
+          <Route path="/onboarding/payments" element={<PaymentOnboardingPage />} />
           <Route path="/onboarding/project" element={<ProjectOnboardingPage />} />
           <Route path="/onboarding/prompts" element={<PromptOnboardingPage />} />
           <Route element={<AppLayout />}>
@@ -182,6 +207,8 @@ export function App() {
             <Route path="/billing" element={<BillingPage />} />
             <Route path="/settings" element={<SettingsPage />} />
             <Route path="/operator" element={session.data.isPlatformOperator ? <OperatorPage /> : <Navigate to="/" replace />} />
+            <Route path="/operator/providers" element={session.data.isPlatformOperator ? <OperatorProvidersPage /> : <Navigate to="/" replace />} />
+            <Route path="/operator/payments" element={session.data.isPlatformOperator ? <OperatorPaymentsPage /> : <Navigate to="/" replace />} />
             <Route path="/operator/insights/citations" element={session.data.isPlatformOperator ? <OperatorCitationTrendsPage /> : <Navigate to="/" replace />} />
             <Route path="/operator/insights/source-discovery" element={session.data.isPlatformOperator ? <OperatorSourceDiscoveryPage /> : <Navigate to="/" replace />} />
             <Route path="/operator/insights/fan-out" element={session.data.isPlatformOperator ? <OperatorFanOutTrendsPage /> : <Navigate to="/" replace />} />

@@ -2040,7 +2040,7 @@ function ProductMarketSection({
                       <YAxis axisLine={false} tick={{ fill: "#71717a", fontSize: 10 }} tickLine={false} width={45} />
                       <Tooltip cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} formatter={(value, name) => [observedPrice(Number(value), currency), String(name)]} isAnimationActive={false} labelFormatter={chartDateLabel} />
                       <Line activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }} dataKey="minimum" dot={false} isAnimationActive={false} name="Minimum" stroke="#a1a1aa" strokeLinecap="round" strokeLinejoin="round" type="linear" />
-                      <Line activeDot={{ fill: "#fff", r: 4, strokeWidth: 2 }} dataKey="median" dot={false} isAnimationActive={false} name="Median" stroke="#7c3aed" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} type="linear" />
+                      <Line activeDot={{ fill: "#fff", r: 4, strokeWidth: 2 }} dataKey="median" dot={false} isAnimationActive={false} name="Median" stroke="#1e73be" strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} type="linear" />
                       <Line activeDot={{ fill: "#fff", r: 3.5, strokeWidth: 2 }} dataKey="maximum" dot={false} isAnimationActive={false} name="Maximum" stroke="#18181b" strokeLinecap="round" strokeLinejoin="round" type="linear" />
                     </LineChart>
                   </ResponsiveContainer>

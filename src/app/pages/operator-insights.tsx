@@ -354,13 +354,13 @@ const FAN_OUT_METRIC_COPY: Record<
 
 const YEAR_COLORS = [
   "#18181b",
-  "#2563eb",
+  "#1e73be",
   "#16a34a",
   "#d97706",
-  "#9333ea",
-  "#dc2626",
   "#0891b2",
-  "#4f46e5",
+  "#dc2626",
+  "#0f766e",
+  "#64748b",
 ];
 
 const ALL_DOMAINS_OPTION: DomainComboboxOption = {

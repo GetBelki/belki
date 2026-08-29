@@ -14,6 +14,8 @@ import {
   BillingCancellationSchema,
   BillingPlanChangeSchema,
   BillingPlanChangePreviewSchema,
+  PaymentInstallationModeSchema,
+  PaymentProviderAccountInputSchema,
   ProjectTrackingSourcesSchema,
   TrackingSourceSchema,
   WorkspaceUpdateSchema,
@@ -44,7 +46,7 @@ describe("API contracts", () => {
       timezone: "UTC",
     });
     expect(BillingCheckoutSchema.parse({ planKey: "studio" })).toEqual({ planKey: "studio" });
-    expect(BillingCheckoutSchema.safeParse({ planKey: "custom" }).success).toBe(false);
+    expect(BillingCheckoutSchema.parse({ planKey: "latam_growth" })).toEqual({ planKey: "latam_growth" });
     expect(BillingPlanChangeSchema.parse({ planKey: "agency" })).toEqual({
       planKey: "agency",
       replacePending: false,
@@ -56,6 +58,44 @@ describe("API contracts", () => {
     expect(BillingPlanChangeSchema.safeParse({ planKey: "self_hosted" }).success).toBe(false);
     expect(BillingPlanChangePreviewSchema.parse({ planKey: "starter" })).toEqual({ planKey: "starter" });
     expect(BillingCancellationSchema.parse({})).toEqual({ replacePending: false });
+  });
+
+  it("accepts either installed payment adapter and explicit installation modes", () => {
+    expect(PaymentInstallationModeSchema.parse("self_hosted")).toBe("self_hosted");
+    expect(PaymentInstallationModeSchema.parse("managed")).toBe("managed");
+    expect(PaymentProviderAccountInputSchema.parse({
+      provider: "dodo",
+      label: "Dodo production",
+      environment: "live",
+      credentials: {
+        apiKey: "dodo_live_example_secret",
+        webhookSecret: "whsec_MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=",
+      },
+      currency: "brl",
+      plans: [{
+        id: "regional",
+        name: "Regional",
+        description: "A plan for this installation",
+        sortOrder: 0,
+        featured: true,
+        monthlyUnits: 12_000,
+        projectLimit: 3,
+        promptLimit: 50,
+        sourceLimit: 2,
+        allowedSources: ["chatgpt", "gemini"],
+      }],
+      catalogue: [{
+        planId: "regional",
+        externalReference: "pdt_regional",
+        amountMinor: 9_990,
+      }],
+      configuration: {},
+    })).toMatchObject({
+      provider: "dodo",
+      environment: "live",
+      currency: "BRL",
+      plans: [{ id: "regional", name: "Regional" }],
+    });
   });
 
   it("validates project tracking source selections", () => {

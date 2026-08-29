@@ -9,13 +9,18 @@ import { getLocaleCatalog } from "../lib/dataforseo";
 import { ApiError, nowIso } from "../lib/http";
 import { calculateNextRun, scheduleFromRow } from "../lib/schedule";
 import { getShard, SHARD_COUNT } from "../lib/shards";
-import { platformDataForSeoCredentials } from "../lib/provider-credentials";
+import { registeredDataForSeoCredentials } from "../providers/dataforseo-credentials";
 import { scheduledJobDelivery } from "../lib/job-delivery";
 import { releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 import {
   scheduledForTrackingSource,
-  sourceAvailable,
 } from "../lib/tracking-sources";
+import {
+  captureProviderJobRoute,
+  prepareCaptureProviderAttempt,
+  resolveCaptureProviderAccount,
+  type ResolvedCaptureProviderAccount,
+} from "../providers/accounts";
 
 interface DueQueryRow {
   id: string;
@@ -51,8 +56,24 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
   if (due.results.length === 0) return 0;
 
   const messages: JobQueueMessage[] = [];
+  const providerRoutes = new Map<
+    TrackingSource,
+    Promise<ResolvedCaptureProviderAccount>
+  >();
   for (const query of due.results) {
-    if (!sourceAvailable(env, query.tracking_source)) {
+    let resolvedProvider: ResolvedCaptureProviderAccount;
+    try {
+      let pendingRoute = providerRoutes.get(query.tracking_source);
+      if (!pendingRoute) {
+        pendingRoute = resolveCaptureProviderAccount(env, query.tracking_source);
+        providerRoutes.set(query.tracking_source, pendingRoute);
+      }
+      resolvedProvider = await pendingRoute;
+    } catch (error) {
+      if (!(error instanceof ApiError) || ![
+        "tracking_source_disabled",
+        "capture_provider_unavailable",
+      ].includes(error.code)) throw error;
       const nextRunAt = calculateNextRun(
         scheduleFromRow(query),
         new Date(Date.parse(query.next_run_at) + 1),
@@ -63,6 +84,7 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
       continue;
     }
     const jobId = crypto.randomUUID();
+    const providerRoute = captureProviderJobRoute(resolvedProvider);
     const tag = await createSignedJobTag(jobId, env.APP_CRYPTO_KEY);
     const createdAt = nowIso();
     const delivery = scheduledJobDelivery(
@@ -100,8 +122,12 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
           `INSERT OR IGNORE INTO crawl_jobs (
             id, workspace_id, project_id, tracked_query_id, shard_id, tracking_source, run_type,
             delivery_method, status, scheduled_for, provider_tag, capture_html,
-            provider_account_id, usage_reservation_id, usage_units, created_at, updated_at
-          ) VALUES (?, ?, ?, ?, ?, ?, 'scheduled', ?, 'queued', ?, ?, ?, ?, ?, ?, ?, ?)`,
+            provider_account_id, capture_provider, capture_provider_attempt_id,
+            capture_adapter_version, usage_reservation_id, usage_units, created_at, updated_at
+          ) VALUES (
+            ?, ?, ?, ?, ?, ?, 'scheduled', ?, 'queued', ?, ?,
+            ?, ?, ?, ?, ?, ?, ?, ?, ?
+          )`,
         ).bind(
           jobId,
           query.workspace_id,
@@ -113,10 +139,19 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
           scheduledForTrackingSource(query.next_run_at, query.tracking_source),
           tag,
           delivery.captureHtml ? 1 : 0,
-          "dataforseo:platform:v1",
+          providerRoute.providerAccountId,
+          providerRoute.provider,
+          providerRoute.attemptId,
+          providerRoute.adapterVersion,
           jobId,
           reservation.units,
           createdAt,
+          createdAt,
+        ),
+        prepareCaptureProviderAttempt(
+          env.CONTROL_DB,
+          jobId,
+          providerRoute,
           createdAt,
         ),
         env.CONTROL_DB.prepare(
@@ -257,7 +292,7 @@ function flattenCatalogResults(payload: unknown): Array<Record<string, unknown>>
 }
 
 export async function refreshLocaleCatalog(env: Env): Promise<number> {
-  const credentials = platformDataForSeoCredentials(env);
+  const credentials = await registeredDataForSeoCredentials(env);
   const [locations, languages] = await Promise.all([
     getLocaleCatalog(credentials, "locations"),
     getLocaleCatalog(credentials, "languages"),

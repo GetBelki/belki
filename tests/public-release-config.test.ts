@@ -27,6 +27,7 @@ describe("public release deployment defaults", () => {
     );
     expect(wrangler.secrets.required).not.toContain("STRIPE_SECRET_KEY");
     expect(wrangler.secrets.required).not.toContain("STRIPE_WEBHOOK_SECRET");
+    expect(Object.keys(wrangler.vars).some((name) => name.startsWith("STRIPE_"))).toBe(false);
   });
 
   it("keeps the checked-in deployment portable and self-hosted", () => {
@@ -37,5 +38,15 @@ describe("public release deployment defaults", () => {
     expect(wrangler.vars.PAYMENT_MODE).toBe("disabled");
     expect(wrangler.vars.PUBLIC_APP_ORIGIN).toBe("");
     expect(wrangler.vars.EMAIL_FROM_ADDRESS).toBe("");
+  });
+
+  it("keeps payment-provider configuration out of the managed deployment profile", () => {
+    const profile = readJson<{ vars: Record<string, string> }>(
+      "../deployment/getbelki.json",
+    );
+
+    expect(profile.vars.DEPLOYMENT_MODE).toBe("managed");
+    expect(profile.vars.PAYMENT_MODE).not.toBe("disabled");
+    expect(Object.keys(profile.vars).some((name) => name.startsWith("STRIPE_"))).toBe(false);
   });
 });

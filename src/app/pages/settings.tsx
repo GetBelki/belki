@@ -69,7 +69,14 @@ interface ArchivedProject {
 interface HealthSummary {
   provider?: {
     dataForSeo?: { configured: boolean; source: string; account: string };
-    stripe?: { configured: boolean; mode: string; source: string };
+    payments?: {
+      configured: boolean;
+      mode: string;
+      provider: string | null;
+      providerLabel: string | null;
+      environment: "test" | "live" | null;
+      source: string | null;
+    };
     email?: { configured: boolean; source: string };
   };
   publicOrigin?: { configured: string | null; stored: string | null };
@@ -518,7 +525,7 @@ export default function SettingsPage() {
                 <div><CheckCircle2/><span><strong>Control database</strong>Connected</span></div>
                 <div><ServerCog/><span><strong>Snapshot shards</strong>32 shards configured</span></div>
                 <div><KeyRound/><span><strong>DataForSEO credentials</strong>{health.data.provider?.dataForSeo?.configured ? "Configured in Worker secrets" : "Missing Worker secrets"}</span></div>
-                <div><KeyRound/><span><strong>Managed billing</strong>{health.data.provider?.stripe?.mode === "disabled" ? "Disabled for self-hosted mode" : health.data.provider?.stripe?.configured ? `${health.data.provider.stripe.mode} configured` : "Stripe secrets are missing"}</span></div>
+                <div><KeyRound/><span><strong>Managed billing</strong>{health.data.provider?.payments?.mode === "disabled" ? "Disabled for self-hosted mode" : health.data.provider?.payments?.configured ? `${health.data.provider.payments.providerLabel ?? "Payment provider"} ${health.data.provider.payments.environment ?? ""} configured`.trim() : "Payment provider setup is incomplete"}</span></div>
                 <div><KeyRound/><span><strong>Email delivery</strong>{health.data.provider?.email?.configured ? "Configured" : "Disabled; invitation links remain copyable"}</span></div>
                 <div><ServerCog/><span><strong>Public application URL</strong>{health.data.publicOrigin?.configured ?? health.data.publicOrigin?.stored ?? "Not configured"}{health.data.publicOrigin?.configured ? " (managed by Worker configuration)" : " (workspace setting)"}</span></div>
               </div>

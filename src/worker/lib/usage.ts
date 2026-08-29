@@ -13,18 +13,6 @@ import type {
 } from "../durable-objects/workspace-usage-gate";
 import { ApiError, nowIso } from "./http";
 
-export const PLAN_ENTITLEMENTS = {
-  starter: { monthlyUnits: 4_000, projectLimit: 1, promptLimit: 25, sourceLimit: 1 },
-  studio: { monthlyUnits: 20_000, projectLimit: 5, promptLimit: 75, sourceLimit: 2 },
-  agency: { monthlyUnits: 125_000, projectLimit: 30, promptLimit: 250, sourceLimit: 4 },
-} as const;
-
-export const BILLING_PLANS = {
-  starter: { rank: 0, priceEur: 10, ...PLAN_ENTITLEMENTS.starter },
-  studio: { rank: 1, priceEur: 29, ...PLAN_ENTITLEMENTS.studio },
-  agency: { rank: 2, priceEur: 149, ...PLAN_ENTITLEMENTS.agency },
-} as const;
-
 export const USAGE_UNITS: Record<UsageSku, number> = {
   llm_standard: 1,
   llm_priority_html: 2,
@@ -35,6 +23,7 @@ export const USAGE_UNITS: Record<UsageSku, number> = {
 
 interface BillingEntitlementRow {
   plan_key: PlanKey;
+  billing_plan_id: string | null;
   status: SubscriptionStatus;
   monthly_units: number;
   project_limit: number;
@@ -59,7 +48,8 @@ function currentUtcMonth(): { start: string; end: string } {
 
 export async function syncUsageEntitlement(env: Env, workspaceId: string): Promise<UsageSummary> {
   const row = await env.CONTROL_DB.prepare(
-    `SELECT billing.plan_key, billing.status, billing.monthly_units, billing.project_limit,
+    `SELECT billing.plan_key, billing.billing_plan_id, billing.status,
+      billing.monthly_units, billing.project_limit,
       billing.prompt_limit, billing.source_limit,
       billing.cycle_started_at, billing.cycle_ends_at, billing.read_only_until,
       workspace.status AS workspace_status
@@ -84,7 +74,7 @@ export async function syncUsageEntitlement(env: Env, workspaceId: string): Promi
   }
 
   const entitlement: UsageEntitlement = {
-    planKey: row.plan_key,
+    planKey: row.billing_plan_id ?? row.plan_key,
     subscriptionStatus: row.status,
     workspaceStatus: row.workspace_status,
     allowance: Number(row.monthly_units),

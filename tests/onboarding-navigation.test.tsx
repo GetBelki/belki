@@ -41,6 +41,8 @@ describe("project onboarding navigation", () => {
   it("keeps payment, operator, and onboarding routes reachable", () => {
     expect(needsProjectOnboarding(session(), "/onboarding/project")).toBe(false);
     expect(needsProjectOnboarding(session(), "/onboarding/prompts")).toBe(false);
+    expect(needsProjectOnboarding(session(), "/onboarding/provider")).toBe(false);
+    expect(needsProjectOnboarding(session(), "/onboarding/payments")).toBe(false);
     expect(needsProjectOnboarding(session(), "/billing")).toBe(false);
     expect(needsProjectOnboarding(session({ isPlatformOperator: true }), "/operator")).toBe(false);
     expect(needsProjectOnboarding(

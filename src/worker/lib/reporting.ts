@@ -331,7 +331,7 @@ export type ProductAnalyticsPeriod = "7d" | "30d" | "90d" | "365d";
 export function productAnalyticsDateRange(
   period: ProductAnalyticsPeriod,
   now = new Date(),
-): BillingDateRange {
+): AnalyticsDateRange {
   const days =
     period === "365d" ? 365 : period === "90d" ? 90 : period === "7d" ? 7 : 30;
   const today = utcDate(now);
@@ -348,7 +348,7 @@ export function productAnalyticsDateRange(
 export function productAnalyticsComparisonDateRange(
   period: ProductAnalyticsPeriod,
   now = new Date(),
-): BillingDateRange {
+): AnalyticsDateRange {
   const current = productAnalyticsDateRange(period, now);
   const currentStart = new Date(current.startTimestamp);
   const currentEnd = new Date(current.endExclusiveTimestamp);
@@ -870,19 +870,11 @@ export function buildBrandComparison(
   };
 }
 
-export type BillingPeriod = "30d" | "month";
-
-export interface BillingDateRange {
+export interface AnalyticsDateRange {
   from: string;
   to: string;
   startTimestamp: string;
   endExclusiveTimestamp: string;
-}
-
-export interface BillingDailyRow {
-  metric_date: string;
-  charged_runs: number;
-  provider_cost_usd: number;
 }
 
 function utcDate(value: Date): Date {
@@ -893,217 +885,4 @@ function utcDate(value: Date): Date {
 
 function dateKey(value: Date): string {
   return value.toISOString().slice(0, 10);
-}
-
-function roundCost(value: number): number {
-  return Math.round((value + Number.EPSILON) * 100_000_000) / 100_000_000;
-}
-
-export function billingDateRange(
-  period: BillingPeriod,
-  now = new Date(),
-): BillingDateRange {
-  const today = utcDate(now);
-  const start =
-    period === "month"
-      ? new Date(Date.UTC(today.getUTCFullYear(), today.getUTCMonth(), 1))
-      : new Date(today.getTime() - 29 * 86_400_000);
-  const endExclusive = new Date(today.getTime() + 86_400_000);
-  return {
-    from: dateKey(start),
-    to: dateKey(today),
-    startTimestamp: start.toISOString(),
-    endExclusiveTimestamp: endExclusive.toISOString(),
-  };
-}
-
-export function buildBillingReport(
-  rows: BillingDailyRow[],
-  dates: BillingDateRange,
-) {
-  const valuesByDate = new Map<string, { runs: number; cost: number }>();
-  for (const row of rows) {
-    const current = valuesByDate.get(row.metric_date) ?? { runs: 0, cost: 0 };
-    valuesByDate.set(row.metric_date, {
-      runs: current.runs + (Number(row.charged_runs) || 0),
-      cost: roundCost(current.cost + (Number(row.provider_cost_usd) || 0)),
-    });
-  }
-  const series: Array<{ date: string; runs: number; cost: number }> = [];
-  const cursor = new Date(`${dates.from}T00:00:00.000Z`);
-  const end = new Date(`${dates.to}T00:00:00.000Z`);
-  while (cursor <= end) {
-    const date = dateKey(cursor);
-    const value = valuesByDate.get(date) ?? { runs: 0, cost: 0 };
-    series.push({ date, ...value });
-    cursor.setUTCDate(cursor.getUTCDate() + 1);
-  }
-  const summary = series.reduce(
-    (total, point) => ({
-      totalCost: roundCost(total.totalCost + point.cost),
-      chargedRuns: total.chargedRuns + point.runs,
-      highestDailyCost: Math.max(total.highestDailyCost, point.cost),
-    }),
-    { totalCost: 0, chargedRuns: 0, highestDailyCost: 0 },
-  );
-  return {
-    range: { from: dates.from, to: dates.to },
-    summary: {
-      ...summary,
-      averageCost: summary.chargedRuns
-        ? roundCost(summary.totalCost / summary.chargedRuns)
-        : 0,
-    },
-    series,
-  };
-}
-
-type BillingReport = ReturnType<typeof buildBillingReport>;
-
-export function mergeBillingReports(
-  promptTracking: BillingReport,
-  productEnrichment: BillingReport,
-  entityExtraction?: BillingReport,
-  promptDetails?: {
-    highPriority?: BillingReport;
-    live?: BillingReport;
-    retainedPages?: BillingReport;
-  },
-) {
-  const emptyReport = (): BillingReport => ({
-    range: promptTracking.range,
-    summary: { totalCost: 0, chargedRuns: 0, highestDailyCost: 0, averageCost: 0 },
-    series: promptTracking.series.map((point) => ({ date: point.date, runs: 0, cost: 0 })),
-  });
-  const extraction = entityExtraction ?? emptyReport();
-  const highPriority = promptDetails?.highPriority ?? emptyReport();
-  const live = promptDetails?.live ?? emptyReport();
-  const retainedPages = promptDetails?.retainedPages ?? emptyReport();
-  const standard: BillingReport = {
-    range: promptTracking.range,
-    summary: {
-      totalCost: roundCost(Math.max(
-        0,
-        promptTracking.summary.totalCost - highPriority.summary.totalCost -
-          live.summary.totalCost,
-      )),
-      chargedRuns: Math.max(
-        0,
-        promptTracking.summary.chargedRuns - highPriority.summary.chargedRuns -
-          live.summary.chargedRuns,
-      ),
-      highestDailyCost: 0,
-      averageCost: 0,
-    },
-    series: promptTracking.series.map((point, index) => {
-      const priorityPoint = highPriority.series[index] ?? {
-        date: point.date,
-        runs: 0,
-        cost: 0,
-      };
-      const livePoint = live.series[index] ?? {
-        date: point.date,
-        runs: 0,
-        cost: 0,
-      };
-      return {
-        date: point.date,
-        runs: Math.max(0, point.runs - priorityPoint.runs - livePoint.runs),
-        cost: roundCost(Math.max(0, point.cost - priorityPoint.cost - livePoint.cost)),
-      };
-    }),
-  };
-  standard.summary.highestDailyCost = Math.max(
-    ...standard.series.map((point) => point.cost),
-    0,
-  );
-  standard.summary.averageCost = standard.summary.chargedRuns
-    ? roundCost(
-      standard.summary.totalCost / standard.summary.chargedRuns,
-    )
-    : 0;
-  const totalCost = roundCost(
-    promptTracking.summary.totalCost + productEnrichment.summary.totalCost +
-      extraction.summary.totalCost,
-  );
-  const chargedTasks =
-    promptTracking.summary.chargedRuns + productEnrichment.summary.chargedRuns +
-      extraction.summary.chargedRuns;
-  const series = promptTracking.series.map((prompt, index) => {
-    const enrichment = productEnrichment.series[index] ?? {
-      date: prompt.date,
-      runs: 0,
-      cost: 0,
-    };
-    const entity = extraction.series[index] ?? {
-      date: prompt.date,
-      runs: 0,
-      cost: 0,
-    };
-    const standardPoint = standard.series[index] ?? {
-      date: prompt.date,
-      runs: 0,
-      cost: 0,
-    };
-    const priorityPoint = highPriority.series[index] ?? {
-      date: prompt.date,
-      runs: 0,
-      cost: 0,
-    };
-    const livePoint = live.series[index] ?? {
-      date: prompt.date,
-      runs: 0,
-      cost: 0,
-    };
-    return {
-      date: prompt.date,
-      totalCost: roundCost(prompt.cost + enrichment.cost + entity.cost),
-      promptTrackingCost: prompt.cost,
-      promptTrackingStandardCost: standardPoint.cost,
-      promptTrackingHighPriorityCost: priorityPoint.cost,
-      promptTrackingLiveCost: livePoint.cost,
-      productEnrichmentCost: enrichment.cost,
-      entityExtractionCost: entity.cost,
-      totalTasks: prompt.runs + enrichment.runs + entity.runs,
-      promptTrackingTasks: prompt.runs,
-      promptTrackingStandardTasks: standardPoint.runs,
-      promptTrackingHighPriorityTasks: priorityPoint.runs,
-      promptTrackingLiveTasks: livePoint.runs,
-      productEnrichmentTasks: enrichment.runs,
-      entityExtractionTasks: entity.runs,
-    };
-  });
-  const category = (report: BillingReport) => ({
-    chargedTasks: report.summary.chargedRuns,
-    totalCost: report.summary.totalCost,
-    averageCost: report.summary.averageCost,
-    sharePercent: totalCost
-      ? (report.summary.totalCost / totalCost) * 100
-      : 0,
-  });
-  return {
-    range: promptTracking.range,
-    summary: {
-      totalCost,
-      chargedTasks,
-      chargedRuns: chargedTasks,
-      averageCost: chargedTasks ? roundCost(totalCost / chargedTasks) : 0,
-      highestDailyCost: Math.max(
-        ...series.map((point) => point.totalCost),
-        0,
-      ),
-      byCategory: {
-        promptTracking: category(promptTracking),
-        productEnrichment: category(productEnrichment),
-        entityExtraction: category(extraction),
-      },
-      promptTrackingBreakdown: {
-        standard: category(standard),
-        highPriority: category(highPriority),
-        live: category(live),
-        retainedPages: category(retainedPages),
-      },
-    },
-    series,
-  };
 }

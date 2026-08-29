@@ -3,6 +3,8 @@ import type { Session } from "./api";
 const PROJECTLESS_ROUTES = new Set([
   "/onboarding/project",
   "/onboarding/prompts",
+  "/onboarding/provider",
+  "/onboarding/payments",
   "/billing",
   "/operator",
 ]);

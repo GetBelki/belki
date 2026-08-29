@@ -6,17 +6,9 @@
   ],
   "vars": {
     "DEPLOYMENT_MODE": "managed",
-    "PAYMENT_MODE": "stripe_direct",
+    "PAYMENT_MODE": "enabled",
     "BILLING_PLAN_CHANGES_ENABLED": "true",
-    "TRACKING_SOURCE_GEMINI_ENABLED": "true",
-    "TRACKING_SOURCE_GOOGLE_AI_MODE_ENABLED": "true",
-    "TRACKING_SOURCE_GOOGLE_AI_OVERVIEW_ENABLED": "true",
     "PUBLIC_APP_ORIGIN": "https://app.getbelki.com",
-    "EMAIL_FROM_ADDRESS": "noreply@notifications.getbelki.com",
-    "STRIPE_ENVIRONMENT": "test",
-    "STRIPE_STARTER_PRICE_ID": "price_1U4NvfPRi2lfhBgR4lJrKROF",
-    "STRIPE_STUDIO_PRICE_ID": "price_1U4QxrPRi2lfhBgRZWdS6YpN",
-    "STRIPE_AGENCY_PRICE_ID": "price_1U4Qy0PRi2lfhBgR5GCixXh8",
-    "STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID": "bpc_1U4jskPRi2lfhBgRUXIefjua"
+    "EMAIL_FROM_ADDRESS": "noreply@notifications.getbelki.com"
   }
 }

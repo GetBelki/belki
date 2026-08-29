@@ -7,9 +7,273 @@ import {
 } from "./prompt-tags";
 import { TRACKING_SOURCES } from "./tracking-sources";
 import { normalizePublicAppOrigin } from "./public-origin";
+import { CAPTURE_PROVIDERS } from "./capture-providers";
+import {
+  PAYMENT_ENVIRONMENTS,
+  PAYMENT_PROVIDERS,
+} from "./payment-providers";
+import { normalizeCurrencyCode } from "./currency";
+import { MAX_BILLING_PLANS } from "./billing-plans";
 
 export const TrackingSourceSchema = z.enum(TRACKING_SOURCES);
 export type TrackingSource = z.infer<typeof TrackingSourceSchema>;
+
+export const CaptureProviderSchema = z.enum(CAPTURE_PROVIDERS);
+export type CaptureProvider = z.infer<typeof CaptureProviderSchema>;
+
+const ProviderLabelSchema = z.string().trim().min(2).max(120);
+const ProviderSecretSchema = z.string().min(1).max(4_096);
+const DataForSeoCredentialSchema = z.object({
+  login: ProviderSecretSchema,
+  password: ProviderSecretSchema,
+});
+const BrightDataCredentialSchema = z.object({ apiToken: ProviderSecretSchema });
+const CloroCredentialSchema = z.object({ apiKey: ProviderSecretSchema });
+const OxylabsCredentialSchema = z.object({
+  username: ProviderSecretSchema,
+  password: ProviderSecretSchema,
+});
+
+export const CaptureProviderAccountInputSchema = z.discriminatedUnion(
+  "provider",
+  [
+    z.object({
+      provider: z.literal("dataforseo"),
+      label: ProviderLabelSchema,
+      credentials: DataForSeoCredentialSchema,
+    }),
+    z.object({
+      provider: z.literal("brightdata"),
+      label: ProviderLabelSchema,
+      credentials: BrightDataCredentialSchema,
+    }),
+    z.object({
+      provider: z.literal("cloro"),
+      label: ProviderLabelSchema,
+      credentials: CloroCredentialSchema,
+    }),
+    z.object({
+      provider: z.literal("oxylabs"),
+      label: ProviderLabelSchema,
+      credentials: OxylabsCredentialSchema,
+    }),
+  ],
+);
+export type CaptureProviderAccountInput = z.infer<
+  typeof CaptureProviderAccountInputSchema
+>;
+
+export const CaptureProviderCredentialInputSchema = z.discriminatedUnion(
+  "provider",
+  [
+    z.object({
+      provider: z.literal("dataforseo"),
+      credentials: DataForSeoCredentialSchema,
+    }),
+    z.object({
+      provider: z.literal("brightdata"),
+      credentials: BrightDataCredentialSchema,
+    }),
+    z.object({
+      provider: z.literal("cloro"),
+      credentials: CloroCredentialSchema,
+    }),
+    z.object({
+      provider: z.literal("oxylabs"),
+      credentials: OxylabsCredentialSchema,
+    }),
+  ],
+);
+export type CaptureProviderCredentialInput = z.infer<
+  typeof CaptureProviderCredentialInputSchema
+>;
+
+export const CaptureProviderAccountUpdateSchema = z.object({
+  label: ProviderLabelSchema.optional(),
+  status: z.enum(["active", "disabled"]).optional(),
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+export const CaptureProviderRouteUpdateSchema = z.object({
+  enabled: z.boolean().optional(),
+  providerAccountId: z.string().trim().min(1).max(200).nullable().optional(),
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+
+export const PaymentProviderSchema = z.enum(PAYMENT_PROVIDERS);
+export type PaymentProvider = z.infer<typeof PaymentProviderSchema>;
+
+export const PaymentEnvironmentSchema = z.enum(PAYMENT_ENVIRONMENTS);
+export type PaymentEnvironment = z.infer<typeof PaymentEnvironmentSchema>;
+
+export const PaymentInstallationModeSchema = z.enum(["undecided", "self_hosted", "managed"]);
+export type PaymentInstallationMode = z.infer<typeof PaymentInstallationModeSchema>;
+
+export const BillingPlanIdSchema = z.string().trim()
+  .regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,99}$/u);
+export const ManagedPaymentPlanKeySchema = BillingPlanIdSchema.refine(
+  (value) => value !== "self_hosted",
+  "Managed plan IDs cannot use the self_hosted reserved value.",
+);
+export type ManagedPaymentPlanKey = z.infer<typeof ManagedPaymentPlanKeySchema>;
+
+const PaymentSecretSchema = z.string().trim().min(8).max(4_096);
+const StripePriceIdSchema = z.string().trim().regex(/^price_[A-Za-z0-9_]+$/u).max(255);
+const StripePortalConfigurationIdSchema = z.string().trim().regex(/^bpc_[A-Za-z0-9_]+$/u).max(255);
+const DodoProductIdSchema = z.string().trim().regex(/^pdt_[A-Za-z0-9_]+$/u).max(255);
+const StandardWebhookSecretSchema = z.string().trim().regex(/^whsec_[A-Za-z0-9+/=_-]+$/u).max(4_096);
+export const PaymentCurrencySchema = z.string().transform((value, context) => {
+  try {
+    return normalizeCurrencyCode(value);
+  } catch (error) {
+    context.addIssue({
+      code: "custom",
+      message: error instanceof Error ? error.message : "Invalid payment currency.",
+    });
+    return z.NEVER;
+  }
+});
+const PaymentAmountMinorSchema = z.number().int().positive().max(1_000_000_000);
+const BillingAllowedSourcesSchema = z.array(TrackingSourceSchema)
+  .min(1)
+  .max(TRACKING_SOURCES.length)
+  .transform((sources) => [...new Set(sources)]);
+
+export const BillingPlanDefinitionInputSchema = z.object({
+  id: ManagedPaymentPlanKeySchema,
+  name: z.string().trim().min(1).max(80),
+  description: z.string().trim().max(240).default(""),
+  sortOrder: z.number().int().min(0).max(MAX_BILLING_PLANS - 1),
+  featured: z.boolean().default(false),
+  monthlyUnits: z.number().int().positive().max(1_000_000_000),
+  projectLimit: z.number().int().positive().max(1_000_000),
+  promptLimit: z.number().int().positive().max(1_000_000),
+  sourceLimit: z.number().int().positive().max(TRACKING_SOURCES.length),
+  allowedSources: BillingAllowedSourcesSchema,
+}).superRefine((plan, context) => {
+  if (plan.sourceLimit > plan.allowedSources.length) {
+    context.addIssue({
+      code: "custom",
+      path: ["sourceLimit"],
+      message: "Source limit cannot exceed the number of allowed tracking sources.",
+    });
+  }
+});
+export type BillingPlanDefinitionInput = z.infer<typeof BillingPlanDefinitionInputSchema>;
+
+export const BillingPlanCatalogueInputSchema = z.array(BillingPlanDefinitionInputSchema)
+  .min(1)
+  .max(MAX_BILLING_PLANS)
+  .superRefine((plans, context) => {
+    const uniqueIds = new Set(plans.map((plan) => plan.id));
+    const uniqueNames = new Set(plans.map((plan) => plan.name.toLocaleLowerCase()));
+    const uniqueOrders = new Set(plans.map((plan) => plan.sortOrder));
+    if (uniqueIds.size !== plans.length) {
+      context.addIssue({ code: "custom", message: "Billing plan IDs must be unique." });
+    }
+    if (uniqueNames.size !== plans.length) {
+      context.addIssue({ code: "custom", message: "Billing plan names must be unique." });
+    }
+    if (uniqueOrders.size !== plans.length) {
+      context.addIssue({ code: "custom", message: "Billing plan order values must be unique." });
+    }
+    if (plans.filter((plan) => plan.featured).length > 1) {
+      context.addIssue({ code: "custom", message: "Only one billing plan can be featured." });
+    }
+  });
+
+function paymentCatalogueSchema(externalReference: z.ZodType<string>) {
+  return z.array(z.object({
+    planId: ManagedPaymentPlanKeySchema,
+    externalReference,
+    amountMinor: PaymentAmountMinorSchema,
+  })).min(1).max(MAX_BILLING_PLANS).superRefine((plans, context) => {
+    if (new Set(plans.map((plan) => plan.planId)).size !== plans.length) {
+      context.addIssue({ code: "custom", message: "Each billing plan can be mapped only once." });
+    }
+    if (new Set(plans.map((plan) => plan.externalReference)).size !== plans.length) {
+      context.addIssue({ code: "custom", message: "Provider Price/Product IDs must be unique." });
+    }
+  });
+}
+
+export const StripePaymentCredentialSchema = z.object({
+  secretKey: PaymentSecretSchema,
+  webhookSecret: PaymentSecretSchema,
+});
+
+export const StripePaymentCatalogueSchema = paymentCatalogueSchema(StripePriceIdSchema);
+
+export const DodoPaymentCredentialSchema = z.object({
+  apiKey: PaymentSecretSchema,
+  webhookSecret: StandardWebhookSecretSchema,
+});
+
+export const DodoPaymentCatalogueSchema = paymentCatalogueSchema(DodoProductIdSchema);
+
+export const PaymentProviderAccountInputSchema = z.discriminatedUnion("provider", [
+  z.object({
+    provider: z.literal("stripe"),
+    label: ProviderLabelSchema,
+    environment: PaymentEnvironmentSchema,
+    webhookEndpointKey: z.string().uuid().optional(),
+    credentials: StripePaymentCredentialSchema,
+    currency: PaymentCurrencySchema,
+    plans: BillingPlanCatalogueInputSchema,
+    catalogue: StripePaymentCatalogueSchema,
+    configuration: z.object({
+      billingPortalConfigurationId: StripePortalConfigurationIdSchema,
+    }),
+  }),
+  z.object({
+    provider: z.literal("dodo"),
+    label: ProviderLabelSchema,
+    environment: PaymentEnvironmentSchema,
+    webhookEndpointKey: z.string().uuid().optional(),
+    credentials: DodoPaymentCredentialSchema,
+    currency: PaymentCurrencySchema,
+    plans: BillingPlanCatalogueInputSchema,
+    catalogue: DodoPaymentCatalogueSchema,
+    configuration: z.object({}),
+  }),
+]);
+export type PaymentProviderAccountInput = z.infer<typeof PaymentProviderAccountInputSchema>;
+
+export const PaymentProviderCredentialInputSchema = z.discriminatedUnion("provider", [
+  z.object({
+    provider: z.literal("stripe"),
+    credentials: StripePaymentCredentialSchema,
+  }),
+  z.object({
+    provider: z.literal("dodo"),
+    credentials: DodoPaymentCredentialSchema,
+  }),
+]);
+export type PaymentProviderCredentialInput = z.infer<typeof PaymentProviderCredentialInputSchema>;
+
+export const PaymentProviderAccountUpdateSchema = z.object({
+  label: ProviderLabelSchema.optional(),
+  status: z.enum(["active", "disabled"]).optional(),
+}).refine((value) => Object.keys(value).length > 0, "At least one field is required");
+export type PaymentProviderAccountUpdate = z.infer<typeof PaymentProviderAccountUpdateSchema>;
+
+export const PaymentProviderCatalogueUpdateSchema = z.discriminatedUnion("provider", [
+  z.object({
+    provider: z.literal("stripe"),
+    currency: PaymentCurrencySchema,
+    plans: BillingPlanCatalogueInputSchema,
+    catalogue: StripePaymentCatalogueSchema,
+    configuration: z.object({
+      billingPortalConfigurationId: StripePortalConfigurationIdSchema,
+    }),
+  }),
+  z.object({
+    provider: z.literal("dodo"),
+    currency: PaymentCurrencySchema,
+    plans: BillingPlanCatalogueInputSchema,
+    catalogue: DodoPaymentCatalogueSchema,
+    configuration: z.object({}),
+  }),
+]);
+export type PaymentProviderCatalogueUpdate = z.infer<typeof PaymentProviderCatalogueUpdateSchema>;
 
 export const RoleSchema = z.enum(["owner", "admin", "editor", "viewer"]);
 export type Role = z.infer<typeof RoleSchema>;
@@ -26,7 +290,7 @@ export type WorkspaceStatus = z.infer<typeof WorkspaceStatusSchema>;
 export const MembershipStatusSchema = z.enum(["active", "suspended", "removed"]);
 export type MembershipStatus = z.infer<typeof MembershipStatusSchema>;
 
-export const PlanKeySchema = z.enum(["self_hosted", "starter", "studio", "agency", "custom"]);
+export const PlanKeySchema = z.union([z.literal("self_hosted"), ManagedPaymentPlanKeySchema]);
 export type PlanKey = z.infer<typeof PlanKeySchema>;
 
 export const PaymentModeSchema = z.enum(["disabled", "stripe_managed", "stripe_direct"]);
@@ -115,16 +379,16 @@ export const PasswordResetRequestSchema = z.object({
 });
 
 export const BillingCheckoutSchema = z.object({
-  planKey: PlanKeySchema.exclude(["self_hosted", "custom"]),
+  planKey: ManagedPaymentPlanKeySchema,
 });
 
 export const BillingPlanChangeSchema = z.object({
-  planKey: PlanKeySchema.exclude(["self_hosted", "custom"]),
+  planKey: ManagedPaymentPlanKeySchema,
   replacePending: z.boolean().default(false),
 });
 
 export const BillingPlanChangePreviewSchema = z.object({
-  planKey: PlanKeySchema.exclude(["self_hosted", "custom"]),
+  planKey: ManagedPaymentPlanKeySchema,
 });
 
 export const BillingCancellationSchema = z.object({

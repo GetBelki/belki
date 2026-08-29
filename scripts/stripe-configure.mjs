@@ -30,11 +30,53 @@ function argument(name) {
   return index >= 0 ? process.argv[index + 1] : undefined;
 }
 
+function normalizeCurrency(value) {
+  const currency = value.trim().toUpperCase();
+  if (!/^[A-Z]{3}$/u.test(currency)) {
+    throw new Error("--currency must be a three-letter ISO 4217 code such as EUR or USD.");
+  }
+  return currency;
+}
+
+function currencyDigits(currency) {
+  const digits = new Intl.NumberFormat("en", {
+    style: "currency",
+    currency,
+  }).resolvedOptions().maximumFractionDigits;
+  if (digits === undefined) throw new Error(`Cannot determine the minor unit for ${currency}.`);
+  return digits;
+}
+
+function amountInMinorUnits(value, currency, option) {
+  const normalized = value.trim();
+  if (!/^\d+(?:\.\d+)?$/u.test(normalized)) {
+    throw new Error(`${option} must be a positive decimal amount.`);
+  }
+  const digits = currencyDigits(currency);
+  const [whole, rawFraction = ""] = normalized.split(".");
+  if (rawFraction.slice(digits).replace(/0/gu, "")) {
+    throw new Error(`${option} has more than ${digits} decimal places for ${currency}.`);
+  }
+  const amount = Number(`${whole}${rawFraction.slice(0, digits).padEnd(digits, "0")}`);
+  if (!Number.isSafeInteger(amount) || amount <= 0) {
+    throw new Error(`${option} must be greater than zero and within Stripe's supported range.`);
+  }
+  return amount;
+}
+
+function amountForDisplay(amount, currency) {
+  const digits = currencyDigits(currency);
+  if (digits === 0) return String(amount);
+  const padded = String(amount).padStart(digits + 1, "0");
+  return `${padded.slice(0, -digits)}.${padded.slice(-digits)}`;
+}
+
 function help() {
   console.log(`Configure and validate Belki's Stripe catalogue and action portal.
 
 Usage:
   pnpm stripe:configure -- --origin https://app.example.com --bootstrap-catalogue
+  pnpm stripe:configure -- --origin https://app.example.com --currency USD --starter-amount 12.50 --studio-amount 35 --agency-amount 175 --bootstrap-catalogue
   pnpm stripe:check -- --origin https://app.example.com
   pnpm stripe:configure -- --live --confirm-live app.example.com --origin https://app.example.com --bootstrap-catalogue
 
@@ -47,10 +89,15 @@ Options:
   --live                       Alias for --mode live
   --confirm-live <hostname>    Required for live writes; must match --origin
   --bootstrap-catalogue        Create missing Products/Prices idempotently
+  --currency <ISO code>        Catalogue currency (default: EUR)
+  --starter-amount <decimal>   Starter monthly amount (default: 10)
+  --studio-amount <decimal>    Studio monthly amount (default: 29)
+  --agency-amount <decimal>    Agency monthly amount (default: 149)
   --starter-price <price_id>   Validate an explicit Starter Price
   --studio-price <price_id>    Validate an explicit Studio Price
   --agency-price <price_id>    Validate an explicit Agency Price
   --portal-id <bpc_id>         Validate/update an explicit action portal
+  --webhook-url <https-url>    Validate the account URL shown by Operator → Payments
   --check                      Read-only validation`);
 }
 
@@ -62,6 +109,9 @@ if (process.argv.includes("--help")) {
 if (argument("--mode") && !["test", "live"].includes(argument("--mode"))) {
   throw new Error("--mode must be test or live.");
 }
+
+const currency = normalizeCurrency(argument("--currency") ?? "EUR");
+const stripeCurrency = currency.toLowerCase();
 
 const config = JSON.parse(readFileSync(new URL("../wrangler.jsonc", import.meta.url), "utf8"));
 const origin = (argument("--origin") ?? config.vars.APP_ORIGIN ?? "").replace(/\/$/u, "");
@@ -103,9 +153,9 @@ function stripe(method, path, params = [], options = {}) {
 }
 
 const plans = [
-  { key: "starter", name: "Belki Starter", amount: 1_000, configuredId: argument("--starter-price") ?? config.vars.STRIPE_STARTER_PRICE_ID },
-  { key: "studio", name: "Belki Studio", amount: 2_900, configuredId: argument("--studio-price") ?? config.vars.STRIPE_STUDIO_PRICE_ID },
-  { key: "agency", name: "Belki Agency", amount: 14_900, configuredId: argument("--agency-price") ?? config.vars.STRIPE_AGENCY_PRICE_ID },
+  { key: "starter", name: "Belki Starter", amount: amountInMinorUnits(argument("--starter-amount") ?? "10", currency, "--starter-amount"), configuredId: argument("--starter-price") ?? config.vars.STRIPE_STARTER_PRICE_ID },
+  { key: "studio", name: "Belki Studio", amount: amountInMinorUnits(argument("--studio-amount") ?? "29", currency, "--studio-amount"), configuredId: argument("--studio-price") ?? config.vars.STRIPE_STUDIO_PRICE_ID },
+  { key: "agency", name: "Belki Agency", amount: amountInMinorUnits(argument("--agency-amount") ?? "149", currency, "--agency-amount"), configuredId: argument("--agency-price") ?? config.vars.STRIPE_AGENCY_PRICE_ID },
 ];
 
 function validatePrice(plan, price) {
@@ -113,7 +163,7 @@ function validatePrice(plan, price) {
   if (!price?.id?.startsWith("price_")) failures.push("missing ID");
   if (!price.active) failures.push("inactive");
   if (price.livemode !== live) failures.push(`livemode=${price.livemode}`);
-  if (price.currency !== "eur") failures.push(`currency=${price.currency}`);
+  if (price.currency !== stripeCurrency) failures.push(`currency=${price.currency}`);
   if (price.type !== "recurring" || price.recurring?.interval !== "month" || price.recurring?.interval_count !== 1) failures.push("not monthly");
   if (price.unit_amount !== plan.amount) failures.push(`amount=${price.unit_amount}`);
   if (price.tax_behavior !== "exclusive") failures.push(`tax_behavior=${price.tax_behavior}`);
@@ -165,7 +215,7 @@ for (const plan of plans) {
     ["limit", "100"],
   ]).data ?? [];
   const exactPrices = productPrices.filter((price) =>
-    price.currency === "eur" &&
+    price.currency === stripeCurrency &&
     price.unit_amount === plan.amount &&
     price.tax_behavior === "exclusive" &&
     price.recurring?.interval === "month" &&
@@ -174,16 +224,16 @@ for (const plan of plans) {
   let price = uniqueMatch(exactPrices, `valid monthly Prices for ${plan.name}`);
   if (!price) {
     if (checkOnly || !bootstrapCatalogue) {
-      throw new Error(`${plan.name} has no valid EUR monthly tax-exclusive Price. Run with --bootstrap-catalogue.`);
+      throw new Error(`${plan.name} has no valid ${currency} monthly tax-exclusive Price. Run with --bootstrap-catalogue.`);
     }
     price = stripe("post", "/v1/prices", [
       ["product", product.id],
-      ["currency", "eur"],
+      ["currency", stripeCurrency],
       ["unit_amount", String(plan.amount)],
       ["tax_behavior", "exclusive"],
       ["recurring[interval]", "month"],
       ["recurring[interval_count]", "1"],
-      ["lookup_key", `belki_${plan.key}_monthly_eur_v1`],
+      ["lookup_key", `belki_${plan.key}_monthly_${stripeCurrency}_${plan.amount}_v1`],
       ["metadata[belki_plan_key]", plan.key],
     ]);
   }
@@ -196,7 +246,11 @@ if (new Set(prices.map((price) => price.productId)).size !== prices.length) {
 
 let webhookEndpoint = null;
 if (checkOnly) {
-  const webhookUrl = `${origin}/api/webhooks/stripe`;
+  const webhookUrl = argument("--webhook-url") ?? `${origin}/api/webhooks/stripe`;
+  const parsedWebhookUrl = new URL(webhookUrl);
+  if (parsedWebhookUrl.protocol !== "https:" || parsedWebhookUrl.origin !== origin) {
+    throw new Error("--webhook-url must be an HTTPS URL on --origin.");
+  }
   const endpoints = stripe("get", "/v1/webhook_endpoints", [["limit", "100"]]).data ?? [];
   const matches = endpoints.filter((endpoint) => endpoint.url === webhookUrl && endpoint.status === "enabled");
   if (matches.length !== 1) {
@@ -327,6 +381,10 @@ if (actionFailures.length) {
 }
 
 console.log(`STRIPE_ENVIRONMENT=${mode}`);
+console.log(`PAYMENT_CATALOGUE_CURRENCY=${currency}`);
+for (const plan of plans) {
+  console.log(`PAYMENT_${plan.key.toUpperCase()}_AMOUNT=${amountForDisplay(plan.amount, currency)}`);
+}
 for (const price of prices) console.log(`STRIPE_${price.key.toUpperCase()}_PRICE_ID=${price.priceId}`);
 console.log(`STRIPE_BILLING_ACTION_PORTAL_CONFIGURATION_ID=${action.id}`);
 if (webhookEndpoint) console.log(`STRIPE_WEBHOOK_ENDPOINT_ID=${webhookEndpoint.id}`);
