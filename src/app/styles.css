@@ -1225,12 +1225,15 @@ tbody tr:hover { background: #fcfbfd; }
 .payment-import-card > div { display: grid; gap: var(--space-1); }
 .payment-import-card strong { font-size: 13px; }
 .payment-import-card span { color: #71717a; font-size: 11px; line-height: 1.5; }
-.payment-mode-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(2, minmax(0, 1fr)); margin-top: var(--space-6); }
+.payment-mode-selection { display: grid; gap: var(--space-4); margin-top: var(--space-6); }
+.payment-mode-grid { display: grid; gap: var(--space-4); grid-template-columns: repeat(2, minmax(0, 1fr)); }
 .payment-mode-card { align-items: flex-start; border: 1px solid #e4e4e7; border-radius: 14px; display: flex; flex-direction: column; gap: var(--space-4); padding: var(--space-5); }
 .payment-mode-card > div { display: grid; gap: var(--space-2); }
 .payment-mode-card strong { font-size: 15px; }
 .payment-mode-card span { color: #71717a; font-size: 12px; line-height: 1.55; }
 .payment-mode-card .button { margin-top: auto; width: 100%; }
+.payment-mode-feedback { display: grid; gap: var(--space-3); }
+.payment-mode-feedback-actions { display: flex; justify-content: flex-start; }
 .payment-webhook-copy { background: none; border: 0; color: inherit; cursor: pointer; font: inherit; padding: 0; text-decoration: underline; text-underline-offset: 2px; }
 .provider-secret-note { color: #8b8b94; font-size: 10px; line-height: 1.5; }
 

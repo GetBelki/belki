@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { lazy, Suspense } from "react";
+import { lazy, Suspense, useEffect } from "react";
 import { Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { AppProvider } from "./context";
 import { ApiClientError, api, type Session } from "./lib/api";
@@ -8,7 +8,12 @@ import { AcceptInvitePage, LoginPage, ResetPasswordPage, SetupPage, SignupPage }
 import { Skeleton } from "./components/ui";
 import { AppIcon } from "./components/app-icon";
 import { APP_NAME } from "./lib/branding";
-import { needsProjectOnboarding } from "./lib/onboarding-navigation";
+import {
+  needsProjectOnboarding,
+  OPERATOR_PAYMENT_ONBOARDING_PATH,
+  OPERATOR_PROVIDER_ONBOARDING_PATH,
+  requiredOperatorOnboardingPath,
+} from "./lib/onboarding-navigation";
 
 const OverviewPage = lazy(() =>
   import("./pages/main").then((module) => ({ default: module.OverviewPage })),
@@ -138,20 +143,13 @@ export function App() {
   if (!session.data) {
     return <LoginPage emailDeliveryConfigured={status.data?.emailDeliveryConfigured ?? false} />;
   }
-  if (
-    status.data?.providerSetupRequired
-    && session.data.isPlatformOperator
-    && location.pathname !== "/onboarding/provider"
-  ) {
-    return <Navigate to="/onboarding/provider" replace />;
-  }
-  if (
-    status.data?.paymentSetupRequired
-    && session.data.isPlatformOperator
-    && location.pathname !== "/onboarding/payments"
-  ) {
-    return <Navigate to="/onboarding/payments" replace />;
-  }
+  const operatorOnboardingPath = requiredOperatorOnboardingPath({
+    isPlatformOperator: session.data.isPlatformOperator,
+    pathname: location.pathname,
+    paymentSetupRequired: status.data?.paymentSetupRequired ?? false,
+    providerSetupRequired: status.data?.providerSetupRequired ?? false,
+  });
+  if (operatorOnboardingPath) return <DocumentRedirect to={operatorOnboardingPath} />;
   if (session.data.workspace.status === "pending_payment" && location.pathname !== "/billing") {
     return <Navigate to="/billing" replace />;
   }
@@ -163,8 +161,22 @@ export function App() {
     <AppProvider session={session.data}>
       <Suspense fallback={<AppLoader />}>
         <Routes>
-          <Route path="/onboarding/provider" element={<ProviderOnboardingPage />} />
-          <Route path="/onboarding/payments" element={<PaymentOnboardingPage />} />
+          <Route
+            path="/onboarding/provider"
+            element={<DocumentRedirect to={OPERATOR_PROVIDER_ONBOARDING_PATH} />}
+          />
+          <Route
+            path="/onboarding/payments"
+            element={<DocumentRedirect to={OPERATOR_PAYMENT_ONBOARDING_PATH} />}
+          />
+          <Route
+            path={OPERATOR_PROVIDER_ONBOARDING_PATH}
+            element={<ProviderOnboardingPage />}
+          />
+          <Route
+            path={OPERATOR_PAYMENT_ONBOARDING_PATH}
+            element={<PaymentOnboardingPage />}
+          />
           <Route path="/onboarding/project" element={<ProjectOnboardingPage />} />
           <Route path="/onboarding/prompts" element={<PromptOnboardingPage />} />
           <Route element={<AppLayout />}>
@@ -218,6 +230,13 @@ export function App() {
       </Suspense>
     </AppProvider>
   );
+}
+
+function DocumentRedirect({ to }: { to: string }) {
+  useEffect(() => {
+    window.location.replace(to);
+  }, [to]);
+  return <AppLoader />;
 }
 
 function AppLoader() {

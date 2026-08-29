@@ -7,6 +7,7 @@ import { ProviderAccountForm } from "../components/provider-account-form";
 import { useApp } from "../context";
 import { post } from "../lib/api";
 import { APP_NAME } from "../lib/branding";
+import { OPERATOR_PAYMENT_ONBOARDING_PATH } from "../lib/onboarding-navigation";
 
 export default function ProviderOnboardingPage() {
   const { session } = useApp();
@@ -20,7 +21,7 @@ export default function ProviderOnboardingPage() {
         queryClient.invalidateQueries({ queryKey: ["status"] }),
         queryClient.invalidateQueries({ queryKey: ["operator-providers"] }),
       ]);
-      void navigate("/onboarding/payments", { replace: true });
+      void navigate(OPERATOR_PAYMENT_ONBOARDING_PATH, { replace: true });
     },
   });
 

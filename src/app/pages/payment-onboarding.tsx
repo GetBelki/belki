@@ -12,6 +12,8 @@ import { Button, Skeleton } from "../components/ui";
 import { useApp } from "../context";
 import { api, post } from "../lib/api";
 import { APP_NAME } from "../lib/branding";
+import { OPERATOR_PAYMENT_ONBOARDING_PATH } from "../lib/onboarding-navigation";
+import { isOperatorAuthenticationFailure } from "../lib/operator-access";
 
 interface SetupConfiguration {
   mode: "undecided" | "self_hosted" | "managed";
@@ -50,6 +52,8 @@ export default function PaymentOnboardingPage() {
     mutationFn: () => post("/operator/payment-providers/self-hosted"),
     onSuccess: finish,
   });
+  const configurationAuthenticationFailure = isOperatorAuthenticationFailure(configuration.error);
+  const selfHostedAuthenticationFailure = isOperatorAuthenticationFailure(selectSelfHosted.error);
 
   if (!session.isPlatformOperator) return <Navigate to="/" replace />;
   if (configuration.isPending) return <main className="onboarding-shell"><Skeleton className="billing-page-skeleton" /></main>;
@@ -69,7 +73,22 @@ export default function PaymentOnboardingPage() {
             <h1>{setupPath || configuration.data?.mode === "managed" ? "Connect one payment provider" : "Select an installation mode"}</h1>
             <p>{setupPath || configuration.data?.mode === "managed" ? "Define this installation's subscription plans, choose an installed payment provider, then map each plan to its provider price. Stripe and Dodo Payments are available now; Rebill and Polar are listed as coming soon." : "You only need payments when this installation will sell managed subscriptions."}</p>
           </div>
-          {setupPath || configuration.data?.mode === "managed" ? (
+          {configuration.isError ? (
+            <div className="payment-mode-selection">
+              <p className="form-error" role="alert">
+                {configurationAuthenticationFailure
+                  ? "Operator authentication could not be verified. Continue through secure login to load payment setup."
+                  : configuration.error.message}
+              </p>
+              <div className="payment-mode-feedback-actions">
+                {configurationAuthenticationFailure ? (
+                  <Button asChild><a href={OPERATOR_PAYMENT_ONBOARDING_PATH}>Continue to secure login</a></Button>
+                ) : (
+                  <Button onClick={() => void configuration.refetch()} type="button" variant="secondary">Try again</Button>
+                )}
+              </div>
+            </div>
+          ) : setupPath || configuration.data?.mode === "managed" ? (
             <>
               {configuration.data?.legacyImportAvailable ? (
                 <div className="payment-import-card">
@@ -90,21 +109,36 @@ export default function PaymentOnboardingPage() {
               {configuration.data?.mode !== "managed" ? <Button onClick={() => setSetupPath(null)} type="button" variant="ghost">Back to installation modes</Button> : null}
             </>
           ) : (
-            <div className="payment-mode-grid">
-              <div className="payment-mode-card">
-                <CreditCard size={22} />
-                <div><strong>Managed subscriptions</strong><span>Use Stripe or Dodo Payments today. Rebill and Polar are coming soon.</span></div>
-                <Button onClick={() => setSetupPath("managed")}>Configure a payment provider</Button>
+            <div className="payment-mode-selection">
+              <div className="payment-mode-grid">
+                <div className="payment-mode-card">
+                  <CreditCard size={22} />
+                  <div><strong>Managed subscriptions</strong><span>Use Stripe or Dodo Payments today. Rebill and Polar are coming soon.</span></div>
+                  <Button onClick={() => setSetupPath("managed")}>Configure a payment provider</Button>
+                </div>
+                <div className="payment-mode-card">
+                  <Building2 size={22} />
+                  <div><strong>Self-hosted / in-house</strong><span>Use Belki internally with no sales, Checkout, or payment provider.</span></div>
+                  <Button disabled={selectSelfHosted.isPending} onClick={() => selectSelfHosted.mutate()} variant="secondary">{selectSelfHosted.isPending ? "Saving…" : "Continue without payments"}</Button>
+                </div>
               </div>
-              <div className="payment-mode-card">
-                <Building2 size={22} />
-                <div><strong>Self-hosted / in-house</strong><span>Use Belki internally with no sales, Checkout, or payment provider.</span></div>
-                <Button disabled={selectSelfHosted.isPending} onClick={() => selectSelfHosted.mutate()} variant="secondary">{selectSelfHosted.isPending ? "Saving…" : "Continue without payments"}</Button>
-              </div>
+              {selectSelfHosted.isError ? (
+                <div className="payment-mode-feedback" role="alert">
+                  <p className="form-error">
+                    {selfHostedAuthenticationFailure
+                      ? "Operator authentication expired before the setting could be saved. Continue through secure login and try again."
+                      : selectSelfHosted.error.message}
+                  </p>
+                  {selfHostedAuthenticationFailure ? (
+                    <div className="payment-mode-feedback-actions">
+                      <Button asChild variant="secondary"><a href={OPERATOR_PAYMENT_ONBOARDING_PATH}>Renew secure login</a></Button>
+                    </div>
+                  ) : null}
+                </div>
+              ) : null}
             </div>
           )}
           {importLegacy.isError ? <p className="form-error">{importLegacy.error.message}</p> : null}
-          {selectSelfHosted.isError ? <p className="form-error">{selectSelfHosted.error.message}</p> : null}
           <div className="onboarding-assurance"><KeyRound size={18} /><span>API and webhook secrets are encrypted with the installation crypto key and can only be replaced, never revealed.</span></div>
         </section>
       </div>
