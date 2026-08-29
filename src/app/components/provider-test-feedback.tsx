@@ -54,38 +54,38 @@ export function ProviderTestFeedback({
     : error || result?.status === "failed"
       ? "failed"
       : "passed";
-  const heading = tone === "pending"
-    ? "Testing connection"
-    : tone === "passed"
-      ? "Connection verified"
-      : "Connection test failed";
   const message = pending
     ? `Checking ${label} credentials…`
     : error?.message ?? result?.message ?? `${label} could not be verified.`;
 
+  if (tone === "pending") {
+    return (
+      <span
+        aria-atomic="true"
+        aria-live="polite"
+        className="sr-only"
+        role="status"
+      >
+        {message}
+      </span>
+    );
+  }
+
   return (
-    <div
+    <span
       aria-atomic="true"
       aria-live={tone === "failed" ? "assertive" : "polite"}
       className={`provider-test-feedback provider-test-feedback-${tone}`}
       role={tone === "failed" ? "alert" : "status"}
     >
-      {tone === "pending" ? (
-        <LoaderCircle
-          aria-hidden="true"
-          className="provider-test-spinner"
-          size={16}
-        />
-      ) : tone === "passed" ? (
-        <CheckCircle2 aria-hidden="true" size={16} />
+      {tone === "passed" ? (
+        <CheckCircle2 aria-hidden="true" size={13} />
       ) : (
-        <CircleAlert aria-hidden="true" size={16} />
+        <CircleAlert aria-hidden="true" size={13} />
       )}
-      <div>
-        <strong>{heading}</strong>
-        <span>{message}</span>
-      </div>
-    </div>
+      <span>{tone === "passed" ? "Verified" : message}</span>
+      {tone === "passed" ? <span className="sr-only">: {message}</span> : null}
+    </span>
   );
 }
 
