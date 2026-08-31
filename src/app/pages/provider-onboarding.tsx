@@ -35,15 +35,15 @@ export default function ProviderOnboardingPage() {
       </header>
       <div className="onboarding-layout provider-onboarding-layout">
         <aside className="onboarding-progress">
-          <span className="eyebrow">Installation setup</span>
+          <span className="eyebrow">Initial setup</span>
           <h2>Connect the service that captures AI answers.</h2>
-          <p className="provider-onboarding-copy">Provider accounts belong to the installation, not customer workspaces. You can add more accounts and choose a provider for each AI platform from the operator dashboard later.</p>
+          <p className="provider-onboarding-copy">Provider accounts are managed for all workspaces. You can add more accounts and choose a provider for each AI platform later.</p>
         </aside>
         <section className="onboarding-content">
           <div className="onboarding-heading">
             <span>Provider setup</span>
             <h1>Connect your first provider</h1>
-            <p>DataForSEO is selected first based on your preferred order. Belki will verify the credentials before saving them.</p>
+            <p>DataForSEO is selected first based on your preferred order. Belki will check the credentials before saving them.</p>
           </div>
           <ProviderAccountForm
             error={createProvider.error?.message}
@@ -52,7 +52,7 @@ export default function ProviderOnboardingPage() {
           />
           <div className="onboarding-assurance">
             <KeyRound size={18} />
-            <span>Credentials are encrypted with the installation crypto key and can only be replaced, never revealed.</span>
+            <span>Credentials are stored securely. They can be replaced, but never viewed.</span>
           </div>
         </section>
       </div>

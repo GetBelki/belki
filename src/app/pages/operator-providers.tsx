@@ -240,7 +240,7 @@ export default function OperatorProvidersPage() {
       showNotice(
         "success",
         "Default provider saved",
-        `${account?.label ?? "Provider"} will handle platforms without an override.`,
+        `${account?.label ?? "Provider"} will be used when a platform does not have a provider selected.`,
       );
     },
     onError: (error: Error) => showNotice("error", "Default not changed", error.message),
@@ -255,7 +255,7 @@ export default function OperatorProvidersPage() {
       showNotice(
         "success",
         variables.status === "active" ? "Provider enabled" : "Provider disabled",
-        `${account?.label ?? "Provider"} ${variables.status === "active" ? "can receive new jobs" : "will not receive new jobs"}.`,
+        `${account?.label ?? "Provider"} ${variables.status === "active" ? "is ready to use" : "will not be used for future requests"}.`,
       );
     },
     onError: (error: Error) => showNotice("error", "Provider not updated", error.message),
@@ -272,7 +272,7 @@ export default function OperatorProvidersPage() {
         showNotice(
           "success",
           `${platformLabel} ${variables.input.enabled ? "enabled" : "disabled"}`,
-          "Platform availability has been saved.",
+          "Your change has been saved.",
         );
         return;
       }
@@ -283,8 +283,8 @@ export default function OperatorProvidersPage() {
         "success",
         `${platformLabel} provider saved`,
         selectedAccount
-          ? `New jobs will use ${selectedAccount.label}.`
-          : "New jobs will use the installation default.",
+          ? `Future requests will use ${selectedAccount.label}.`
+          : "Future requests will use your default provider.",
       );
     },
     onError: (error: Error, variables) => showNotice(
@@ -309,20 +309,20 @@ export default function OperatorProvidersPage() {
     <div className="page operator-page provider-operator-page page-flow">
       <PageHeader
         title="AI data providers"
-        description="Connect provider accounts, verify credentials, and route each AI platform."
+        description="Connect provider accounts, check credentials, and choose a provider for each AI platform."
         action={<Button onClick={() => setAddOpen(true)}><Plus size={16} /> Add provider</Button>}
       />
       <div className="provider-summary-strip" aria-label="Provider activity in the last 30 days">
         <div><strong>{configuration.isPending ? "—" : activitySummary.submitted}</strong><span>Submitted · 30 days</span></div>
         <div><strong>{configuration.isPending ? "—" : activitySummary.completed}</strong><span>Completed</span></div>
         <div><strong>{configuration.isPending ? "—" : activitySummary.needsAttention}</strong><span>Needs attention</span></div>
-        <div><strong>{configuration.isPending ? "—" : successRateLabel(activitySummary)}</strong><span>Settled success rate</span></div>
+        <div><strong>{configuration.isPending ? "—" : successRateLabel(activitySummary)}</strong><span>Success rate</span></div>
       </div>
 
       <section className="operator-section">
         <div className="operator-section-heading">
           <h2>Accounts</h2>
-          <p>Credentials are encrypted at rest. Activity covers the last 30 days; needs attention combines failed and uncertain attempts.</p>
+          <p>Credentials are stored securely. Activity covers the last 30 days; needs attention includes requests that failed or returned an unclear result.</p>
         </div>
         {configuration.isPending ? <Skeleton className="settings-feature-skeleton" /> : accounts.length === 0 ? (
           <div className="provider-account-empty">
@@ -376,7 +376,7 @@ export default function OperatorProvidersPage() {
                     status={account.lastTestStatus}
                     untestedMessage="Not tested yet"
                   />
-                  <span><KeyRound size={14} /> {account.credentialSource === "environment" ? "Worker secret" : `Encrypted version ${account.credentialVersion ?? "—"}`}</span>
+                  <span><KeyRound size={14} /> Credentials stored securely</span>
                 </div>
                 <div className="provider-account-routing">
                   <span><Route size={14} /> {account.supportedSources.map((source) => TRACKING_SOURCE_LABELS[source]).join(", ")}</span>
@@ -422,7 +422,7 @@ export default function OperatorProvidersPage() {
                             onSelect={() => makeDefault.mutate(account.id)}
                           >
                             <Star size={14} />
-                            <span>{makeDefault.isPending && makeDefault.variables === account.id ? "Saving…" : "Make installation default"}</span>
+                            <span>{makeDefault.isPending && makeDefault.variables === account.id ? "Saving…" : "Make default provider"}</span>
                           </DropdownMenu.Item>
                         ) : null}
                         <DropdownMenu.Item asChild className="prompt-actions-menu-item">
@@ -469,7 +469,7 @@ export default function OperatorProvidersPage() {
       <section className="operator-section">
         <div className="operator-section-heading">
           <h2>AI platforms</h2>
-          <p>Set the provider for new collection jobs. Changes save immediately.</p>
+          <p>Choose the provider for future requests. Changes save immediately.</p>
         </div>
         <div className="provider-route-list">
           <div aria-hidden="true" className="provider-route-list-header">
@@ -502,7 +502,7 @@ export default function OperatorProvidersPage() {
                     options={[
                       {
                         value: DEFAULT_ROUTE,
-                        label: "Use installation default",
+                        label: "Use default provider",
                         icon: effective ? <ProviderIcon provider={effective.provider} /> : undefined,
                       },
                       ...compatible.map((account) => ({
@@ -513,7 +513,7 @@ export default function OperatorProvidersPage() {
                     ]}
                     value={route.providerAccountId ?? DEFAULT_ROUTE}
                   />
-                  <small>{route.enabled ? `Currently ${effective?.label ?? "missing a configured provider"}` : "Selection kept while collection is off"}</small>
+                  <small>{route.enabled ? `Currently ${effective?.label ?? "no provider available"}` : "Provider choice stays saved while disabled"}</small>
                 </div>
                 <div className="provider-route-control">
                   <Switch
@@ -533,16 +533,16 @@ export default function OperatorProvidersPage() {
 
       <Dialog
         contentClassName="provider-dialog"
-        description="Belki verifies the credentials before encrypting and storing the account."
+        description="Belki checks the credentials before storing them securely."
         onOpenChange={setAddOpen}
         open={addOpen}
-        title="Add capture provider"
+        title="Add provider"
       >
         <ProviderAccountForm
           error={createAccount.error?.message}
           onSubmit={(input) => createAccount.mutate(input)}
           pending={createAccount.isPending}
-          submitLabel="Verify and add"
+          submitLabel="Check and add"
         />
       </Dialog>
       <Dialog
@@ -563,7 +563,7 @@ export default function OperatorProvidersPage() {
       </Dialog>
       <Dialog
         contentClassName="provider-disable-dialog"
-        description={disabling ? `Disabling this account stops new collection jobs from using it.${disablingRouteCount > 0 ? ` ${disablingRouteCount} explicit platform ${disablingRouteCount === 1 ? "route" : "routes"} will fall back to the installation default.` : ""}` : undefined}
+        description={disabling ? `Disabling this account prevents it from handling future requests.${disablingRouteCount > 0 ? ` ${disablingRouteCount} platform ${disablingRouteCount === 1 ? "choice" : "choices"} will switch to the default provider.` : ""}` : undefined}
         onOpenChange={(open) => !open && setDisabling(null)}
         open={Boolean(disabling)}
         title={disabling ? `Disable ${disabling.label}?` : "Disable provider account?"}
