@@ -213,18 +213,20 @@ export function Select({
   options,
   placeholder,
   ariaLabel,
+  disabled,
 }: {
   value?: string;
   onValueChange: (value: string) => void;
   options: Array<{ value: string; label: string; icon?: ReactNode; disabled?: boolean }>;
   placeholder?: string;
   ariaLabel?: string;
+  disabled?: boolean;
 }) {
   const selectedOption = options.find((option) => option.value === value);
 
   return (
-    <SelectPrimitive.Root value={value} onValueChange={onValueChange}>
-      <SelectPrimitive.Trigger aria-label={ariaLabel} className="select-trigger">
+    <SelectPrimitive.Root disabled={disabled} value={value} onValueChange={onValueChange}>
+      <SelectPrimitive.Trigger aria-label={ariaLabel} className="select-trigger" disabled={disabled}>
         <SelectPrimitive.Value placeholder={placeholder}>
           {selectedOption ? (
             <span className="select-value-content">
