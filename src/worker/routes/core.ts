@@ -37,7 +37,10 @@ import { calculateNextRun } from "../lib/schedule";
 import { manualJobDelivery } from "../lib/job-delivery";
 import { fetchDomainFavicon } from "../lib/favicon";
 import { preserveBrandMetricsHistory } from "../lib/brand-metrics-state";
-import { projectEventStatement } from "../lib/project-events";
+import {
+  captureProviderDetectedEventStatement,
+  projectEventStatement,
+} from "../lib/project-events";
 import { configuredPublicAppOrigin } from "../lib/public-origin";
 import { trackingSourceDelta } from "../../shared/project-event-helpers";
 import {
@@ -1544,6 +1547,12 @@ coreRoutes.post(
         )
         ,
         prepareCaptureProviderAttempt(c.env.CONTROL_DB, jobId, providerRoute, now),
+        captureProviderDetectedEventStatement(c.env.CONTROL_DB, {
+          projectId: query.project_id,
+          trackingSource: input.source,
+          captureProvider: providerRoute.provider,
+          occurredAt: now,
+        }),
       ]);
       await (delivery.queue === "standard" ? c.env.STANDARD_QUEUE : c.env.LIVE_QUEUE)
         .send({ jobId });

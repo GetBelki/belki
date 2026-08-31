@@ -1,4 +1,5 @@
 import type { TrackingSource } from "../../shared/tracking-sources";
+import type { CaptureProvider } from "../../shared/capture-providers";
 
 export interface SnapshotIndex {
   id: string;
@@ -7,6 +8,7 @@ export interface SnapshotIndex {
   tracking_source: TrackingSource;
   captured_at: string;
   model: string | null;
+  capture_provider: CaptureProvider;
   cited_domains_count: number;
   retrieved_domains_count: number;
   brand_entities_count: number;
@@ -24,6 +26,7 @@ export interface SnapshotRecord {
   location_code: number;
   language_code: string;
   model: string | null;
+  capture_provider: CaptureProvider;
   check_url: string | null;
   captured_at: string;
   answer_markdown: string | null;
@@ -141,7 +144,12 @@ export interface SnapshotDiff {
   domains?: { added: string[]; removed: string[] };
   brands?: { added: string[]; removed: string[] };
   answerChanged?: boolean;
-  modelChanged?: boolean;
+  modelChanged?: boolean | null;
+  captureProvider?: {
+    current: CaptureProvider;
+    previous: CaptureProvider;
+  };
+  captureProviderChanged?: boolean;
   productBlockChanged?: boolean;
 }
 

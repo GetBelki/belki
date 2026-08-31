@@ -140,7 +140,7 @@ export function PromptOnboardingPage() {
       forceWebSearch: true,
       schedule: {
         cadence: "daily",
-        time: "09:00",
+        time: "06:00",
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
       },
       tags: [],
@@ -220,7 +220,7 @@ export function PromptOnboardingPage() {
       </form>
       <div className="onboarding-assurance">
         <MessageSquareText size={18} />
-        <span>Prompts run daily at 09:00 in your local timezone. You can customize schedules later.</span>
+        <span>Prompts run daily at 06:00 in your local timezone. You can customize schedules later.</span>
       </div>
     </OnboardingShell>
   );

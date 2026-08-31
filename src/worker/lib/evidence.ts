@@ -3,6 +3,19 @@ export type EvidenceKind = "raw" | "html";
 const CAPTURE_STYLE_ORIGINS =
   "https://chatgpt.com https://cdn.oaistatic.com https://cdn.openai.com";
 
+export function decodedRawEvidenceBody(
+  body: ReadableStream,
+  key: string,
+  metadata: Headers,
+): ReadableStream {
+  const encodedAsGzip = key.endsWith(".gz") ||
+    metadata.get("content-encoding")?.toLowerCase().includes("gzip") === true;
+  if (!encodedAsGzip) return body;
+  metadata.delete("content-encoding");
+  metadata.delete("content-length");
+  return body.pipeThrough(new DecompressionStream("gzip"));
+}
+
 export function evidenceResponseHeaders(
   kind: EvidenceKind,
   snapshotId: string,

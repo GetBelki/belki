@@ -775,6 +775,14 @@ describe("project event reporting", () => {
         occurred_at: "2026-08-10T10:00:00.000Z",
         payload_json: "not-json",
       },
+      {
+        id: "provider-1",
+        event_type: "capture_provider_detected",
+        tracking_source: "chatgpt",
+        event_date: "2026-08-11",
+        occurred_at: "2026-08-11T09:00:00.000Z",
+        payload_json: JSON.stringify({ captureProvider: "brightdata" }),
+      },
     ])).toEqual([
       {
         type: "prompt_set_changed",
@@ -798,6 +806,14 @@ describe("project event reporting", () => {
         trackingSource: "gemini",
         model: "Gemini 2.5 Pro",
       },
+      {
+        type: "capture_provider_detected",
+        id: "provider-1",
+        metricDate: "2026-08-11",
+        occurredAt: "2026-08-11T09:00:00.000Z",
+        trackingSource: "chatgpt",
+        captureProvider: "brightdata",
+      },
     ]);
   });
 
@@ -807,6 +823,8 @@ describe("project event reporting", () => {
       key: "gpt-5 search",
     });
     expect(normalizeProviderModel("   ")).toBeNull();
+    expect(normalizeProviderModel("chatgpt")).toBeNull();
+    expect(normalizeProviderModel("Google AI Mode")).toBeNull();
     expect(trackingSourceDelta(
       ["chatgpt", "google_ai_mode"],
       ["chatgpt", "gemini"],
@@ -936,5 +954,22 @@ describe("project chart annotations", () => {
       "GPT-5 Search first detected on ChatGPT",
     );
     expect(chartAnnotationDescription(aligned[0]!)).toContain("Gemini added");
+  });
+
+  it("labels capture providers separately from models", () => {
+    const aligned = alignChartAnnotations([{
+      type: "capture_provider_detected",
+      id: "provider",
+      metricDate: "2026-08-30",
+      occurredAt: "2026-08-30T09:00:00.000Z",
+      trackingSource: "chatgpt",
+      captureProvider: "brightdata",
+    }], ["2026-08-30"]);
+
+    expect(aligned[0]?.label).toBe("Capture provider detected");
+    expect(chartAnnotationMarkerLabel(aligned[0]!)).toBe("Provider");
+    expect(chartAnnotationDescription(aligned[0]!)).toContain(
+      "Bright Data first used for ChatGPT",
+    );
   });
 });

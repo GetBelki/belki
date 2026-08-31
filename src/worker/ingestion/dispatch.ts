@@ -27,6 +27,13 @@ import {
   resolveCaptureProviderAccount,
 } from "../providers/accounts";
 import { CAPTURE_PROVIDER_ADAPTERS } from "../providers/registry";
+import {
+  downloadBrightDataSnapshot,
+  getBrightDataSnapshotProgress,
+} from "../providers/brightdata";
+import { CaptureProviderExecutionError } from "../providers/types";
+
+const OXYLABS_AUTOMATIC_RETRIES = 1;
 
 interface DispatchJobRow {
   id: string;
@@ -47,7 +54,11 @@ interface DispatchJobRow {
   capture_provider: CaptureProvider;
   capture_provider_attempt_id: string | null;
   capture_adapter_version: string | null;
+  submit_attempts: number;
   credential_version: number | null;
+  status: string;
+  dataforseo_task_id: string | null;
+  submitted_at: string | null;
   location_name: string;
   location_payload_json: string | null;
 }
@@ -83,7 +94,8 @@ async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
       j.provider_tag, j.capture_html, j.delivery_method, w.public_base_url,
       j.workspace_id, j.project_id, j.usage_reservation_id, j.usage_units,
       j.tracking_source, j.provider_account_id, j.capture_provider,
-      j.capture_provider_attempt_id, j.capture_adapter_version,
+      j.capture_provider_attempt_id, j.capture_adapter_version, j.submit_attempts, j.status,
+      j.dataforseo_task_id, j.submitted_at,
       attempt.credential_version,
       COALESCE(locale.name, CAST(q.location_code AS TEXT)) AS location_name,
       locale.payload_json AS location_payload_json
@@ -95,7 +107,10 @@ async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
     LEFT JOIN capture_provider_attempts attempt
       ON attempt.id = j.capture_provider_attempt_id
     WHERE j.id IN (${placeholders})
-      AND j.status IN ('queued', 'submission_unknown')
+      AND (
+        j.status IN ('queued', 'submission_unknown')
+        OR (j.status = 'awaiting_result' AND j.capture_provider = 'brightdata')
+      )
       AND q.deleted_at IS NULL
       AND NOT EXISTS (
         SELECT 1 FROM prompt_purge_jobs purge
@@ -175,6 +190,130 @@ function countryCode(job: DispatchJobRow): string | null {
   }
 }
 
+function jobQueue(env: Env, job: DispatchJobRow): Queue {
+  return job.delivery_method === "live" ? env.LIVE_QUEUE : env.STANDARD_QUEUE;
+}
+
+async function requeueBrightDataPoll(env: Env, job: DispatchJobRow): Promise<void> {
+  await jobQueue(env, job).send(
+    { jobId: job.id } satisfies JobQueueMessage,
+    { delaySeconds: 30 },
+  );
+}
+
+async function pollBrightDataJob(env: Env, job: DispatchJobRow): Promise<void> {
+  const snapshotId = job.dataforseo_task_id;
+  if (!snapshotId) throw new Error("Bright Data job is missing its snapshot ID");
+  const { credentials } = await jobCredentials(env, job);
+  if (credentials.provider !== "brightdata") {
+    throw new Error("Bright Data credentials are required");
+  }
+  try {
+    const progress = await getBrightDataSnapshotProgress(
+      credentials.credentials.apiToken,
+      snapshotId,
+    );
+    if (progress === "starting" || progress === "running") {
+      const submittedAt = Date.parse(job.submitted_at ?? "");
+      if (!Number.isNaN(submittedAt) && Date.now() - submittedAt > 30 * 60_000) {
+        throw new Error("Bright Data snapshot did not become ready within 30 minutes");
+      }
+      await env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs SET task_status_message = ?, updated_at = ?
+         WHERE id = ? AND status = 'awaiting_result'`,
+      ).bind(progress, nowIso(), job.id).run();
+      await requeueBrightDataPoll(env, job);
+      return;
+    }
+    if (progress === "failed") throw new Error("Bright Data snapshot failed");
+
+    const bytes = await downloadBrightDataSnapshot(
+      credentials.credentials.apiToken,
+      snapshotId,
+    );
+    const rawKey = `raw/${job.workspace_id}/${job.project_id}/${job.tracking_source}/${new Date().toISOString().slice(0, 7)}/${encodeURIComponent(snapshotId)}.json`;
+    await env.EVIDENCE_BUCKET.put(rawKey, bytes, {
+      httpMetadata: { contentType: "application/json" },
+      customMetadata: {
+        jobId: job.id,
+        taskId: snapshotId,
+        provider: "brightdata",
+        trackingSource: job.tracking_source,
+      },
+    });
+    const updatedAt = nowIso();
+    const update = await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs SET status = 'normalizing', task_status_code = 200,
+          task_status_message = 'Ready', raw_r2_key = ?, error_code = NULL,
+          error_message = NULL, updated_at = ?
+         WHERE id = ? AND status = 'awaiting_result'`,
+      ).bind(rawKey, updatedAt, job.id),
+      env.CONTROL_DB.prepare(
+        `UPDATE capture_provider_attempts SET status = 'normalizing', raw_r2_key = ?,
+          error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?`,
+      ).bind(rawKey, updatedAt, job.capture_provider_attempt_id),
+    ]);
+    if ((update[0]?.meta.changes ?? 0) === 0) {
+      return;
+    }
+    try {
+      await env.NORMALIZE_QUEUE.send({
+        jobId: job.id,
+        taskId: snapshotId,
+        rawR2Key: rawKey,
+        contentEncoding: "identity",
+      } satisfies NormalizeQueueMessage);
+    } catch (queueError) {
+      const failedAt = nowIso();
+      const message = String(queueError).slice(0, 1000);
+      await env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs SET status = 'failed', error_code = 'normalization_failed',
+          error_message = ?, updated_at = ? WHERE id = ? AND status = 'normalizing'`,
+      ).bind(message, failedAt, job.id).run();
+      console.error(JSON.stringify({
+        level: "error",
+        event: "brightdata.normalization_enqueue_failed",
+        jobId: job.id,
+        snapshotId,
+        error: message,
+      }));
+    }
+  } catch (error) {
+    const submittedAt = Date.parse(job.submitted_at ?? "");
+    const timedOut = !Number.isNaN(submittedAt) && Date.now() - submittedAt > 30 * 60_000;
+    if (!timedOut && !String(error).includes("snapshot failed")) {
+      await env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs SET task_status_message = 'Poll retry', updated_at = ?
+         WHERE id = ? AND status = 'awaiting_result'`,
+      ).bind(nowIso(), job.id).run();
+      console.warn(JSON.stringify({
+        level: "warn",
+        event: "brightdata.snapshot_poll_retry",
+        jobId: job.id,
+        snapshotId,
+        error: String(error),
+      }));
+      await requeueBrightDataPoll(env, job);
+      return;
+    }
+    const message = String(error).slice(0, 1000);
+    const failedAt = nowIso();
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs SET status = 'failed', error_code = 'provider_result_failed',
+          error_message = ?, updated_at = ? WHERE id = ? AND status = 'awaiting_result'`,
+      ).bind(message, failedAt, job.id),
+      env.CONTROL_DB.prepare(
+        `UPDATE capture_provider_attempts SET status = 'failed',
+          error_code = 'provider_result_failed', error_message = ?, completed_at = ?,
+          updated_at = ? WHERE id = ? AND status = 'awaiting_result'`,
+      ).bind(message, failedAt, failedAt, job.capture_provider_attempt_id),
+    ]);
+    await emitRunFailureAlerts(env, job.id, message);
+  }
+}
+
 async function executeSynchronousProviderJob(
   env: Env,
   job: DispatchJobRow,
@@ -190,11 +329,12 @@ async function executeSynchronousProviderJob(
     await env.CONTROL_DB.batch([
       env.CONTROL_DB.prepare(
         `UPDATE crawl_jobs SET status = 'submitting', submit_attempts = submit_attempts + 1,
-          updated_at = ? WHERE id = ? AND status IN ('queued', 'submission_unknown', 'submitting')`,
+          error_code = NULL, error_message = NULL, updated_at = ?
+         WHERE id = ? AND status IN ('queued', 'submission_unknown', 'submitting')`,
       ).bind(now, job.id),
       env.CONTROL_DB.prepare(
         `UPDATE capture_provider_attempts SET status = 'submitting', submitted_at = COALESCE(submitted_at, ?),
-          updated_at = ? WHERE id = ?`,
+          error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?`,
       ).bind(now, now, job.capture_provider_attempt_id),
     ]);
     const result = await definition.execution.execute(credentials, {
@@ -221,11 +361,63 @@ async function executeSynchronousProviderJob(
       },
     });
     const updatedAt = nowIso();
+    if (result.pending) {
+      const pendingUpdate = await env.CONTROL_DB.batch([
+        env.CONTROL_DB.prepare(
+          `UPDATE crawl_jobs SET status = 'awaiting_result', dataforseo_task_id = ?,
+            request_cost_usd = ?, task_status_code = ?, task_status_message = ?,
+            submitted_at = COALESCE(submitted_at, ?), raw_r2_key = ?,
+            error_code = NULL, error_message = NULL, updated_at = ?
+           WHERE id = ? AND status != 'cancelled'`,
+        ).bind(
+          result.externalTaskId,
+          result.requestCostUsd,
+          result.providerStatusCode,
+          result.providerStatusMessage,
+          updatedAt,
+          rawKey,
+          updatedAt,
+          job.id,
+        ),
+        env.CONTROL_DB.prepare(
+          `UPDATE capture_provider_attempts SET status = 'awaiting_result',
+            external_task_id = ?, request_cost_usd = ?, raw_r2_key = ?,
+            error_code = NULL, error_message = NULL, updated_at = ?
+           WHERE id = ?`,
+        ).bind(
+          result.externalTaskId,
+          result.requestCostUsd,
+          rawKey,
+          updatedAt,
+          job.capture_provider_attempt_id,
+        ),
+      ]);
+      if ((pendingUpdate[0]?.meta.changes ?? 0) === 0) {
+        await env.EVIDENCE_BUCKET.delete(rawKey);
+        return;
+      }
+      try {
+        await requeueBrightDataPoll(env, {
+          ...job,
+          dataforseo_task_id: result.externalTaskId,
+        });
+      } catch (queueError) {
+        console.warn(JSON.stringify({
+          level: "warn",
+          event: "brightdata.initial_poll_enqueue_failed",
+          jobId: job.id,
+          snapshotId: result.externalTaskId,
+          error: String(queueError),
+        }));
+      }
+      return;
+    }
     const update = await env.CONTROL_DB.batch([
       env.CONTROL_DB.prepare(
         `UPDATE crawl_jobs SET status = 'normalizing', dataforseo_task_id = ?,
           request_cost_usd = ?, task_status_code = ?, task_status_message = ?,
-          submitted_at = COALESCE(submitted_at, ?), raw_r2_key = ?, updated_at = ?
+          submitted_at = COALESCE(submitted_at, ?), raw_r2_key = ?,
+          error_code = NULL, error_message = NULL, updated_at = ?
          WHERE id = ? AND status != 'cancelled'`,
       ).bind(
         result.externalTaskId,
@@ -239,7 +431,8 @@ async function executeSynchronousProviderJob(
       ),
       env.CONTROL_DB.prepare(
         `UPDATE capture_provider_attempts SET status = 'normalizing', external_task_id = ?,
-          request_cost_usd = ?, raw_r2_key = ?, updated_at = ? WHERE id = ?`,
+          request_cost_usd = ?, raw_r2_key = ?, error_code = NULL,
+          error_message = NULL, updated_at = ? WHERE id = ?`,
       ).bind(
         result.externalTaskId,
         result.requestCostUsd,
@@ -259,17 +452,79 @@ async function executeSynchronousProviderJob(
       contentEncoding: "identity",
     } satisfies NormalizeQueueMessage);
   } catch (error) {
+    const providerError = error instanceof CaptureProviderExecutionError ? error : null;
     const message = String(error).slice(0, 1000);
     const failedAt = nowIso();
+    if (
+      job.capture_provider === "oxylabs" &&
+      providerError?.retryable &&
+      job.submit_attempts < OXYLABS_AUTOMATIC_RETRIES
+    ) {
+      await env.CONTROL_DB.batch([
+        env.CONTROL_DB.prepare(
+          `UPDATE crawl_jobs SET status = 'queued', dataforseo_task_id = COALESCE(?, dataforseo_task_id),
+            task_status_code = ?, task_status_message = ?, error_code = 'provider_retry',
+            error_message = ?, updated_at = ? WHERE id = ? AND status != 'cancelled'`,
+        ).bind(
+          providerError.externalTaskId,
+          providerError.statusCode,
+          `${providerError.statusMessage ?? "Oxylabs faulted"}; automatic retry scheduled`,
+          message,
+          failedAt,
+          job.id,
+        ),
+        env.CONTROL_DB.prepare(
+          `UPDATE capture_provider_attempts SET status = 'queued', external_task_id = COALESCE(?, external_task_id),
+            error_code = 'provider_retry', error_message = ?, updated_at = ? WHERE id = ?`,
+        ).bind(
+          providerError.externalTaskId,
+          message,
+          failedAt,
+          job.capture_provider_attempt_id,
+        ),
+      ]);
+      try {
+        await jobQueue(env, job).send(
+          { jobId: job.id } satisfies JobQueueMessage,
+          { delaySeconds: 30 },
+        );
+      } catch (queueError) {
+        console.warn(JSON.stringify({
+          level: "warn",
+          event: "oxylabs.automatic_retry_enqueue_failed",
+          jobId: job.id,
+          error: String(queueError),
+        }));
+      }
+      return;
+    }
+    const errorCode = providerError ? "provider_faulted" : "provider_execution_failed";
     await env.CONTROL_DB.batch([
       env.CONTROL_DB.prepare(
-        `UPDATE crawl_jobs SET status = 'failed', error_code = 'provider_execution_failed',
+        `UPDATE crawl_jobs SET status = 'failed', dataforseo_task_id = COALESCE(?, dataforseo_task_id),
+          task_status_code = ?, task_status_message = ?, error_code = ?,
           error_message = ?, updated_at = ? WHERE id = ? AND status != 'cancelled'`,
-      ).bind(message, failedAt, job.id),
+      ).bind(
+        providerError?.externalTaskId ?? null,
+        providerError?.statusCode ?? null,
+        providerError?.statusMessage ?? null,
+        errorCode,
+        message,
+        failedAt,
+        job.id,
+      ),
       env.CONTROL_DB.prepare(
-        `UPDATE capture_provider_attempts SET status = 'failed', error_code = 'provider_execution_failed',
+        `UPDATE capture_provider_attempts SET status = 'failed',
+          external_task_id = COALESCE(?, external_task_id), error_code = ?,
           error_message = ?, completed_at = ?, updated_at = ? WHERE id = ?`,
-      ).bind(message, failedAt, failedAt, job.capture_provider_attempt_id),
+      ).bind(
+        providerError?.externalTaskId ?? null,
+        errorCode,
+        message,
+        failedAt,
+        failedAt,
+        job.capture_provider_attempt_id,
+      ),
     ]);
     await emitRunFailureAlerts(env, job.id, message);
     const reservation = usageInput(job);
@@ -308,7 +563,13 @@ export async function dispatchStandardBatch(
     const firstJob = sourceJobs[0];
     if (!firstJob) continue;
     if (firstJob.capture_provider !== "dataforseo") {
-      for (const job of sourceJobs) await executeSynchronousProviderJob(env, job);
+      for (const job of sourceJobs) {
+        if (job.capture_provider === "brightdata" && job.status === "awaiting_result") {
+          await pollBrightDataJob(env, job);
+        } else {
+          await executeSynchronousProviderJob(env, job);
+        }
+      }
       continue;
     }
     const source = firstJob.tracking_source;
@@ -461,7 +722,11 @@ export async function dispatchLiveBatch(
         return;
       }
       if (job.capture_provider !== "dataforseo") {
-        await executeSynchronousProviderJob(env, job);
+        if (job.capture_provider === "brightdata" && job.status === "awaiting_result") {
+          await pollBrightDataJob(env, job);
+        } else {
+          await executeSynchronousProviderJob(env, job);
+        }
         message.ack();
         return;
       }

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { extractTaskHtml } from "../src/worker/lib/dataforseo-html";
-import { evidenceResponseHeaders } from "../src/worker/lib/evidence";
+import {
+  decodedRawEvidenceBody,
+  evidenceResponseHeaders,
+} from "../src/worker/lib/evidence";
 import { missingDefaultSecurityHeaders } from "../src/worker/lib/security-headers";
 
 describe("evidence response headers", () => {
@@ -25,6 +28,23 @@ describe("evidence response headers", () => {
     expect(headers.get("content-disposition")).toContain("inline");
     expect(headers.get("content-disposition")).not.toContain("attachment");
     expect(headers.has("content-security-policy")).toBe(false);
+  });
+
+  it("decodes gzipped raw evidence before returning JSON", async () => {
+    const expected = JSON.stringify({ status: "ok", answer: "Visible JSON" });
+    const source = new Response(expected).body;
+    if (!source) throw new Error("Test response body is unavailable");
+    const compressed = source.pipeThrough(new CompressionStream("gzip"));
+    const metadata = new Headers({
+      "content-encoding": "gzip",
+      "content-length": "123",
+    });
+
+    const decoded = decodedRawEvidenceBody(compressed, "snapshot.json.gz", metadata);
+
+    expect(await new Response(decoded).text()).toBe(expected);
+    expect(metadata.has("content-encoding")).toBe(false);
+    expect(metadata.has("content-length")).toBe(false);
   });
 });
 

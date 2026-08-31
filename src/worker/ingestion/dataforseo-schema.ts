@@ -1,5 +1,6 @@
 import { z } from "zod";
 import type { TrackingSource } from "../../shared/contracts";
+import { normalizeProviderModel } from "../../shared/project-event-helpers";
 
 const SourceSchema = z
   .object({
@@ -80,7 +81,9 @@ const AdvancedResultSchema = z
     keyword: z.string(),
     location_code: z.number(),
     language_code: z.string(),
-    model: z.string().nullable().optional(),
+    model: z.string().nullable().optional().transform(
+      (model) => normalizeProviderModel(model)?.display ?? null,
+    ),
     check_url: z.string().nullable().optional(),
     datetime: z.string().nullable().optional(),
     markdown: z.string().nullable().optional(),

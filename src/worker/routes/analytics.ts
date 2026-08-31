@@ -12,7 +12,7 @@ import { writeAudit } from "../lib/audit";
 import { decodeCursor, encodeCursor } from "../lib/cursor";
 import { matchedBrandTerms, normalizeHostname } from "../lib/domain";
 import { allowedAdAssetUrl, normalizeAdItem } from "../lib/ads";
-import { evidenceResponseHeaders } from "../lib/evidence";
+import { decodedRawEvidenceBody, evidenceResponseHeaders } from "../lib/evidence";
 import {
   analyticsReadModelSupports,
   RELATED_QUERIES_READ_MODEL_SCHEMA_VERSION,
@@ -41,6 +41,7 @@ import {
 } from "../lib/reporting";
 import {
   buildChartAnnotations,
+  normalizeProviderModel,
   type ProjectEventRow,
 } from "../../shared/project-event-helpers";
 import { projectTrackingSources } from "../lib/tracking-sources";
@@ -56,6 +57,7 @@ import {
   ProductEnrichmentPreferenceSchema,
   ProductEnrichmentRequestSchema,
   TrackingSourceSchema,
+  type CaptureProvider,
   type TrackingSource,
 } from "../../shared/contracts";
 
@@ -1212,6 +1214,7 @@ analyticsRoutes.get(
       trackedBrands,
       brandMentionDays,
       projectEventRows,
+      captureProviderEventRows,
       platformSummaryRows,
     ] = await c.get("timing").measure("overview_primary_db", () => Promise.all([
       c.env.CONTROL_DB.prepare(
@@ -1557,6 +1560,18 @@ analyticsRoutes.get(
         )
         .all<ProjectEventRow>(),
       c.env.CONTROL_DB.prepare(
+        `SELECT id, 'capture_provider_detected' AS event_type,
+           tracking_source, event_date, occurred_at,
+           json_object('captureProvider', capture_provider) AS payload_json
+         FROM project_capture_provider_events
+         WHERE project_id = ?
+           AND event_date BETWEEN ? AND ?
+           AND tracking_source IN (${sourcePlaceholders})
+         ORDER BY event_date, occurred_at, id`,
+      )
+        .bind(input.projectId, dates.from, dates.to, ...includedSources)
+        .all<ProjectEventRow>(),
+      c.env.CONTROL_DB.prepare(
         `SELECT
            tracking_source,
            metric_date,
@@ -1804,7 +1819,10 @@ analyticsRoutes.get(
           ...brandComparison,
           positionStatus,
         },
-        annotations: buildChartAnnotations(projectEventRows.results),
+        annotations: buildChartAnnotations([
+          ...projectEventRows.results,
+          ...captureProviderEventRows.results,
+        ]),
         topProducts: [...topProducts.values()]
           .sort(
             (left, right) =>
@@ -4415,7 +4433,8 @@ analyticsRoutes.get(
     const principal = c.get("principal");
     const { id } = c.req.valid("param");
     const current = await c.env.CONTROL_DB.prepare(
-      `SELECT id, tracked_query_id, shard_id, tracking_source, captured_at, model, answer_hash, has_product_block
+      `SELECT id, tracked_query_id, shard_id, tracking_source, captured_at,
+        model, capture_provider, answer_hash, has_product_block
        FROM snapshot_index WHERE id = ? AND workspace_id = ?`,
     )
       .bind(id, principal.workspaceId)
@@ -4426,12 +4445,13 @@ analyticsRoutes.get(
         tracking_source: TrackingSource;
         captured_at: string;
         model: string | null;
+        capture_provider: CaptureProvider;
         answer_hash: string;
         has_product_block: number;
       }>();
     if (!current) throw new ApiError(404, "snapshot_not_found", "Snapshot not found.");
     const previous = await c.env.CONTROL_DB.prepare(
-      `SELECT id, model, answer_hash, has_product_block, captured_at
+      `SELECT id, model, capture_provider, answer_hash, has_product_block, captured_at
        FROM snapshot_index
        WHERE tracked_query_id = ? AND tracking_source = ? AND captured_at < ?
        ORDER BY captured_at DESC LIMIT 1`,
@@ -4440,6 +4460,7 @@ analyticsRoutes.get(
       .first<{
         id: string;
         model: string | null;
+        capture_provider: CaptureProvider;
         answer_hash: string;
         has_product_block: number;
         captured_at: string;
@@ -4479,6 +4500,8 @@ analyticsRoutes.get(
     const previousDomainValues = previousDomains.results.map((row) => row.registrable_domain);
     const currentBrandValues = currentBrands.results.map((row) => row.normalized_title);
     const previousBrandValues = previousBrands.results.map((row) => row.normalized_title);
+    const currentModel = normalizeProviderModel(current.model);
+    const previousModel = normalizeProviderModel(previous.model);
     return c.json({
       data: {
         previous: { id: previous.id, capturedAt: previous.captured_at },
@@ -4491,7 +4514,15 @@ analyticsRoutes.get(
           removed: setDiff(previousBrandValues, currentBrandValues),
         },
         answerChanged: current.answer_hash !== previous.answer_hash,
-        modelChanged: current.model !== previous.model,
+        modelChanged: currentModel && previousModel
+          ? currentModel.key !== previousModel.key
+          : null,
+        captureProvider: {
+          current: current.capture_provider,
+          previous: previous.capture_provider,
+        },
+        captureProviderChanged:
+          current.capture_provider !== previous.capture_provider,
         productBlockChanged: current.has_product_block !== previous.has_product_block,
       },
     });
@@ -5064,6 +5095,9 @@ analyticsRoutes.get(
     }
     const metadata = new Headers();
     object.writeHttpMetadata(metadata);
+    const body = kind === "raw"
+      ? decodedRawEvidenceBody(object.body, key, metadata)
+      : object.body;
     const headers = evidenceResponseHeaders(kind, id, metadata);
     if (kind === "html" && key.endsWith(".json")) {
       try {
@@ -5087,7 +5121,7 @@ analyticsRoutes.get(
         );
       }
     }
-    const response = new Response(object.body, { headers });
+    const response = new Response(body, { headers });
     return kind === "html"
       ? sanitizeCapturedHtmlResponse(response)
       : response;

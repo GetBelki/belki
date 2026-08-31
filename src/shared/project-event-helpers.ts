@@ -6,10 +6,14 @@ import {
   TRACKING_SOURCES,
   type TrackingSource,
 } from "./tracking-sources";
+import {
+  CAPTURE_PROVIDERS,
+  type CaptureProvider,
+} from "./capture-providers";
 
 export interface ProjectEventRow {
   id: string;
-  event_type: ProjectEventType;
+  event_type: ProjectEventType | "capture_provider_detected";
   tracking_source: TrackingSource | null;
   event_date: string;
   occurred_at: string;
@@ -35,6 +39,13 @@ function isTrackingSource(value: unknown): value is TrackingSource {
 function trackingSources(value: unknown): TrackingSource[] {
   if (!Array.isArray(value)) return [];
   return [...new Set(value.filter(isTrackingSource))];
+}
+
+function captureProvider(value: unknown): CaptureProvider | null {
+  return typeof value === "string" &&
+      CAPTURE_PROVIDERS.includes(value as CaptureProvider)
+    ? value as CaptureProvider
+    : null;
 }
 
 function positiveInteger(value: unknown): number {
@@ -66,7 +77,15 @@ export function normalizeProviderModel(value: string | null | undefined): {
 } | null {
   const display = value?.trim().replace(/\s+/gu, " ");
   if (!display) return null;
-  return { display, key: display.toLocaleLowerCase("en-US") };
+  const key = display.toLocaleLowerCase("en-US");
+  const genericPlatformValues = new Set([
+    ...TRACKING_SOURCES,
+    "google ai mode",
+    "google ai overview",
+    "google ai overviews",
+  ]);
+  if (genericPlatformValues.has(key)) return null;
+  return { display, key };
 }
 
 export function trackingSourceDelta(
@@ -124,8 +143,23 @@ export function buildChartAnnotations(
       });
       continue;
     }
+    if (row.event_type === "capture_provider_detected" && row.tracking_source) {
+      const provider = captureProvider(payload.captureProvider);
+      if (!provider) continue;
+      annotations.push({
+        type: row.event_type,
+        id: row.id,
+        metricDate: row.event_date,
+        occurredAt: row.occurred_at,
+        trackingSource: row.tracking_source,
+        captureProvider: provider,
+      });
+      continue;
+    }
     if (row.event_type === "model_detected" && row.tracking_source) {
-      const model = typeof payload.model === "string" ? payload.model.trim() : "";
+      const model = normalizeProviderModel(
+        typeof payload.model === "string" ? payload.model : null,
+      )?.display ?? "";
       if (!model) continue;
       annotations.push({
         type: row.event_type,

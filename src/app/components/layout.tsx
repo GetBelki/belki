@@ -2,6 +2,7 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
   ChartNoAxesCombined,
+  ChevronDown,
   LayoutDashboard,
   LogOut,
   Menu,
@@ -48,6 +49,8 @@ const NAVIGATION = [
 ] as const;
 
 export function OperatorNavigation({ pathname }: { pathname: string }) {
+  const operatorActive = pathname.startsWith("/operator");
+  const [expanded, setExpanded] = useState(operatorActive);
   const consoleActive = pathname === "/operator";
   const providersActive = pathname.startsWith("/operator/providers");
   const paymentsActive = pathname.startsWith("/operator/payments");
@@ -57,51 +60,62 @@ export function OperatorNavigation({ pathname }: { pathname: string }) {
   );
   const fanOutActive = pathname.startsWith("/operator/insights/fan-out");
   return (
-    <>
-      <p>Operator</p>
-      <a
+    <div className="nav-section operator-nav-section">
+      <button
+        aria-controls="operator-navigation"
+        aria-expanded={expanded}
+        className="nav-section-trigger"
+        onClick={() => setExpanded((value) => !value)}
+        type="button"
+      >
+        <span>Operator</span>
+        <ChevronDown aria-hidden="true" size={14} />
+      </button>
+      <div className="nav-section-items" hidden={!expanded} id="operator-navigation">
+        <a
         aria-current={providersActive ? "page" : undefined}
         className={cn("nav-item", "operator-nav-item", providersActive && "active")}
         href="/operator/providers"
-      >
-        <KeyRound size={17} /> <span>Providers</span>
-      </a>
-      <a
+        >
+          <KeyRound size={17} /> <span>Providers</span>
+        </a>
+        <a
         aria-current={paymentsActive ? "page" : undefined}
         className={cn("nav-item", "operator-nav-item", paymentsActive && "active")}
         href="/operator/payments"
-      >
-        <BillingIcon size={17} /> <span>Payments</span>
-      </a>
-      <a
+        >
+          <BillingIcon size={17} /> <span>Payments</span>
+        </a>
+        <a
         aria-current={consoleActive ? "page" : undefined}
         className={cn("nav-item", "operator-nav-item", consoleActive && "active")}
         href="/operator"
-      >
-        <ShieldCheck size={17} /> <span>Console</span>
-      </a>
-      <a
+        >
+          <ShieldCheck size={17} /> <span>Console</span>
+        </a>
+        <a
         aria-current={citationsActive ? "page" : undefined}
         className={cn("nav-item", "operator-nav-item", citationsActive && "active")}
         href="/operator/insights/citations"
-      >
-        <SourcesIcon size={17} /> <span>Citation trends</span>
-      </a>
-      <a
+        >
+          <SourcesIcon size={17} /> <span>Citation trends</span>
+        </a>
+        <a
         aria-current={sourceDiscoveryActive ? "page" : undefined}
         className={cn("nav-item", "operator-nav-item", sourceDiscoveryActive && "active")}
         href="/operator/insights/source-discovery"
-      >
-        <ChartNoAxesCombined size={17} /> <span>Source discovery</span>
-      </a>
-      <a
+        >
+          <ChartNoAxesCombined size={17} /> <span>Source discovery</span>
+        </a>
+        <a
         aria-current={fanOutActive ? "page" : undefined}
         className={cn("nav-item", "operator-nav-item", fanOutActive && "active")}
         href="/operator/insights/fan-out"
-      >
-        <RelatedQueriesIcon size={17} /> <span>Fan-out trends</span>
-      </a>
-    </>
+        >
+          <RelatedQueriesIcon size={17} /> <span>Fan-out trends</span>
+        </a>
+      </div>
+    </div>
   );
 }
 

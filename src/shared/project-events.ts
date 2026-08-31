@@ -1,4 +1,5 @@
 import type { TrackingSource } from "./tracking-sources";
+import type { CaptureProvider } from "./capture-providers";
 
 export type ProjectEventType =
   | "prompt_set_changed"
@@ -27,4 +28,12 @@ export type ChartAnnotation =
       occurredAt: string;
       trackingSource: TrackingSource;
       model: string;
+    }
+  | {
+      type: "capture_provider_detected";
+      id: string;
+      metricDate: string;
+      occurredAt: string;
+      trackingSource: TrackingSource;
+      captureProvider: CaptureProvider;
     };

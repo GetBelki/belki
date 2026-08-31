@@ -146,7 +146,7 @@ describe("multi-source response parsing", () => {
     }]), "google_ai_mode");
 
     expect(payload.tasks[0]!.result![0]).toMatchObject({
-      model: "google_ai_mode",
+      model: null,
       surface_present: true,
       markdown: "AI Mode answer\n\nAdditional context",
     });
@@ -169,7 +169,7 @@ describe("multi-source response parsing", () => {
     }]), "google_ai_overview");
 
     expect(payload.tasks[0]!.result![0]).toMatchObject({
-      model: "google_ai_overview",
+      model: null,
       markdown: null,
       surface_present: false,
     });

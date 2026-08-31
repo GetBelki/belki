@@ -21,6 +21,7 @@ import {
   resolveCaptureProviderAccount,
   type ResolvedCaptureProviderAccount,
 } from "../providers/accounts";
+import { captureProviderDetectedEventStatement } from "../lib/project-events";
 
 interface DueQueryRow {
   id: string;
@@ -154,6 +155,12 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
           providerRoute,
           createdAt,
         ),
+        captureProviderDetectedEventStatement(env.CONTROL_DB, {
+          projectId: query.project_id,
+          trackingSource: query.tracking_source,
+          captureProvider: providerRoute.provider,
+          occurredAt: createdAt,
+        }),
         env.CONTROL_DB.prepare(
           "UPDATE tracked_queries SET next_run_at = ?, updated_at = ? WHERE id = ?",
         ).bind(nextRunAt, createdAt, query.id),
@@ -203,6 +210,33 @@ export async function reconcileJobs(env: Env): Promise<number> {
     )
       .bind(nowIso(), job.id)
       .run();
+    const queue = job.delivery_method === "live" ? env.LIVE_QUEUE : env.STANDARD_QUEUE;
+    await queue.send({ jobId: job.id } satisfies JobQueueMessage);
+  }
+
+  const staleBrightData = await env.CONTROL_DB.prepare(
+    `SELECT job.id, job.delivery_method
+     FROM crawl_jobs job
+     JOIN tracked_queries query ON query.id = job.tracked_query_id
+     WHERE job.capture_provider = 'brightdata'
+       AND job.status = 'awaiting_result'
+       AND julianday(job.updated_at) < julianday('now', '-2 minutes')
+       AND query.deleted_at IS NULL
+       AND NOT EXISTS (
+         SELECT 1 FROM prompt_purge_jobs purge
+         WHERE purge.tracked_query_id = query.id
+       )
+     ORDER BY job.updated_at
+     LIMIT 500`,
+  ).all<{ id: string; delivery_method: string }>();
+  for (const job of staleBrightData.results) {
+    const updatedAt = nowIso();
+    const claimed = await env.CONTROL_DB.prepare(
+      `UPDATE crawl_jobs SET updated_at = ?
+       WHERE id = ? AND status = 'awaiting_result'
+         AND julianday(updated_at) < julianday('now', '-2 minutes')`,
+    ).bind(updatedAt, job.id).run();
+    if (claimed.meta.changes === 0) continue;
     const queue = job.delivery_method === "live" ? env.LIVE_QUEUE : env.STANDARD_QUEUE;
     await queue.send({ jobId: job.id } satisfies JobQueueMessage);
   }
@@ -267,7 +301,8 @@ export async function reconcileJobs(env: Env): Promise<number> {
     );
   }
 
-  return stale.results.length + recoverableNormalizationFailures.results.length;
+  return stale.results.length + staleBrightData.results.length +
+    recoverableNormalizationFailures.results.length;
 }
 
 function flattenCatalogResults(payload: unknown): Array<Record<string, unknown>> {

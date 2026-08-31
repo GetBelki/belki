@@ -3,6 +3,7 @@ import {
   parseAdvancedPayload,
   parseTrackingPayload,
 } from "../ingestion/dataforseo-schema";
+import { validateOxylabsPayload } from "./oxylabs";
 
 export interface CaptureNormalizationContext {
   taskId: string;
@@ -97,6 +98,8 @@ function canonicalPayload(
     overview?.text,
     result.markdown,
     result.markdown_text,
+    result.answer_text_markdown,
+    result.answer_text_raw,
     result.answer_text,
     result.response_text,
     result.text,
@@ -122,7 +125,9 @@ function canonicalPayload(
     result.query_fan_out,
     result.relatedSearches,
   );
-  const model = text(result.model, result.llm_model) ?? source;
+  // The tracking surface (for example, `chatgpt`) is not a model identity.
+  // Leave the model unknown when a capture provider does not report it.
+  const model = text(result.model, result.llm_model);
   const datetime = text(
     root.prompt_sent_at,
     firstResult?.created_at,
@@ -165,6 +170,7 @@ export function parseCapturePayload(
   source: TrackingSource,
   context: CaptureNormalizationContext,
 ) {
+  if (provider === "oxylabs") validateOxylabsPayload(payload, source);
   return provider === "dataforseo"
     ? parseTrackingPayload(payload, source)
     : canonicalPayload(provider, payload, source, context);
