@@ -113,8 +113,8 @@ export function ProviderAccountForm({
       </div>
       <ProviderCredentialFields provider={provider} />
       {error ? <p className="form-error">{error}</p> : null}
-      <Button disabled={pending}>{pending ? "Verifying credentials…" : submitLabel}</Button>
-      <small className="provider-secret-note">Credentials are verified before being encrypted and stored. Existing secrets are never displayed.</small>
+      <Button disabled={pending}>{pending ? "Checking credentials…" : submitLabel}</Button>
+      <small className="provider-secret-note">Belki checks the credentials before storing them securely. Saved credentials are never shown.</small>
     </form>
   );
 }
@@ -139,9 +139,9 @@ export function ProviderCredentialForm({
       <ProviderCredentialFields provider={provider} />
       {error ? <p className="form-error">{error}</p> : null}
       <div className="dialog-actions">
-        <Button disabled={pending}>{pending ? "Verifying credentials…" : "Replace credentials"}</Button>
+        <Button disabled={pending}>{pending ? "Checking credentials…" : "Replace credentials"}</Button>
       </div>
-      <small className="provider-secret-note">The previous encrypted version remains available for historical provenance, but new jobs use this version.</small>
+      <small className="provider-secret-note">Future requests use the replacement credentials as soon as Belki confirms they work.</small>
     </form>
   );
 }
