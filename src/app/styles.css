@@ -7968,6 +7968,8 @@ body .operator-section .table-wrap { border: 1px solid #e4e4e7; border-radius: 1
 .provider-route-row .select-trigger { width: 100%; }
 .provider-dialog { max-height: calc(100vh - 30px); max-width: min(820px, calc(100vw - 30px)); overflow-y: auto; }
 .provider-dialog .provider-form { margin-top: 0; }
+.provider-rename-dialog { max-width: min(440px, calc(100vw - 30px)); }
+.provider-rename-dialog .form-stack > div:first-child { display: grid; gap: 8px; }
 
 @media (max-width: 900px) {
   .provider-account-grid { grid-template-columns: 1fr; }

@@ -7,6 +7,7 @@ import {
   KeyRound,
   LoaderCircle,
   MoreHorizontal,
+  PencilLine,
   Plus,
   Power,
   Route,
@@ -38,7 +39,7 @@ import {
   ProviderAccountForm,
   ProviderCredentialForm,
 } from "../components/provider-account-form";
-import { Badge, Button, Dialog, Select, Skeleton, Switch } from "../components/ui";
+import { Badge, Button, Dialog, Input, Label, Select, Skeleton, Switch } from "../components/ui";
 import { api, patch, post } from "../lib/api";
 
 interface ProviderAccount {
@@ -180,6 +181,8 @@ function lastActivityLabel(value: string | null): string {
 export default function OperatorProvidersPage() {
   const queryClient = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
+  const [renaming, setRenaming] = useState<ProviderAccount | null>(null);
+  const [renameDraft, setRenameDraft] = useState("");
   const [rotating, setRotating] = useState<ProviderAccount | null>(null);
   const [disabling, setDisabling] = useState<ProviderAccount | null>(null);
   const [notice, setNotice] = useState<ProviderNotice | null>(null);
@@ -231,6 +234,20 @@ export default function OperatorProvidersPage() {
       `/operator/providers/${encodeURIComponent(id)}/test`,
     ),
     onSuccess: refresh,
+  });
+  const renameAccount = useMutation({
+    mutationFn: ({ id, label }: { id: string; label: string }) =>
+      patch(`/operator/providers/${encodeURIComponent(id)}`, { label }),
+    onSuccess: async (_, variables) => {
+      setRenaming(null);
+      setRenameDraft("");
+      await refresh();
+      showNotice(
+        "success",
+        "Account renamed",
+        `The account is now named ${variables.label}.`,
+      );
+    },
   });
   const makeDefault = useMutation({
     mutationFn: (id: string) => post(`/operator/providers/${encodeURIComponent(id)}/default`),
@@ -425,6 +442,17 @@ export default function OperatorProvidersPage() {
                             <span>{makeDefault.isPending && makeDefault.variables === account.id ? "Saving…" : "Make default provider"}</span>
                           </DropdownMenu.Item>
                         ) : null}
+                        <DropdownMenu.Item
+                          className="prompt-actions-menu-item"
+                          onSelect={() => {
+                            renameAccount.reset();
+                            setRenameDraft(account.label);
+                            setRenaming(account);
+                          }}
+                        >
+                          <PencilLine size={14} />
+                          <span>Rename</span>
+                        </DropdownMenu.Item>
                         <DropdownMenu.Item asChild className="prompt-actions-menu-item">
                           <a href={CAPTURE_PROVIDER_DASHBOARD_URLS[account.provider]} rel="noreferrer" target="_blank">
                             <ExternalLink size={14} />
@@ -531,6 +559,70 @@ export default function OperatorProvidersPage() {
         </div>
       </section>
 
+      <Dialog
+        contentClassName="provider-rename-dialog"
+        description="Use a name that helps your team identify this account. Provider credentials are not affected."
+        onOpenChange={(open) => {
+          if (!open && !renameAccount.isPending) {
+            setRenaming(null);
+            setRenameDraft("");
+            renameAccount.reset();
+          }
+        }}
+        open={Boolean(renaming)}
+        title="Rename account"
+      >
+        <form
+          className="form-stack"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!renaming) return;
+            const label = renameDraft.trim();
+            if (label.length < 2 || label === renaming.label) return;
+            renameAccount.mutate({ id: renaming.id, label });
+          }}
+        >
+          <div>
+            <Label>Account name</Label>
+            <Input
+              aria-label="Account name"
+              autoFocus
+              maxLength={120}
+              minLength={2}
+              onChange={(event) => setRenameDraft(event.target.value)}
+              required
+              value={renameDraft}
+            />
+          </div>
+          {renameAccount.error ? <p className="form-error">{renameAccount.error.message}</p> : null}
+          <div className="dialog-actions">
+            <Button
+              disabled={renameAccount.isPending}
+              onClick={() => {
+                setRenaming(null);
+                setRenameDraft("");
+                renameAccount.reset();
+              }}
+              type="button"
+              variant="secondary"
+            >
+              Cancel
+            </Button>
+            <Button
+              disabled={
+                renameAccount.isPending ||
+                renameDraft.trim().length < 2 ||
+                renameDraft.trim() === renaming?.label
+              }
+              type="submit"
+            >
+              {renameAccount.isPending ? (
+                <><LoaderCircle className="provider-test-spinner" size={14} /> Saving…</>
+              ) : "Save name"}
+            </Button>
+          </div>
+        </form>
+      </Dialog>
       <Dialog
         contentClassName="provider-dialog"
         description="Belki checks the credentials before storing them securely."

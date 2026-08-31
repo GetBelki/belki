@@ -1,16 +1,18 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import OperatorProvidersPage from "../src/app/pages/operator-providers";
 
 const apiMocks = vi.hoisted(() => ({
   api: vi.fn(),
+  patch: vi.fn(),
   post: vi.fn(),
 }));
 
 vi.mock("../src/app/lib/api", async (importOriginal) => ({
   ...await importOriginal<typeof import("../src/app/lib/api")>(),
   api: apiMocks.api,
+  patch: apiMocks.patch,
   post: apiMocks.post,
 }));
 
@@ -71,7 +73,9 @@ function renderPage() {
 }
 
 afterEach(() => {
+  cleanup();
   apiMocks.api.mockReset();
+  apiMocks.patch.mockReset();
   apiMocks.post.mockReset();
 });
 
@@ -124,5 +128,32 @@ describe("operator provider credential tests", () => {
     const result = await screen.findByRole("alert");
     expect(result).toHaveClass("provider-test-feedback-failed");
     expect(result).toHaveTextContent("DataForSEO rejected these credentials.");
+  });
+});
+
+describe("operator provider account names", () => {
+  it("renames an account from the actions menu and confirms the saved name", async () => {
+    apiMocks.api.mockResolvedValue(configuration);
+    apiMocks.patch.mockResolvedValue({ id: account.id, label: "Primary search account" });
+    renderPage();
+
+    fireEvent.keyDown(await screen.findByRole("button", {
+      name: `More actions for ${account.label}`,
+    }), { key: "Enter" });
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename" }));
+
+    const nameInput = screen.getByRole("textbox", { name: "Account name" });
+    expect(nameInput).toHaveValue(account.label);
+    expect(screen.getByRole("button", { name: "Save name" })).toBeDisabled();
+
+    fireEvent.change(nameInput, { target: { value: "Primary search account" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+
+    await waitFor(() => expect(apiMocks.patch).toHaveBeenCalledWith(
+      "/operator/providers/dataforseo%3Aplatform%3Av1",
+      { label: "Primary search account" },
+    ));
+    const notice = (await screen.findByText("Account renamed")).closest("[role='status']");
+    expect(notice).toHaveTextContent("The account is now named Primary search account.");
   });
 });
