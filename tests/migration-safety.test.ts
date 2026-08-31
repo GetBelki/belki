@@ -63,6 +63,27 @@ describe("control database migrations", () => {
     expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
   });
 
+  it("tracks capture-provider events and removes generic platform model values", () => {
+    const controlSql = readFileSync(
+      resolve("migrations/control/0032_capture_provider_events.sql"),
+      "utf8",
+    );
+    const snapshotSql = readFileSync(
+      resolve("migrations/snapshot/0008_sanitize_generic_models.sql"),
+      "utf8",
+    );
+
+    expect(controlSql).toMatch(/CREATE TABLE project_capture_provider_events/i);
+    expect(controlSql).toMatch(/FROM capture_provider_attempts/i);
+    expect(controlSql).toMatch(/DELETE FROM project_events/i);
+    expect(controlSql).toMatch(/UPDATE snapshot_index\s+SET model = NULL/i);
+    expect(snapshotSql).toMatch(/UPDATE snapshots\s+SET model = NULL/i);
+    expect(`${controlSql}\n${snapshotSql}`).not.toMatch(/DROP TABLE/i);
+    expect(`${controlSql}\n${snapshotSql}`).not.toMatch(
+      /PRAGMA foreign_keys\s*=\s*OFF/i,
+    );
+  });
+
   it("keeps the pre-launch payment reset explicit, live-guarded, and billing-only", () => {
     const resetSql = readFileSync(
       resolve("scripts/reset-test-payments.sql"),

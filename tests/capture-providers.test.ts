@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   CAPTURE_PROVIDER_DASHBOARD_URLS,
   CAPTURE_PROVIDER_PRIORITY,
@@ -9,6 +9,13 @@ import {
   type CaptureProviderActivityRow,
 } from "../src/shared/provider-activity";
 import { parseCapturePayload } from "../src/worker/providers/normalize";
+import {
+  brightDataProgressStatus,
+  brightDataAdapter,
+  brightDataSnapshotId,
+} from "../src/worker/providers/brightdata";
+import { oxylabsAdapter } from "../src/worker/providers/oxylabs";
+import { CaptureProviderExecutionError } from "../src/worker/providers/types";
 
 const context = {
   taskId: "task-1",
@@ -16,6 +23,8 @@ const context = {
   locationCode: 2840,
   languageCode: "en",
 };
+
+afterEach(() => vi.restoreAllMocks());
 
 describe("capture providers", () => {
   it("preserves the operator's provider priority", () => {
@@ -34,6 +43,41 @@ describe("capture providers", () => {
     expect(captureProviderSupportsSource("brightdata", "gemini")).toBe(false);
     expect(captureProviderSupportsSource("cloro", "gemini")).toBe(true);
     expect(captureProviderSupportsSource("oxylabs", "gemini")).toBe(false);
+  });
+
+  it("recognizes Bright Data's asynchronous snapshot lifecycle", () => {
+    const bytes = new TextEncoder().encode(JSON.stringify({ snapshot_id: "snapshot-123" }));
+    expect(brightDataSnapshotId(bytes.buffer)).toBe("snapshot-123");
+    expect(brightDataProgressStatus({ status: "running" })).toBe("running");
+    expect(brightDataProgressStatus({ status: "ready" })).toBe("ready");
+    expect(brightDataProgressStatus({ status: "unexpected" })).toBeNull();
+  });
+
+  it("keeps HTTP 202 Bright Data scrapes pending instead of normalizing them", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(
+      JSON.stringify({ snapshot_id: "snapshot-accepted" }),
+      { status: 202, statusText: "Accepted" },
+    ));
+
+    const result = await brightDataAdapter.execute(
+      { provider: "brightdata", credentials: { apiToken: "test-token" } },
+      {
+        jobId: "job-1",
+        query: "test query",
+        source: "chatgpt",
+        locationCode: 2840,
+        locationName: "United States",
+        countryCode: "US",
+        languageCode: "en",
+        forceWebSearch: true,
+      },
+    );
+
+    expect(result).toMatchObject({
+      externalTaskId: "snapshot-accepted",
+      pending: true,
+      providerStatusCode: 202,
+    });
   });
 
   it("links each provider to its own account dashboard", () => {
@@ -114,6 +158,20 @@ describe("capture providers", () => {
     expect(payload.tasks[0]?.result?.[0]?.sources).toHaveLength(2);
   });
 
+  it("normalizes the answer field names returned by the ChatGPT dataset", () => {
+    const payload = parseCapturePayload("brightdata", [{
+      answer_text_markdown: "**Markdown answer from Bright Data**",
+      answer_text_raw: "Raw answer from Bright Data",
+      citations: [{ title: "Example", url: "https://example.com/article" }],
+    }], "chatgpt", context);
+
+    expect(payload.tasks[0]?.result?.[0]).toMatchObject({
+      markdown: "**Markdown answer from Bright Data**",
+      model: null,
+      surface_present: true,
+    });
+  });
+
   it("normalizes Cloro fan-out telemetry", () => {
     const payload = parseCapturePayload("cloro", {
       success: true,
@@ -132,8 +190,10 @@ describe("capture providers", () => {
 
   it("normalizes Oxylabs response metadata", () => {
     const payload = parseCapturePayload("oxylabs", {
+      job: { id: "7499869041700391937", status: "done" },
       results: [{
         created_at: "2026-08-28T10:00:00.000Z",
+        status_code: 12000,
         content: {
           response_text: "Oxylabs answer",
           llm_model: "gpt-5",
@@ -146,5 +206,44 @@ describe("capture providers", () => {
       markdown: "Oxylabs answer",
       model: "gpt-5",
     });
+  });
+
+  it("rejects a faulted Oxylabs realtime response instead of storing an empty snapshot", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(new Response(JSON.stringify({
+      job: { id: "7499954392326526977", status: "faulted" },
+      results: [{ status_code: 613, content: [] }],
+    }), { status: 200, statusText: "OK" }));
+
+    const execution = oxylabsAdapter.execute(
+      {
+        provider: "oxylabs",
+        credentials: { username: "test-user", password: "test-password" },
+      },
+      {
+        jobId: "job-1",
+        query: "Why choose Rebill?",
+        source: "chatgpt",
+        locationCode: 2840,
+        locationName: "United States",
+        countryCode: "US",
+        languageCode: "en",
+        forceWebSearch: true,
+      },
+    );
+
+    await expect(execution).rejects.toMatchObject({
+      name: "CaptureProviderExecutionError",
+      statusCode: 613,
+      statusMessage: "Faulted after too many retries",
+      externalTaskId: "oxylabs:7499954392326526977",
+      retryable: true,
+    } satisfies Partial<CaptureProviderExecutionError>);
+  });
+
+  it("defensively rejects faulted Oxylabs payloads during normalization", () => {
+    expect(() => parseCapturePayload("oxylabs", {
+      job: { id: "7499954392326526977", status: "faulted" },
+      results: [{ status_code: 613, content: [] }],
+    }, "chatgpt", context)).toThrow("Oxylabs job faulted with status 613");
   });
 });

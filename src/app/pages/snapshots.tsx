@@ -42,6 +42,7 @@ import {
 } from "../lib/snapshot-evidence";
 import { dateTime } from "../lib/utils";
 import type { RunStatus } from "../../shared/contracts";
+import { CAPTURE_PROVIDER_LABELS } from "../../shared/capture-providers";
 
 interface TrackedQuery {
   id: string;
@@ -366,7 +367,14 @@ function ChangeSummary({ diff }: { diff: SnapshotDiff | undefined }) {
   }
   const changes = [
     diff.answerChanged ? "Answer changed" : "Answer unchanged",
-    diff.modelChanged ? "Model changed" : "Model unchanged",
+    diff.modelChanged === null
+      ? "Model not reported"
+      : diff.modelChanged
+      ? "Model changed"
+      : "Model unchanged",
+    diff.captureProviderChanged && diff.captureProvider
+      ? `Capture provider: ${CAPTURE_PROVIDER_LABELS[diff.captureProvider.previous]} → ${CAPTURE_PROVIDER_LABELS[diff.captureProvider.current]}`
+      : "Capture provider unchanged",
     diff.productBlockChanged ? "Product block changed" : "Product block unchanged",
   ];
   return (
@@ -468,7 +476,7 @@ export function SnapshotDetailPage() {
       <PageHeader
         eyebrow={`Captured ${dateTime(snapshot.captured_at)}`}
         title={snapshot.keyword}
-        description={`${localeLabel(snapshot.location_code, snapshot.language_code)} · ${snapshot.model ?? "Unknown model"}`}
+        description={`${localeLabel(snapshot.location_code, snapshot.language_code)} · ${snapshot.model ?? "Model not reported"} · Captured via ${CAPTURE_PROVIDER_LABELS[snapshot.capture_provider]}`}
         action={
           <div className="button-group">
             {snapshot.has_html_evidence ? (

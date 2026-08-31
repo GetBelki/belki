@@ -1832,7 +1832,7 @@ export function PromptsPage() {
           </div>
           <div className="form-grid">
             <div><Label>Cadence</Label><select className="input" name="cadence" defaultValue="daily"><option value="daily">Daily</option><option value="weekly">Weekly</option></select></div>
-            <div><Label>Time</Label><Input type="time" name="time" defaultValue="09:00" required /></div>
+            <div><Label>Time</Label><Input type="time" name="time" defaultValue="06:00" required /></div>
           </div>
           <input type="hidden" name="weekday" value="1" />
           {error ? <p className="form-error">{error}</p> : null}

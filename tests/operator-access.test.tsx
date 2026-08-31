@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { OperatorNavigation } from "../src/app/components/layout";
@@ -9,6 +9,7 @@ import { isOperatorAuthenticationFailure } from "../src/app/lib/operator-access"
 import { OperatorFanOutTrendsPage } from "../src/app/pages/operator-insights";
 
 afterEach(() => {
+  cleanup();
   vi.unstubAllGlobals();
 });
 
@@ -40,6 +41,19 @@ describe("operator navigation", () => {
       "href",
       "/operator/insights/fan-out",
     );
+  });
+
+  it("stays compact outside operator pages and can be expanded", () => {
+    const navigation = render(<OperatorNavigation pathname="/" />);
+
+    const trigger = navigation.getByRole("button", { name: "Operator" });
+    expect(trigger).toHaveAttribute("aria-expanded", "false");
+    expect(navigation.queryByRole("link", { name: "Providers" })).not.toBeInTheDocument();
+
+    fireEvent.click(trigger);
+
+    expect(trigger).toHaveAttribute("aria-expanded", "true");
+    expect(navigation.getByRole("link", { name: "Providers" })).toBeInTheDocument();
   });
 });
 

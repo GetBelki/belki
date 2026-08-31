@@ -136,7 +136,7 @@ export default function PromptLibraryPage() {
   const [languageCode, setLanguageCode] = useState(DEFAULT_LANGUAGE);
   const [cadence, setCadence] = useState<"daily" | "weekly">("daily");
   const [weekday, setWeekday] = useState("1");
-  const [time, setTime] = useState("09:00");
+  const [time, setTime] = useState("06:00");
   const [variables, setVariables] = useState<Record<string, string>>({});
   const [sharedTags, setSharedTags] = useState<string[]>([]);
   const [drafts, setDrafts] = useState<PromptDraft[]>([]);

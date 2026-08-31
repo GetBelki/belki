@@ -16,8 +16,11 @@ import {
 import { registerAdAssetSources } from "../automation/ad-assets";
 import { syncSnapshotBrandMetrics } from "./brand-metrics";
 import { syncSourceDiscoveryFirstSeen } from "./source-discovery";
-import type { TrackingSource } from "../../shared/contracts";
-import { modelDetectedEventStatement } from "../lib/project-events";
+import type { CaptureProvider, TrackingSource } from "../../shared/contracts";
+import {
+  captureProviderDetectedEventStatement,
+  modelDetectedEventStatement,
+} from "../lib/project-events";
 
 interface SnapshotReadModelRow {
   id: string;
@@ -29,6 +32,7 @@ interface SnapshotReadModelRow {
   fan_out_queries_json: string;
   fan_out_telemetry_status: "reported" | "unavailable" | "unknown";
   model: string | null;
+  capture_provider: CaptureProvider;
   tracking_source: TrackingSource;
   surface_present: number;
 }
@@ -183,7 +187,7 @@ export async function syncAnalyticsReadModel(
         .prepare(
           `SELECT id, project_id, tracked_query_id, captured_at, provider_cost_usd,
             answer_markdown, fan_out_queries_json, fan_out_telemetry_status,
-            model, tracking_source, surface_present
+            model, capture_provider, tracking_source, surface_present
            FROM snapshots WHERE id = ?`,
         )
         .bind(payload.snapshotId)
@@ -425,6 +429,12 @@ export async function syncAnalyticsReadModel(
     occurredAt: snapshot.captured_at,
   });
   if (modelEvent) statements.push(modelEvent);
+  statements.push(captureProviderDetectedEventStatement(env.CONTROL_DB, {
+    projectId: payload.projectId,
+    trackingSource: snapshot.tracking_source,
+    captureProvider: snapshot.capture_provider,
+    occurredAt: snapshot.captured_at,
+  }));
 
   for (const [normalizedQuery, relatedQuery] of relatedQueries) {
     statements.push(

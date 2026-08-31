@@ -77,6 +77,12 @@ Show **Most popular** on Studio. Use **Choose Starter**, **Choose Studio**, and 
 
 Do not expose internal workload units, credits, or provider-task calculations on the marketing site.
 
+### Managed payment providers
+
+Belki currently supports provider-hosted Checkout and subscription management through Stripe and Dodo Payments. The public site should describe both as installed payment integrations without implying that every customer can choose between them: each managed deployment configures the payment account used for new Checkout sessions, while existing subscriptions remain attached to the account that created them.
+
+Rebill and Polar may be shown as **Coming soon** or **Planned**, but must not be presented as available until their adapters are implemented and verified. Keep surrounding payment language provider-neutral so additional integrations can be added without rewriting plan or entitlement copy.
+
 ## Open-source and Cloudflare section
 
 ### Eyebrow
@@ -91,7 +97,9 @@ Do not expose internal workload units, credits, or provider-task calculations on
 
 Prefer to own the stack? Deploy the open-source Belki application to your Cloudflare account and keep control of the infrastructure, application data, and provider credentials. Belki uses Cloudflare Workers, D1, R2, Queues, Durable Objects, Cron Triggers, and Workers AI.
 
-The self-hosted edition is available under the Apache 2.0 license. It requires a Cloudflare Workers Paid account and credentials for at least one supported capture provider. You are responsible for deployment, provider and infrastructure charges, monitoring, updates, and backups.
+The self-hosted edition is available under the Apache 2.0 license. It requires a Cloudflare Workers Paid account and credentials for at least one supported capture provider: DataForSEO, Bright Data, Cloro, or Oxylabs. You are responsible for deployment, provider and infrastructure charges, monitoring, updates, and backups.
+
+Current capture coverage is DataForSEO and Cloro for all four AI sources; Bright Data for ChatGPT; and Oxylabs for ChatGPT, Google AI Mode, and Google AI Overviews. DataForSEO Merchant Google Product Info access remains a separate requirement only for optional Shopping enrichment.
 
 ### Benefits
 
@@ -139,8 +147,9 @@ Use placeholders until the repository is public. The deployment CTA should point
 - All three managed plans and their differences appear on the public site.
 - The four supported AI sources are named.
 - Pricing clearly states monthly billing and applicable tax treatment.
+- Stripe and Dodo Payments are identified as currently supported payment integrations; Rebill and Polar are clearly labeled as planned rather than available.
 - Self-hosting is presented as an alternative operating model, not a fourth SaaS tier.
-- Self-hosting clearly discloses the Workers Paid and DataForSEO requirements and separate usage costs.
+- Self-hosting clearly discloses the Workers Paid requirement, the supported capture-provider options and coverage, and separate provider usage costs.
 - GitHub, deployment, and documentation links work before publication.
 - Plan values match GetBelki's current commercial catalogue: €10/25/1/1,
   €29/75/5/2, and €149/250/30/4. Other Belki installations configure their own

@@ -1,5 +1,6 @@
 import type { ProjectEventType } from "../../shared/project-events";
 import type { TrackingSource } from "../../shared/tracking-sources";
+import type { CaptureProvider } from "../../shared/capture-providers";
 import { normalizeProviderModel } from "../../shared/project-event-helpers";
 import { nowIso } from "./http";
 
@@ -74,6 +75,42 @@ export function modelDetectedEventStatement(
     input.occurredAt,
     JSON.stringify({ model: model.display, normalizedModel: model.key }),
     `model:${input.trackingSource}:${model.key}`,
+    updatedAt,
+    updatedAt,
+  );
+}
+
+export function captureProviderDetectedEventStatement(
+  db: D1Database,
+  input: {
+    projectId: string;
+    trackingSource: TrackingSource;
+    captureProvider: CaptureProvider;
+    occurredAt: string;
+  },
+): D1PreparedStatement {
+  const updatedAt = nowIso();
+  return db.prepare(
+    `INSERT INTO project_capture_provider_events (
+      id, project_id, tracking_source, capture_provider, event_date,
+      occurred_at, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(project_id, tracking_source, capture_provider) DO UPDATE SET
+      event_date = CASE
+        WHEN excluded.occurred_at < project_capture_provider_events.occurred_at
+          THEN excluded.event_date ELSE project_capture_provider_events.event_date END,
+      occurred_at = MIN(
+        project_capture_provider_events.occurred_at,
+        excluded.occurred_at
+      ),
+      updated_at = excluded.updated_at`,
+  ).bind(
+    crypto.randomUUID(),
+    input.projectId,
+    input.trackingSource,
+    input.captureProvider,
+    input.occurredAt.slice(0, 10),
+    input.occurredAt,
     updatedAt,
     updatedAt,
   );

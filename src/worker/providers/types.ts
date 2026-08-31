@@ -18,9 +18,34 @@ export interface CaptureExecutionRequest {
 export interface CaptureExecutionResult {
   externalTaskId: string;
   bytes: ArrayBuffer;
+  pending?: boolean;
   requestCostUsd: number | null;
   providerStatusCode: number | null;
   providerStatusMessage: string | null;
+}
+
+export class CaptureProviderExecutionError extends Error {
+  readonly statusCode: number | null;
+  readonly statusMessage: string | null;
+  readonly externalTaskId: string | null;
+  readonly retryable: boolean;
+
+  constructor(
+    message: string,
+    options: {
+      statusCode?: number | null;
+      statusMessage?: string | null;
+      externalTaskId?: string | null;
+      retryable?: boolean;
+    } = {},
+  ) {
+    super(message);
+    this.name = "CaptureProviderExecutionError";
+    this.statusCode = options.statusCode ?? null;
+    this.statusMessage = options.statusMessage ?? null;
+    this.externalTaskId = options.externalTaskId ?? null;
+    this.retryable = options.retryable ?? false;
+  }
 }
 
 export interface CaptureProviderExecutionAdapter {

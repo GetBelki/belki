@@ -1,5 +1,6 @@
 import type { ChartAnnotation } from "../../shared/project-events";
 import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
+import { CAPTURE_PROVIDER_LABELS } from "../../shared/capture-providers";
 
 export function hasOverviewProducts(
   overview:
@@ -61,6 +62,12 @@ export function chartAnnotationLabel(
   if (events.length === 1 && events[0]?.type === "model_detected") {
     return "Model detected";
   }
+  if (
+    events.length === 1 &&
+    events[0]?.type === "capture_provider_detected"
+  ) {
+    return "Capture provider detected";
+  }
   if (events.length === 1 && events[0]?.type === "tracking_sources_changed") {
     return "Platform tracking changed";
   }
@@ -78,7 +85,10 @@ export function chartAnnotationMarkerLabel(
     return counts.addedCount ? `+${counts.addedCount}` : `−${counts.removedCount}`;
   }
   if (event.sourceEvents.length === 1) {
-    return event.sourceEvents[0]?.type === "model_detected" ? "Model" : "Platform";
+    const type = event.sourceEvents[0]?.type;
+    if (type === "model_detected") return "Model";
+    if (type === "capture_provider_detected") return "Provider";
+    return "Platform";
   }
   return `${event.sourceEvents.length}`;
 }
@@ -180,6 +190,9 @@ export function chartAnnotationItemLabel(event: ChartAnnotation): string {
   }
   if (event.type === "model_detected") {
     return `${event.model} first detected on ${TRACKING_SOURCE_LABELS[event.trackingSource]}`;
+  }
+  if (event.type === "capture_provider_detected") {
+    return `${CAPTURE_PROVIDER_LABELS[event.captureProvider]} first used for ${TRACKING_SOURCE_LABELS[event.trackingSource]}`;
   }
   const changes: string[] = [];
   if (event.addedSources.length) {
