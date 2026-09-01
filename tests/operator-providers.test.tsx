@@ -157,3 +157,52 @@ describe("operator provider account names", () => {
     expect(notice).toHaveTextContent("The account is now named Primary search account.");
   });
 });
+
+describe("operator provider activity", () => {
+  it("explains failed and uncertain requests separately from in-progress work", async () => {
+    const metrics = {
+      attempts: 13,
+      submitted: 13,
+      completed: 7,
+      failed: 3,
+      ambiguous: 2,
+      needsAttention: 5,
+      inProgress: 1,
+      successRate: 58.3,
+      averageLatencyMs: 60_000,
+      lastActivityAt: null,
+    };
+    apiMocks.api.mockResolvedValue({
+      ...configuration,
+      routes: [{
+        trackingSource: "chatgpt",
+        enabled: true,
+        providerAccountId: null,
+        effectiveProviderAccountId: account.id,
+      }],
+      activity: {
+        period: "30d",
+        range: { from: "2026-08-02", to: "2026-09-01" },
+        summary: metrics,
+        byAccount: [{
+          ...metrics,
+          providerAccountId: account.id,
+          provider: account.provider,
+        }],
+        byPlatform: [{ ...metrics, trackingSource: "chatgpt" }],
+      },
+    });
+    renderPage();
+
+    await waitFor(() => expect(screen.getAllByText("Failed / uncertain")).toHaveLength(2));
+    expect(screen.getAllByText("Completion rate")).toHaveLength(2);
+    expect(screen.getByText(
+      "3 failed · 2 uncertain · 1.0 min average · No activity in the last 30 days",
+    )).toBeInTheDocument();
+    expect(screen.getByText(
+      "7 completed · 3 failed · 2 uncertain · 1 in progress",
+    )).toBeInTheDocument();
+    expect(screen.getAllByText("58.3%")).toHaveLength(2);
+    expect(screen.queryByText(/needs? attention|attention$/iu)).not.toBeInTheDocument();
+  });
+});

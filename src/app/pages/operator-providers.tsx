@@ -164,7 +164,7 @@ function latencyLabel(value: number | null): string {
   return `${(value / 60_000).toFixed(1)} min average`;
 }
 
-function successRateLabel(activity: ProviderActivityMetrics): string {
+function completionRateLabel(activity: ProviderActivityMetrics): string {
   return activity.completed + activity.needsAttention > 0
     ? `${activity.successRate.toFixed(1)}%`
     : "—";
@@ -332,14 +332,14 @@ export default function OperatorProvidersPage() {
       <div className="provider-summary-strip" aria-label="Provider activity in the last 30 days">
         <div><strong>{configuration.isPending ? "—" : activitySummary.submitted}</strong><span>Submitted · 30 days</span></div>
         <div><strong>{configuration.isPending ? "—" : activitySummary.completed}</strong><span>Completed</span></div>
-        <div><strong>{configuration.isPending ? "—" : activitySummary.needsAttention}</strong><span>Needs attention</span></div>
-        <div><strong>{configuration.isPending ? "—" : successRateLabel(activitySummary)}</strong><span>Success rate</span></div>
+        <div><strong>{configuration.isPending ? "—" : activitySummary.needsAttention}</strong><span>Failed / uncertain</span></div>
+        <div><strong>{configuration.isPending ? "—" : completionRateLabel(activitySummary)}</strong><span>Completion rate</span></div>
       </div>
 
       <section className="operator-section">
         <div className="operator-section-heading">
           <h2>Accounts</h2>
-          <p>Credentials are stored securely. Activity covers the last 30 days; needs attention includes requests that failed or returned an unclear result.</p>
+          <p>Credentials are stored securely. Activity covers the last 30 days. Failed / uncertain combines provider failures with requests whose outcome could not be confirmed. Completion rate is completed ÷ (completed + failed + uncertain); in-progress requests are excluded.</p>
         </div>
         {configuration.isPending ? <Skeleton className="settings-feature-skeleton" /> : accounts.length === 0 ? (
           <div className="provider-account-empty">
@@ -400,10 +400,10 @@ export default function OperatorProvidersPage() {
                 </div>
                 <div className="provider-account-activity" aria-label={`${account.label} activity in the last 30 days`}>
                   <div><strong>{accountActivity.completed}</strong><span>Completed</span></div>
-                  <div className={accountActivity.needsAttention > 0 ? "has-attention" : undefined}><strong>{accountActivity.needsAttention}</strong><span>Attention</span></div>
+                  <div className={accountActivity.needsAttention > 0 ? "has-attention" : undefined}><strong>{accountActivity.needsAttention}</strong><span>Failed / uncertain</span></div>
                   <div><strong>{accountActivity.inProgress}</strong><span>In progress</span></div>
-                  <div><strong>{successRateLabel(accountActivity)}</strong><span>Success</span></div>
-                  <small>{latencyLabel(accountActivity.averageLatencyMs)} · {lastActivityLabel(accountActivity.lastActivityAt)}</small>
+                  <div><strong>{completionRateLabel(accountActivity)}</strong><span>Completion rate</span></div>
+                  <small>{accountActivity.failed} failed · {accountActivity.ambiguous} uncertain · {latencyLabel(accountActivity.averageLatencyMs)} · {lastActivityLabel(accountActivity.lastActivityAt)}</small>
                 </div>
                 <div className="provider-account-actions">
                   <Button
@@ -517,7 +517,7 @@ export default function OperatorProvidersPage() {
               <div className="provider-route-row" key={route.trackingSource}>
                 <div className="provider-route-name">
                   <strong>{TRACKING_SOURCE_LABELS[route.trackingSource]}</strong>
-                  <small>{platformActivity.completed} completed · {platformActivity.needsAttention} need attention · {platformActivity.inProgress} in progress</small>
+                  <small>{platformActivity.completed} completed · {platformActivity.failed} failed · {platformActivity.ambiguous} uncertain · {platformActivity.inProgress} in progress</small>
                 </div>
                 <div className="provider-route-provider">
                   <Select
