@@ -1,10 +1,38 @@
 import { describe, expect, it } from "vitest";
 import {
+  activeProjectsFirst,
   projectDataNavigationVisible,
   projectChangeDestination,
   trackingSourcesForPath,
   trackingSourceChangeDestination,
 } from "../src/app/lib/project-navigation";
+
+describe("project switcher order", () => {
+  it("places active projects first while preserving each group's existing order", () => {
+    const projects = [
+      { id: "pets", paused_at: "2026-09-01T10:00:00.000Z" },
+      { id: "logiscenter", paused_at: "2026-09-02T10:00:00.000Z" },
+      { id: "canon", paused_at: "2026-09-03T10:00:00.000Z" },
+      { id: "modulor", paused_at: null },
+      { id: "rebill" },
+    ];
+
+    expect(activeProjectsFirst(projects).map((project) => project.id)).toEqual([
+      "modulor",
+      "rebill",
+      "pets",
+      "logiscenter",
+      "canon",
+    ]);
+    expect(projects.map((project) => project.id)).toEqual([
+      "pets",
+      "logiscenter",
+      "canon",
+      "modulor",
+      "rebill",
+    ]);
+  });
+});
 
 describe("data navigation visibility", () => {
   it("hides Ads and Shopping until the selected project has matching data", () => {

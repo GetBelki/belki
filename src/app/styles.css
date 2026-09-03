@@ -2904,6 +2904,17 @@ body {
   padding: 6px 9px;
 }
 
+.project-state-actions,
+.project-table-actions {
+  align-items: center;
+  display: flex;
+  gap: 6px;
+}
+
+.project-table-actions {
+  justify-content: flex-end;
+}
+
 .evidence-checkbox {
   align-items: flex-start;
   border: 1px solid #e4e4e7;
@@ -5896,6 +5907,34 @@ a.evidence-source:hover strong {
   font-size: 10px;
 }
 
+.project-pause-notice {
+  align-items: center;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 10px;
+  color: #92400e;
+  display: grid;
+  gap: 12px;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  margin-bottom: 16px;
+  padding: 12px 14px;
+}
+
+.project-pause-notice > div {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.project-pause-notice strong {
+  font-size: 12px;
+}
+
+.project-pause-notice span {
+  color: #a16207;
+  font-size: 11px;
+}
+
 .settings-workspace-summary {
   align-items: baseline;
   display: flex;
@@ -6635,6 +6674,18 @@ a.evidence-source:hover strong {
 
   .settings-section-heading .button {
     width: 100%;
+  }
+
+  .project-state-actions,
+  .project-pause-notice {
+    align-items: stretch;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .project-table-actions {
+    align-items: stretch;
+    flex-direction: column;
   }
 
   .tracking-source-count {

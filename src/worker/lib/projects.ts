@@ -14,6 +14,7 @@ export interface ProjectSummary {
   name: string;
   primary_domain: string | null;
   html_capture_enabled: number;
+  paused_at: string | null;
   created_at: string;
   updated_at: string;
   query_count: number;
@@ -39,7 +40,8 @@ export function projectListStatements(
   return [
     db.prepare(
       `SELECT
-        p.id, p.name, p.primary_domain, p.html_capture_enabled, p.created_at, p.updated_at,
+        p.id, p.name, p.primary_domain, p.html_capture_enabled, p.paused_at,
+        p.created_at, p.updated_at,
         (
           SELECT COUNT(*)
           FROM tracked_queries q

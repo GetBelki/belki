@@ -84,6 +84,47 @@ describe("control database migrations", () => {
     );
   });
 
+  it("adds scoped Workers AI caching and usage telemetry additively", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0033_workers_ai_cost_controls.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/CREATE TABLE ai_inference_cache/i);
+    expect(sql).toMatch(/CREATE TABLE ai_usage_events/i);
+    expect(sql).toMatch(/FOREIGN KEY \(project_id\).*ON DELETE CASCADE/i);
+    expect(sql).toMatch(/cache_status IN \('hit', 'miss', 'disabled'\)/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
+
+  it("records high-confidence auto-track reviews without rebuilding entity tables", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0034_entity_auto_track_reviews.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/CREATE TABLE entity_auto_track_reviews/i);
+    expect(sql).toMatch(/verdict IN \('confirmed', 'rejected'\)/i);
+    expect(sql).toMatch(/REFERENCES project_entities\(id\) ON DELETE CASCADE/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
+
+  it("adds recoverable project pauses and pause-period history additively", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0035_project_pauses.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/ALTER TABLE projects ADD COLUMN paused_at/i);
+    expect(sql).toMatch(/CREATE TABLE project_pause_periods/i);
+    expect(sql).toMatch(/WHERE resumed_at IS NULL/i);
+    expect(sql).toMatch(/REFERENCES projects\(id\) ON DELETE CASCADE/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
+
   it("keeps the pre-launch payment reset explicit, live-guarded, and billing-only", () => {
     const resetSql = readFileSync(
       resolve("scripts/reset-test-payments.sql"),

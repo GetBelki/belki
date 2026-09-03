@@ -197,7 +197,7 @@ export function SnapshotExplorerPage() {
 }
 
 export function QuerySnapshotsPage() {
-  const { projectId, session, trackingSource } = useApp();
+  const { currentProject, projectId, session, trackingSource } = useApp();
   const { queryId = "" } = useParams();
   const queryClient = useQueryClient();
   const query = useQuery({
@@ -275,12 +275,15 @@ export function QuerySnapshotsPage() {
             variant="secondary"
             disabled={
               manualRun.isPending ||
-              isRunInProgress(query.data.latest_run_status)
+              isRunInProgress(query.data.latest_run_status) ||
+              Boolean(currentProject?.paused_at)
             }
             onClick={() => manualRun.mutate()}
           >
             <RefreshCw size={14} />
-            {manualRun.isPending
+            {currentProject?.paused_at
+              ? "Project paused"
+              : manualRun.isPending
               ? "Queued…"
               : runStatusLabel(query.data.latest_run_status)}
           </Button> : undefined

@@ -1,9 +1,13 @@
 import {
   ENTITY_EXTRACTION_MODEL,
+  ENTITY_RELATIONSHIP_PROMPT_VERSION,
+  ENTITY_SPAN_PROMPT_VERSION,
   RELATIONSHIP_JSON_SCHEMA,
   SPAN_EXTRACTION_JSON_SCHEMA,
   applyRelationshipAssessments,
   chunkEntityText,
+  entityModelSampling,
+  entityModelSystemPrompt,
   extractionSystemPrompt,
   parsedRelationshipAiResponse,
   parsedSpanAiResponse,
@@ -14,6 +18,7 @@ import {
   type TrackedBrandRow,
   type ValidatedEntity,
 } from "./entity-extraction-core";
+import { runAI } from "../lib/workers-ai";
 
 interface EvaluationRequest {
   answer: string;
@@ -23,6 +28,10 @@ interface EvaluationRequest {
   trackedBrands: TrackedBrandRow[];
   providerEntities: ProviderEntityRow[];
   observedDomains: string[];
+  evaluationModels?: {
+    spanModel?: string;
+    relationshipModel?: string;
+  };
 }
 
 interface AiEnvelope {
@@ -38,6 +47,17 @@ interface EvaluationEntity extends ExtractedEntity {
   domainCorroborated: boolean;
   evidence: string;
 }
+
+interface EvaluationUsage {
+  spanInputTokens: number;
+  spanOutputTokens: number;
+  relationshipInputTokens: number;
+  relationshipOutputTokens: number;
+}
+
+type EvaluationAi = {
+  run: (model: string, input: Record<string, unknown>) => Promise<unknown>;
+};
 
 function aiEnvelope(result: unknown): AiEnvelope {
   return typeof result === "object" && result !== null
@@ -86,22 +106,34 @@ function combinedEntities(entities: ValidatedEntity[]): EvaluationEntity[] {
 async function extract(
   env: Pick<Env, "AI">,
   input: EvaluationRequest,
-): Promise<{ entities: EvaluationEntity[]; inputTokens: number; outputTokens: number }> {
+): Promise<{ entities: EvaluationEntity[]; usage: EvaluationUsage }> {
   const validated: ValidatedEntity[] = [];
-  let inputTokens = 0;
-  let outputTokens = 0;
+  const usage: EvaluationUsage = {
+    spanInputTokens: 0,
+    spanOutputTokens: 0,
+    relationshipInputTokens: 0,
+    relationshipOutputTokens: 0,
+  };
+  const spanModel = input.evaluationModels?.spanModel ?? ENTITY_EXTRACTION_MODEL;
+  const relationshipModel = input.evaluationModels?.relationshipModel
+    ?? ENTITY_EXTRACTION_MODEL;
+  const ai = env.AI as unknown as EvaluationAi;
   const knownBrands = input.trackedBrands.map((brand) => ({
     name: brand.name,
     kind: brand.kind,
     aliases: JSON.parse(brand.aliases_json) as string[],
     domains: JSON.parse(brand.domains_json) as string[],
   }));
-  for (const chunk of chunkEntityText(input.answer)) {
-    const spanRaw = aiEnvelope(await env.AI.run(ENTITY_EXTRACTION_MODEL, {
+  const evaluationId = crypto.randomUUID();
+  for (const [chunkIndex, chunk] of chunkEntityText(input.answer).entries()) {
+    const spanInput = {
       messages: [
-        { role: "system", content: extractionSystemPrompt() },
         {
-          role: "user",
+          role: "system" as const,
+          content: entityModelSystemPrompt(spanModel, extractionSystemPrompt()),
+        },
+        {
+          role: "user" as const,
           content: JSON.stringify({
             language_code: input.languageCode,
             answer_chunk: chunk,
@@ -109,15 +141,28 @@ async function extract(
         },
       ],
       response_format: {
-        type: "json_schema",
+        type: "json_schema" as const,
         json_schema: SPAN_EXTRACTION_JSON_SCHEMA,
       },
-      temperature: 0,
+      ...entityModelSampling(spanModel),
       seed: 731_991,
       max_tokens: 1_400,
-    }));
+    };
+    const spanCall = await runAI({
+      context: {
+        feature: "entity_extraction_evaluation",
+        operation: "span_extraction",
+        model: spanModel,
+        promptVersion: ENTITY_SPAN_PROMPT_VERSION,
+        requestId: `${evaluationId}:chunk:${chunkIndex}:span`,
+        retryAttempt: 1,
+      },
+      input: spanInput,
+      invoke: () => ai.run(spanModel, spanInput),
+      parse: (result) => parsedSpanAiResponse(aiEnvelope(result).response),
+    });
     let chunkEntities = validateExtractedEntities(
-      parsedSpanAiResponse(spanRaw.response),
+      spanCall.value,
       chunk,
       {
         providerEntities: input.providerEntities,
@@ -125,8 +170,8 @@ async function extract(
         trackedBrands: input.trackedBrands,
       },
     );
-    inputTokens += Number(spanRaw.usage?.prompt_tokens ?? 0);
-    outputTokens += Number(spanRaw.usage?.completion_tokens ?? 0);
+    usage.spanInputTokens += spanCall.inputTokens;
+    usage.spanOutputTokens += spanCall.outputTokens;
     const unresolved = chunkEntities
       .filter((entity) =>
         !entity.trackedBrand &&
@@ -140,11 +185,17 @@ async function extract(
         domain_corroborated: entity.domainCorroborated,
       }));
     if (unresolved.length) {
-      const relationshipRaw = aiEnvelope(await env.AI.run(ENTITY_EXTRACTION_MODEL, {
+      const relationshipInput = {
         messages: [
-          { role: "system", content: relationshipSystemPrompt() },
           {
-            role: "user",
+            role: "system" as const,
+            content: entityModelSystemPrompt(
+              relationshipModel,
+              relationshipSystemPrompt(),
+            ),
+          },
+          {
+            role: "user" as const,
             content: JSON.stringify({
               tracked_query: input.queryText,
               owned_domain: input.primaryDomain,
@@ -154,23 +205,36 @@ async function extract(
           },
         ],
         response_format: {
-          type: "json_schema",
+          type: "json_schema" as const,
           json_schema: RELATIONSHIP_JSON_SCHEMA,
         },
-        temperature: 0,
+        ...entityModelSampling(relationshipModel),
         seed: 731_991,
         max_tokens: 1_000,
-      }));
+      };
+      const relationshipCall = await runAI({
+        context: {
+          feature: "entity_extraction_evaluation",
+          operation: "relationship_classification",
+          model: relationshipModel,
+          promptVersion: ENTITY_RELATIONSHIP_PROMPT_VERSION,
+          requestId: `${evaluationId}:chunk:${chunkIndex}:relationship`,
+          retryAttempt: 1,
+        },
+        input: relationshipInput,
+        invoke: () => ai.run(relationshipModel, relationshipInput),
+        parse: (result) => parsedRelationshipAiResponse(aiEnvelope(result).response),
+      });
       chunkEntities = applyRelationshipAssessments(
         chunkEntities,
-        parsedRelationshipAiResponse(relationshipRaw.response),
+        relationshipCall.value,
       );
-      inputTokens += Number(relationshipRaw.usage?.prompt_tokens ?? 0);
-      outputTokens += Number(relationshipRaw.usage?.completion_tokens ?? 0);
+      usage.relationshipInputTokens += relationshipCall.inputTokens;
+      usage.relationshipOutputTokens += relationshipCall.outputTokens;
     }
     validated.push(...chunkEntities);
   }
-  return { entities: combinedEntities(validated), inputTokens, outputTokens };
+  return { entities: combinedEntities(validated), usage };
 }
 
 export default {

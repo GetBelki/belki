@@ -19,6 +19,15 @@ const PROJECT_DETAIL_ROUTES = [
   { path: "/shopping/:productKey", destination: "/shopping" },
 ] as const;
 
+export function activeProjectsFirst<T extends { paused_at?: string | null }>(
+  projects: readonly T[],
+): T[] {
+  return [
+    ...projects.filter((project) => !project.paused_at),
+    ...projects.filter((project) => Boolean(project.paused_at)),
+  ];
+}
+
 export function projectDataNavigationVisible(
   destination: string,
   pathname: string,

@@ -9,19 +9,32 @@ import { ApiError, jsonParse, nowIso } from "../lib/http";
 import { commitUsage, releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 import { getShard } from "../lib/shards";
 import { preserveBrandMetricsHistory } from "../lib/brand-metrics-state";
-import { syncSnapshotBrandMetrics } from "../ingestion/brand-metrics";
 import {
+  d1AiUsageStore,
+  runAI,
+  type AiUsageStore,
+} from "../lib/workers-ai";
+import { syncSnapshotBrandMetrics } from "../ingestion/brand-metrics";
+import { claimEntityExtractionJob } from "./entity-job-claim";
+import {
+  ENTITY_AUTO_TRACK_CONFIRMATION_MODEL,
+  ENTITY_AUTO_TRACK_PROMPT_VERSION,
   ENTITY_EXTRACTION_MODEL,
   ENTITY_EXTRACTOR_VERSION,
   ENTITY_INPUT_PRICE_PER_MILLION_USD,
   ENTITY_OUTPUT_PRICE_PER_MILLION_USD,
   ENTITY_PRICING_VERSION,
+  ENTITY_RELATIONSHIP_PROMPT_VERSION,
+  ENTITY_SPAN_PROMPT_VERSION,
   ExtractionResponseSchema,
   RELATIONSHIP_JSON_SCHEMA,
   SPAN_EXTRACTION_JSON_SCHEMA,
   applyRelationshipAssessments,
+  autoTrackConfirmationSystemPrompt,
   chunkEntityText,
   countSurface,
+  entityModelSampling,
+  entityModelSystemPrompt,
   estimatedEntityExtractionCost,
   extractionSystemPrompt,
   parsedRelationshipAiResponse,
@@ -54,6 +67,7 @@ interface EntityJobRow {
   active_entity_extractor_version: string;
   entity_extraction_enabled: number;
   entity_auto_track_enabled: number;
+  paused_at: string | null;
 }
 
 interface ChunkResult {
@@ -65,8 +79,6 @@ interface ChunkResult {
 
 interface AiCallResult<T> {
   value: T;
-  inputTokens: number;
-  outputTokens: number;
 }
 
 interface CombinedEntity extends ValidatedEntity {
@@ -86,18 +98,13 @@ function aiCallResult<T>(
   parse: (value: unknown) => T,
 ): AiCallResult<T> {
   if (typeof result === "string") {
-    return { value: parse(result), inputTokens: 0, outputTokens: 0 };
+    return { value: parse(result) };
   }
   const envelope = record(result);
   if (!envelope || !("response" in envelope)) {
     throw new Error("Workers AI returned no synchronous response");
   }
-  const usage = record(envelope.usage);
-  return {
-    value: parse(envelope.response),
-    inputTokens: Number(usage?.prompt_tokens ?? 0),
-    outputTokens: Number(usage?.completion_tokens ?? 0),
-  };
+  return { value: parse(envelope.response) };
 }
 
 function relationshipCandidates(entities: ValidatedEntity[]) {
@@ -123,6 +130,7 @@ async function runChunk(
   brands: TrackedBrandRow[],
   providerEntities: ProviderEntityRow[],
   observedDomains: string[],
+  aiStore: AiUsageStore,
 ): Promise<ChunkResult> {
   const inputHash = await sha256(JSON.stringify({
     version: job.extractor_version,
@@ -187,11 +195,17 @@ async function runChunk(
       aliases: jsonParse<string[]>(brand.aliases_json, []),
       domains: jsonParse<string[]>(brand.domains_json, []),
     }));
-    const spanRaw = await env.AI.run(ENTITY_EXTRACTION_MODEL, {
+    const spanInput = {
       messages: [
-        { role: "system", content: extractionSystemPrompt() },
         {
-          role: "user",
+          role: "system" as const,
+          content: entityModelSystemPrompt(
+            ENTITY_EXTRACTION_MODEL,
+            extractionSystemPrompt(),
+          ),
+        },
+        {
+          role: "user" as const,
           content: JSON.stringify({
             language_code: job.language_code,
             answer_chunk: chunk,
@@ -199,30 +213,52 @@ async function runChunk(
         },
       ],
       response_format: {
-        type: "json_schema",
+        type: "json_schema" as const,
         json_schema: SPAN_EXTRACTION_JSON_SCHEMA,
       },
-      temperature: 0,
+      ...entityModelSampling(ENTITY_EXTRACTION_MODEL),
       seed: 731_991,
       max_tokens: 1_400,
+    };
+    const spanInvocation = await runAI({
+      context: {
+        feature: "entity_extraction",
+        operation: "span_extraction",
+        model: ENTITY_EXTRACTION_MODEL,
+        promptVersion: ENTITY_SPAN_PROMPT_VERSION,
+        projectId: job.project_id,
+        trackedQueryId: job.tracked_query_id,
+        jobId: job.id,
+        requestId: `${job.id}:chunk:${chunkIndex}:span`,
+        retryAttempt: job.attempts + 1,
+      },
+      input: spanInput,
+      invoke: () => env.AI.run(ENTITY_EXTRACTION_MODEL, spanInput),
+      parse: (result) => aiCallResult(result, parsedSpanAiResponse).value,
+      store: aiStore,
     });
     inferenceCompleted = true;
-    const spanResult = aiCallResult(spanRaw, parsedSpanAiResponse);
-    let entities = validateExtractedEntities(spanResult.value, chunk, {
+    let entities = validateExtractedEntities(spanInvocation.value, chunk, {
       providerEntities,
       observedDomains,
       trackedBrands: brands,
     });
-    let inputTokens = spanResult.inputTokens;
-    let outputTokens = spanResult.outputTokens;
+    let inputTokens = spanInvocation.inputTokens;
+    let outputTokens = spanInvocation.outputTokens;
 
     const unresolved = relationshipCandidates(entities);
     if (unresolved.length) {
-      const relationshipRaw = await env.AI.run(ENTITY_EXTRACTION_MODEL, {
+      const relationshipInput = {
         messages: [
-          { role: "system", content: relationshipSystemPrompt() },
           {
-            role: "user",
+            role: "system" as const,
+            content: entityModelSystemPrompt(
+              ENTITY_EXTRACTION_MODEL,
+              relationshipSystemPrompt(),
+            ),
+          },
+          {
+            role: "user" as const,
             content: JSON.stringify({
               tracked_query: job.query_text,
               owned_domain: job.primary_domain,
@@ -232,20 +268,33 @@ async function runChunk(
           },
         ],
         response_format: {
-          type: "json_schema",
+          type: "json_schema" as const,
           json_schema: RELATIONSHIP_JSON_SCHEMA,
         },
-        temperature: 0,
+        ...entityModelSampling(ENTITY_EXTRACTION_MODEL),
         seed: 731_991,
         max_tokens: 1_000,
+      };
+      const relationshipInvocation = await runAI({
+        context: {
+          feature: "entity_extraction",
+          operation: "relationship_classification",
+          model: ENTITY_EXTRACTION_MODEL,
+          promptVersion: ENTITY_RELATIONSHIP_PROMPT_VERSION,
+          projectId: job.project_id,
+          trackedQueryId: job.tracked_query_id,
+          jobId: job.id,
+          requestId: `${job.id}:chunk:${chunkIndex}:relationship`,
+          retryAttempt: job.attempts + 1,
+        },
+        input: relationshipInput,
+        invoke: () => env.AI.run(ENTITY_EXTRACTION_MODEL, relationshipInput),
+        parse: (result) => aiCallResult(result, parsedRelationshipAiResponse).value,
+        store: aiStore,
       });
-      const relationshipResult = aiCallResult(
-        relationshipRaw,
-        parsedRelationshipAiResponse,
-      );
-      entities = applyRelationshipAssessments(entities, relationshipResult.value);
-      inputTokens += relationshipResult.inputTokens;
-      outputTokens += relationshipResult.outputTokens;
+      entities = applyRelationshipAssessments(entities, relationshipInvocation.value);
+      inputTokens += relationshipInvocation.inputTokens;
+      outputTokens += relationshipInvocation.outputTokens;
     }
 
     if (reservation) {
@@ -500,6 +549,139 @@ type AutoTrackContext = Pick<
   | "entity_auto_track_enabled"
 >;
 
+interface AutoTrackCandidate {
+  id: string;
+  canonical_name: string;
+  entity_type: string;
+  aliases_json: string;
+  domains_json: string;
+  provider_corroborated: number;
+  domain_corroborated: number;
+  competitor_snapshot_count: number;
+  competitor_prompt_count: number;
+}
+
+async function confirmAutoTrackCompetitor(
+  env: Env,
+  job: AutoTrackContext,
+  entity: AutoTrackCandidate,
+): Promise<boolean> {
+  const [observations, brands, project] = await Promise.all([
+    env.CONTROL_DB.prepare(
+      `SELECT mention.surface_text, mention.evidence_json, mention.evidence_tier,
+        query.query_text
+       FROM entity_mentions mention
+       JOIN tracked_queries query ON query.id = mention.tracked_query_id
+       WHERE mention.entity_id = ? AND mention.extractor_version = ?
+         AND mention.relationship = 'competitor'
+         AND julianday(mention.captured_at) >= julianday('now', '-30 days')
+       ORDER BY mention.captured_at DESC LIMIT 12`,
+    ).bind(entity.id, job.extractor_version).all<{
+      surface_text: string;
+      evidence_json: string;
+      evidence_tier: string;
+      query_text: string;
+    }>(),
+    env.CONTROL_DB.prepare(
+      `SELECT kind, name, aliases_json, domains_json
+       FROM tracked_brands WHERE project_id = ?`,
+    ).bind(job.project_id).all<Pick<
+      TrackedBrandRow,
+      "kind" | "name" | "aliases_json" | "domains_json"
+    >>(),
+    env.CONTROL_DB.prepare(
+      "SELECT primary_domain FROM projects WHERE id = ?",
+    ).bind(job.project_id).first<{ primary_domain: string | null }>(),
+  ]);
+  if (!observations.results.length) return false;
+
+  const evidence = observations.results.map((observation) => ({
+    tracked_query: observation.query_text,
+    surface: observation.surface_text,
+    evidence_tier: observation.evidence_tier,
+    excerpts: jsonParse<string[]>(observation.evidence_json, []).slice(0, 3),
+  }));
+  const input = {
+    messages: [
+      {
+        role: "system" as const,
+        content: autoTrackConfirmationSystemPrompt(),
+      },
+      {
+        role: "user" as const,
+        content: JSON.stringify({
+          owned_domain: project?.primary_domain ?? null,
+          tracked_brands: brands.results.map((brand) => ({
+            name: brand.name,
+            kind: brand.kind,
+            aliases: jsonParse<string[]>(brand.aliases_json, []),
+            domains: jsonParse<string[]>(brand.domains_json, []),
+          })),
+          candidate: {
+            surface: entity.canonical_name,
+            entity_type: entity.entity_type,
+            provider_corroborated: entity.provider_corroborated === 1,
+            domain_corroborated: entity.domain_corroborated === 1,
+            observations: evidence,
+          },
+        }),
+      },
+    ],
+    response_format: {
+      type: "json_schema" as const,
+      json_schema: RELATIONSHIP_JSON_SCHEMA,
+    },
+    temperature: 0,
+    seed: 731_991,
+    max_tokens: 300,
+  };
+  const invocation = await runAI({
+    context: {
+      feature: "entity_extraction",
+      operation: "auto_track_confirmation",
+      model: ENTITY_AUTO_TRACK_CONFIRMATION_MODEL,
+      promptVersion: ENTITY_AUTO_TRACK_PROMPT_VERSION,
+      projectId: job.project_id,
+      requestId: [
+        "auto-track",
+        entity.id,
+        entity.competitor_snapshot_count,
+        entity.competitor_prompt_count,
+      ].join(":"),
+      retryAttempt: 1,
+    },
+    input,
+    invoke: () => env.AI.run(ENTITY_AUTO_TRACK_CONFIRMATION_MODEL, input),
+    parse: (result) => aiCallResult(result, parsedRelationshipAiResponse).value,
+    store: d1AiUsageStore(env.CONTROL_DB),
+  });
+  const assessment = invocation.value.assessments.find(
+    (candidate) => normalizeBrand(candidate.surface) === normalizeBrand(entity.canonical_name),
+  ) ?? invocation.value.assessments[0];
+  const confirmed = assessment?.relationship === "competitor";
+  await env.CONTROL_DB.prepare(
+    `INSERT INTO entity_auto_track_reviews (
+      entity_id, extractor_version, verdict, evidence_snapshot_count,
+      evidence_prompt_count, model, reviewed_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+    ON CONFLICT(entity_id, extractor_version) DO UPDATE SET
+      verdict = excluded.verdict,
+      evidence_snapshot_count = excluded.evidence_snapshot_count,
+      evidence_prompt_count = excluded.evidence_prompt_count,
+      model = excluded.model,
+      reviewed_at = excluded.reviewed_at`,
+  ).bind(
+    entity.id,
+    job.extractor_version,
+    confirmed ? "confirmed" : "rejected",
+    entity.competitor_snapshot_count,
+    entity.competitor_prompt_count,
+    ENTITY_AUTO_TRACK_CONFIRMATION_MODEL,
+    nowIso(),
+  ).run();
+  return confirmed;
+}
+
 async function autoTrackEligibleCompetitors(
   env: Env,
   job: AutoTrackContext,
@@ -509,7 +691,10 @@ async function autoTrackEligibleCompetitors(
     job.active_entity_extractor_version !== job.extractor_version
   ) return 0;
   const eligible = await env.CONTROL_DB.prepare(
-    `SELECT entity.id, entity.canonical_name, entity.aliases_json, entity.domains_json
+    `SELECT entity.id, entity.canonical_name, entity.entity_type,
+       entity.aliases_json, entity.domains_json,
+       entity.provider_corroborated, entity.domain_corroborated,
+       entity.competitor_snapshot_count, entity.competitor_prompt_count
      FROM project_entities entity
      WHERE entity.project_id = ?
        AND entity.status = 'candidate'
@@ -546,6 +731,14 @@ async function autoTrackEligibleCompetitors(
          SELECT 1 FROM tracked_brands brand
          WHERE brand.project_id = entity.project_id
            AND lower(trim(brand.name)) = entity.normalized_name
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM entity_auto_track_reviews review
+         WHERE review.entity_id = entity.id
+           AND review.extractor_version = ?
+           AND review.verdict = 'rejected'
+           AND review.evidence_snapshot_count >= entity.competitor_snapshot_count
+           AND review.evidence_prompt_count >= entity.competitor_prompt_count
        )`,
   )
     .bind(
@@ -556,15 +749,23 @@ async function autoTrackEligibleCompetitors(
       job.extractor_version,
       job.extractor_version,
       job.extractor_version,
+      job.extractor_version,
     )
-    .all<{
-      id: string;
-      canonical_name: string;
-      aliases_json: string;
-      domains_json: string;
-    }>();
+    .all<AutoTrackCandidate>();
   let tracked = 0;
   for (const entity of eligible.results) {
+    try {
+      if (!await confirmAutoTrackCompetitor(env, job, entity)) continue;
+    } catch (error) {
+      console.error(JSON.stringify({
+        level: "error",
+        message: "entity_auto_track_confirmation_failed",
+        projectId: job.project_id,
+        entityId: entity.id,
+        error: String(error),
+      }));
+      continue;
+    }
     const now = nowIso();
     await env.CONTROL_DB.prepare(
       `INSERT OR IGNORE INTO tracked_brands (
@@ -608,7 +809,8 @@ export async function processEntityExtraction(env: Env, jobId: string): Promise<
     `SELECT job.*, query.query_text, query.language_code, project.primary_domain,
       snapshot.captured_at, snapshot.tracking_source,
       project.active_entity_extractor_version,
-      project.entity_extraction_enabled, project.entity_auto_track_enabled
+      project.entity_extraction_enabled, project.entity_auto_track_enabled,
+      project.paused_at
      FROM entity_extraction_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
      JOIN projects project ON project.id = job.project_id
@@ -619,17 +821,14 @@ export async function processEntityExtraction(env: Env, jobId: string): Promise<
   if (job.extractor_version !== ENTITY_EXTRACTOR_VERSION) {
     throw new Error(`Unsupported entity extractor version: ${job.extractor_version}`);
   }
-  if (job.entity_extraction_enabled !== 1) {
+  if (job.entity_extraction_enabled !== 1 || job.paused_at) {
     await env.CONTROL_DB.prepare(
       `UPDATE entity_extraction_jobs SET status = 'cancelled',
         error_message = 'Project entity extraction is paused.', updated_at = ? WHERE id = ?`,
     ).bind(nowIso(), job.id).run();
     return;
   }
-  await env.CONTROL_DB.prepare(
-    `UPDATE entity_extraction_jobs SET status = 'processing', attempts = attempts + 1,
-      started_at = COALESCE(started_at, ?), error_message = NULL, updated_at = ? WHERE id = ?`,
-  ).bind(nowIso(), nowIso(), job.id).run();
+  if (!await claimEntityExtractionJob(env.CONTROL_DB, job.id, nowIso())) return;
 
   const shard = getShard(env, job.shard_id);
   const [snapshot, providerRows, domainRows, trackedRows] = await Promise.all([
@@ -659,6 +858,18 @@ export async function processEntityExtraction(env: Env, jobId: string): Promise<
   }));
   const observedDomains = domainRows.results.map((row) => row.registrable_domain);
   const chunks = chunkEntityText(answer);
+  if (chunks.length > 10) {
+    console.warn(JSON.stringify({
+      level: "warn",
+      message: "entity_extraction_high_inference_count",
+      projectId: job.project_id,
+      jobId: job.id,
+      retryAttempt: job.attempts + 1,
+      chunks: chunks.length,
+      maximumAiOperations: chunks.length * 2,
+    }));
+  }
+  const aiStore = d1AiUsageStore(env.CONTROL_DB);
   const validated: ValidatedEntity[] = [];
   for (const [index, chunk] of chunks.entries()) {
     const result = await runChunk(
@@ -669,6 +880,7 @@ export async function processEntityExtraction(env: Env, jobId: string): Promise<
       trackedRows.results,
       providerEntities,
       observedDomains,
+      aiStore,
     );
     await env.CONTROL_DB.prepare(
       "UPDATE entity_extraction_jobs SET updated_at = ? WHERE id = ?",
@@ -788,7 +1000,8 @@ export async function enqueueEntityExtractionForSnapshot(
 ): Promise<string | null> {
   const project = await env.CONTROL_DB.prepare(
     `SELECT entity_extraction_enabled FROM projects
-     WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL`,
+     WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+       AND archived_at IS NULL AND paused_at IS NULL`,
   ).bind(snapshot.projectId, snapshot.workspaceId).first<{ entity_extraction_enabled: number }>();
   if (project?.entity_extraction_enabled !== 1) return null;
   const id = crypto.randomUUID();
@@ -843,7 +1056,8 @@ export async function reconcileEntityExtractionJobs(env: Env): Promise<number> {
      LEFT JOIN entity_extraction_jobs job
        ON job.snapshot_id = snapshot.id AND job.extractor_version = ?
      WHERE job.id IS NULL AND project.entity_extraction_enabled = 1
-       AND project.deleted_at IS NULL AND query.deleted_at IS NULL
+       AND project.deleted_at IS NULL AND project.archived_at IS NULL
+       AND project.paused_at IS NULL AND query.deleted_at IS NULL
      ORDER BY snapshot.captured_at DESC LIMIT 100`,
   ).bind(ENTITY_EXTRACTOR_VERSION).all<{
     id: string;
@@ -868,6 +1082,7 @@ export async function reconcileEntityExtractionJobs(env: Env): Promise<number> {
     `SELECT job.id FROM entity_extraction_jobs job
      JOIN projects project ON project.id = job.project_id
      WHERE project.entity_extraction_enabled = 1 AND project.deleted_at IS NULL
+       AND project.archived_at IS NULL AND project.paused_at IS NULL
        AND job.extractor_version = ? AND job.attempts < 5 AND (
        (job.status = 'queued' AND julianday(job.updated_at) < julianday('now', '-2 minutes')) OR
        (job.status = 'processing' AND julianday(job.updated_at) < julianday('now', '-20 minutes')) OR
@@ -898,6 +1113,8 @@ async function activateCompletedEntityBackfills(env: Env): Promise<number> {
      WHERE project.active_entity_extractor_version != ?
        AND project.entity_extraction_enabled = 1
        AND project.deleted_at IS NULL
+       AND project.archived_at IS NULL
+       AND project.paused_at IS NULL
        AND NOT EXISTS (
          SELECT 1 FROM snapshot_index snapshot
          JOIN tracked_queries query ON query.id = snapshot.tracked_query_id

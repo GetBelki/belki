@@ -60,6 +60,7 @@ interface JobRow {
   submit_attempts: number;
   public_base_url: string;
   product_enrichment_enabled: number;
+  paused_at: string | null;
   automatic_refresh_enabled: number;
   location_code: number;
   language_code: string;
@@ -100,7 +101,8 @@ function strings(value: unknown): string[] {
 async function projectAllowsEnrichment(env: Env, projectId: string): Promise<boolean> {
   const row = await env.CONTROL_DB.prepare(
     `SELECT product_enrichment_enabled FROM projects
-     WHERE id = ? AND deleted_at IS NULL`,
+     WHERE id = ? AND deleted_at IS NULL AND archived_at IS NULL
+       AND paused_at IS NULL`,
   )
     .bind(projectId)
     .first<{ product_enrichment_enabled: number }>();
@@ -415,6 +417,8 @@ export async function enqueueDueProductEnrichments(env: Env): Promise<number> {
       AND preference.product_identity = target.product_identity
      WHERE project.product_enrichment_enabled = 1
        AND project.deleted_at IS NULL
+       AND project.archived_at IS NULL
+       AND project.paused_at IS NULL
        AND COALESCE(preference.automatic_refresh_enabled, 1) = 1
        AND target.current_job_id IS NULL
        AND (target.google_product_id IS NOT NULL OR target.data_docid IS NOT NULL OR target.gid IS NOT NULL)
@@ -438,7 +442,7 @@ async function loadJob(env: Env, jobId: string): Promise<JobRow | null> {
     `SELECT job.id, job.target_id, job.workspace_id, job.project_id, job.reason,
       job.priority, job.status, job.provider_tag, job.provider_task_id,
       job.submit_attempts, workspace.public_base_url,
-      project.product_enrichment_enabled,
+      project.product_enrichment_enabled, project.paused_at,
       COALESCE(preference.automatic_refresh_enabled, 1) AS automatic_refresh_enabled,
       target.location_code, target.language_code, target.google_product_id,
       target.data_docid, target.gid
@@ -460,7 +464,7 @@ async function submitJob(env: Env, jobId: string): Promise<void> {
   // An ambiguous response may still represent a charged, accepted provider task.
   // Recover it by signed tag through tasks_ready instead of risking a duplicate POST.
   if (!job || job.status !== "queued") return;
-  if (job.product_enrichment_enabled !== 1) {
+  if (job.product_enrichment_enabled !== 1 || job.paused_at) {
     await cancelJob(env, job.id, job.target_id, job.workspace_id, "Project product enrichment is paused.");
     return;
   }

@@ -9,12 +9,19 @@ import {
 import { jsonParse } from "../lib/http";
 
 export const ENTITY_EXTRACTION_MODEL =
+  "@cf/qwen/qwen3-30b-a3b-fp8" as const;
+export const ENTITY_AUTO_TRACK_CONFIRMATION_MODEL =
   "@cf/meta/llama-3.3-70b-instruct-fp8-fast" as const;
 export const ENTITY_EXTRACTOR_VERSION = "entities-v2";
+export const ENTITY_SPAN_PROMPT_VERSION = "entity-span-v3-qwen-2026-08-31";
+export const ENTITY_RELATIONSHIP_PROMPT_VERSION =
+  "entity-relationship-v3-qwen-2026-08-31";
+export const ENTITY_AUTO_TRACK_PROMPT_VERSION =
+  "entity-auto-track-confirmation-v1-2026-08-31";
 export const LEGACY_ENTITY_EXTRACTOR_VERSION = "entities-v1";
-export const ENTITY_INPUT_PRICE_PER_MILLION_USD = 0.293;
-export const ENTITY_OUTPUT_PRICE_PER_MILLION_USD = 2.253;
-export const ENTITY_PRICING_VERSION = "2026-08-11";
+export const ENTITY_INPUT_PRICE_PER_MILLION_USD = 0.051;
+export const ENTITY_OUTPUT_PRICE_PER_MILLION_USD = 0.335;
+export const ENTITY_PRICING_VERSION = "2026-08-28";
 
 const MAX_CHUNK_CHARACTERS = 12_000;
 const DEFAULT_CHUNK_OVERLAP = 240;
@@ -530,4 +537,23 @@ export function relationshipSystemPrompt(): string {
     "A source, publisher, regulator, research organization, customer, integration partner, or incidental citation is mentioned, not a competitor.",
     "Use unknown when the evidence is insufficient. Return exactly one assessment for every candidate surface.",
   ].join(" ");
+}
+
+export function autoTrackConfirmationSystemPrompt(): string {
+  return [
+    "Act as a high-precision final reviewer for automatic competitor tracking.",
+    "Use all supplied query/evidence observations, but classify the single candidate as competitor only when it is clearly a commercial alternative, substitute, rival, or member of the same recommendation set as the owned brand.",
+    "Publishers, sources, regulators, research bodies, customers, integrations, generic categories, and incidental citations are not competitors.",
+    "When evidence is mixed or insufficient, return unknown. Return exactly one assessment for the candidate surface.",
+  ].join(" ");
+}
+
+export function entityModelSystemPrompt(model: string, prompt: string): string {
+  return model.includes("/qwen/qwen3") ? `${prompt} /no_think` : prompt;
+}
+
+export function entityModelSampling(model: string): Record<string, number> {
+  return model.includes("/qwen/qwen3")
+    ? { temperature: 0.2, top_p: 0.8, top_k: 20 }
+    : { temperature: 0 };
 }

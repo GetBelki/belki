@@ -84,6 +84,26 @@ interface ProjectOwnershipRow {
   html_capture_enabled: number;
 }
 
+interface ProjectPauseRow {
+  id: string;
+  paused_at: string | null;
+}
+
+interface ProjectQueryScheduleRow {
+  id: string;
+  schedule_cadence: "daily" | "weekly";
+  schedule_time: string;
+  schedule_weekday: number | null;
+  schedule_timezone: string;
+}
+
+interface QueuedProjectRunRow {
+  id: string;
+  delivery_method: "standard" | "standard_priority" | "live";
+  usage_reservation_id: string | null;
+  usage_units: number;
+}
+
 async function requireProject(
   db: D1Database,
   workspaceId: string,
@@ -119,6 +139,167 @@ function scheduleFromCurrent(row: {
         time: row.schedule_time,
         timezone: row.schedule_timezone,
       };
+}
+
+async function resetProjectNextRuns(
+  db: D1Database,
+  projectId: string,
+  resumedAt: string,
+): Promise<number> {
+  const queries = await db.prepare(
+    `SELECT id, schedule_cadence, schedule_time, schedule_weekday,
+      schedule_timezone
+     FROM tracked_queries
+     WHERE project_id = ? AND deleted_at IS NULL`,
+  ).bind(projectId).all<ProjectQueryScheduleRow>();
+  const after = new Date(resumedAt);
+  const statements = queries.results.map((query) =>
+    db.prepare(
+      `UPDATE tracked_queries SET next_run_at = ?, updated_at = ?
+       WHERE id = ? AND project_id = ?
+         AND EXISTS (
+           SELECT 1 FROM projects
+           WHERE id = ? AND paused_at IS NOT NULL
+         )`,
+    ).bind(
+      calculateNextRun(scheduleFromCurrent(query), after),
+      resumedAt,
+      query.id,
+      projectId,
+      projectId,
+    )
+  );
+  for (let index = 0; index < statements.length; index += 100) {
+    await db.batch(statements.slice(index, index + 100));
+  }
+  return statements.length;
+}
+
+async function cancelQueuedProjectWork(
+  env: Env,
+  workspaceId: string,
+  projectId: string,
+  pausedAt: string,
+): Promise<{ runs: number; enrichments: number; extractions: number }> {
+  const [runs, enrichments] = await Promise.all([
+    env.CONTROL_DB.prepare(
+      `SELECT id, delivery_method, usage_reservation_id, usage_units
+       FROM crawl_jobs WHERE project_id = ? AND status = 'queued'`,
+    ).bind(projectId).all<QueuedProjectRunRow>(),
+    env.CONTROL_DB.prepare(
+      `SELECT id FROM product_enrichment_jobs
+       WHERE project_id = ? AND status = 'queued'`,
+    ).bind(projectId).all<{ id: string }>(),
+  ]);
+  const cancelledRuns: QueuedProjectRunRow[] = [];
+  for (let index = 0; index < runs.results.length; index += 100) {
+    const rows = runs.results.slice(index, index + 100);
+    const results = await env.CONTROL_DB.batch(rows.map((run) =>
+      env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs SET status = 'cancelled', error_code = 'project_paused',
+          error_message = 'The project was paused before this run started.',
+          updated_at = ?
+         WHERE id = ? AND status = 'queued'`,
+      ).bind(pausedAt, run.id)
+    ));
+    results.forEach((result, resultIndex) => {
+      if ((result.meta.changes ?? 0) > 0) cancelledRuns.push(rows[resultIndex]!);
+    });
+  }
+
+  const cancelledEnrichmentIds: string[] = [];
+  for (let index = 0; index < enrichments.results.length; index += 100) {
+    const rows = enrichments.results.slice(index, index + 100);
+    const results = await env.CONTROL_DB.batch(rows.map((job) =>
+      env.CONTROL_DB.prepare(
+        `UPDATE product_enrichment_jobs
+         SET status = 'cancelled', active_slot = NULL,
+           error_code = 'project_paused',
+           error_message = 'The project was paused before enrichment started.',
+           updated_at = ?
+         WHERE id = ? AND status = 'queued'`,
+      ).bind(pausedAt, job.id)
+    ));
+    results.forEach((result, resultIndex) => {
+      if ((result.meta.changes ?? 0) > 0) {
+        cancelledEnrichmentIds.push(rows[resultIndex]!.id);
+      }
+    });
+  }
+
+  const extractionResult = await env.CONTROL_DB.prepare(
+    `UPDATE entity_extraction_jobs SET status = 'cancelled',
+      error_message = 'Project entity extraction is paused.', updated_at = ?
+     WHERE project_id = ? AND status = 'queued'`,
+  ).bind(pausedAt, projectId).run();
+  if (cancelledEnrichmentIds.length) {
+    for (let index = 0; index < cancelledEnrichmentIds.length; index += 100) {
+      const ids = cancelledEnrichmentIds.slice(index, index + 100);
+      await env.CONTROL_DB.prepare(
+        `UPDATE product_enrichment_targets SET
+          status = CASE WHEN latest_snapshot_id IS NULL THEN 'paused' ELSE 'available' END,
+          current_job_id = NULL, updated_at = ?
+         WHERE project_id = ? AND current_job_id IN (${ids.map(() => "?").join(",")})`,
+      ).bind(pausedAt, projectId, ...ids).run();
+    }
+  }
+
+  const usageReleases: Array<() => Promise<void>> = [
+    ...cancelledRuns.map((run) => async () => {
+      if (!run.usage_reservation_id || run.usage_units <= 0) return;
+      const sku = run.delivery_method === "live"
+        ? "llm_live" as const
+        : run.delivery_method === "standard_priority"
+          ? "llm_priority_html" as const
+          : "llm_standard" as const;
+      try {
+        await releaseUsage(env, workspaceId, {
+          reservationId: run.usage_reservation_id,
+          sku,
+          units: run.usage_units,
+          resourceType: "crawl_job",
+          resourceId: run.id,
+        });
+      } catch (error) {
+        console.error(JSON.stringify({
+          level: "error",
+          message: "paused_project_run_usage_release_failed",
+          projectId,
+          jobId: run.id,
+          error: String(error),
+        }));
+      }
+    }),
+    ...cancelledEnrichmentIds.map((jobId) => async () => {
+      try {
+        await releaseUsage(env, workspaceId, {
+          reservationId: jobId,
+          sku: "product_enrichment",
+          units: USAGE_UNITS.product_enrichment,
+          resourceType: "product_enrichment_job",
+          resourceId: jobId,
+        });
+      } catch (error) {
+        console.error(JSON.stringify({
+          level: "error",
+          message: "paused_project_enrichment_usage_release_failed",
+          projectId,
+          jobId,
+          error: String(error),
+        }));
+      }
+    }),
+  ];
+  for (let index = 0; index < usageReleases.length; index += 50) {
+    await Promise.all(
+      usageReleases.slice(index, index + 50).map((release) => release()),
+    );
+  }
+  return {
+    runs: cancelledRuns.length,
+    enrichments: cancelledEnrichmentIds.length,
+    extractions: Number(extractionResult.meta.changes ?? 0),
+  };
 }
 
 export const coreRoutes = new Hono<AppEnv>();
@@ -235,6 +416,154 @@ coreRoutes.patch(
       resourceId: id,
     });
     return c.json({ data: { id, restored: true } });
+  },
+);
+
+coreRoutes.patch(
+  "/projects/:id/pause",
+  zValidator("param", IdParamSchema),
+  async (c) => {
+    const principal = requireRole(c, "editor");
+    const { id } = c.req.valid("param");
+    const project = await c.env.CONTROL_DB.prepare(
+      `SELECT id, paused_at FROM projects
+       WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+         AND archived_at IS NULL`,
+    ).bind(id, principal.workspaceId).first<ProjectPauseRow>();
+    if (!project) {
+      throw new ApiError(404, "project_not_found", "Project not found.");
+    }
+    if (project.paused_at) {
+      return c.json({
+        data: { id, paused: true, pausedAt: project.paused_at },
+      });
+    }
+
+    const pausedAt = nowIso();
+    const results = await c.env.CONTROL_DB.batch([
+      c.env.CONTROL_DB.prepare(
+        `UPDATE projects SET paused_at = ?, updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+           AND archived_at IS NULL AND paused_at IS NULL`,
+      ).bind(pausedAt, pausedAt, id, principal.workspaceId),
+      c.env.CONTROL_DB.prepare(
+        `INSERT OR IGNORE INTO project_pause_periods (
+          id, project_id, paused_at, resumed_at, paused_by_user_id,
+          resumed_by_user_id
+        )
+        SELECT ?, project.id, ?, NULL, ?, NULL
+        FROM projects project
+        WHERE project.id = ? AND project.workspace_id = ?
+          AND project.paused_at = ?
+          AND NOT EXISTS (
+            SELECT 1 FROM project_pause_periods period
+            WHERE period.project_id = project.id AND period.resumed_at IS NULL
+          )`,
+      ).bind(
+        crypto.randomUUID(),
+        pausedAt,
+        principal.userId,
+        id,
+        principal.workspaceId,
+        pausedAt,
+      ),
+    ]);
+    if ((results[0]?.meta.changes ?? 0) === 0) {
+      const current = await c.env.CONTROL_DB.prepare(
+        `SELECT paused_at FROM projects
+         WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+           AND archived_at IS NULL`,
+      ).bind(id, principal.workspaceId).first<{ paused_at: string | null }>();
+      if (!current?.paused_at) {
+        throw new ApiError(409, "project_pause_conflict", "The project could not be paused.");
+      }
+      return c.json({
+        data: { id, paused: true, pausedAt: current.paused_at },
+      });
+    }
+    let cancelledWork = { runs: 0, enrichments: 0, extractions: 0 };
+    try {
+      cancelledWork = await cancelQueuedProjectWork(
+        c.env,
+        principal.workspaceId,
+        id,
+        pausedAt,
+      );
+    } catch (error) {
+      console.error(JSON.stringify({
+        level: "error",
+        message: "paused_project_work_cancellation_failed",
+        projectId: id,
+        error: String(error),
+      }));
+    }
+    await writeAudit(c.env.CONTROL_DB, {
+      workspaceId: principal.workspaceId,
+      userId: principal.userId,
+      action: "project.paused",
+      resourceType: "project",
+      resourceId: id,
+      metadata: { cancelledWork },
+    });
+    return c.json({ data: { id, paused: true, pausedAt, cancelledWork } });
+  },
+);
+
+coreRoutes.patch(
+  "/projects/:id/resume",
+  zValidator("param", IdParamSchema),
+  async (c) => {
+    const principal = requireRole(c, "editor");
+    const { id } = c.req.valid("param");
+    const project = await c.env.CONTROL_DB.prepare(
+      `SELECT id, paused_at FROM projects
+       WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+         AND archived_at IS NULL`,
+    ).bind(id, principal.workspaceId).first<ProjectPauseRow>();
+    if (!project) {
+      throw new ApiError(404, "project_not_found", "Project not found.");
+    }
+    if (!project.paused_at) {
+      return c.json({ data: { id, paused: false, rescheduledPrompts: 0 } });
+    }
+
+    const resumedAt = nowIso();
+    const cancelledWork = await cancelQueuedProjectWork(
+      c.env,
+      principal.workspaceId,
+      id,
+      resumedAt,
+    );
+    const rescheduledPrompts = await resetProjectNextRuns(
+      c.env.CONTROL_DB,
+      id,
+      resumedAt,
+    );
+    const results = await c.env.CONTROL_DB.batch([
+      c.env.CONTROL_DB.prepare(
+        `UPDATE projects SET paused_at = NULL, updated_at = ?
+         WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL
+           AND archived_at IS NULL AND paused_at IS NOT NULL`,
+      ).bind(resumedAt, id, principal.workspaceId),
+      c.env.CONTROL_DB.prepare(
+        `UPDATE project_pause_periods
+         SET resumed_at = ?, resumed_by_user_id = ?
+         WHERE project_id = ? AND resumed_at IS NULL`,
+      ).bind(resumedAt, principal.userId, id),
+    ]);
+    if ((results[0]?.meta.changes ?? 0) > 0) {
+      await writeAudit(c.env.CONTROL_DB, {
+        workspaceId: principal.workspaceId,
+        userId: principal.userId,
+        action: "project.resumed",
+        resourceType: "project",
+        resourceId: id,
+        metadata: { cancelledWork, rescheduledPrompts },
+      });
+    }
+    return c.json({
+      data: { id, paused: false, resumedAt, rescheduledPrompts, cancelledWork },
+    });
   },
 );
 
@@ -1476,10 +1805,12 @@ coreRoutes.post(
       throw new ApiError(403, "manual_runs_unavailable", "Managed plans use scheduled tracking.");
     }
     const query = await c.env.CONTROL_DB.prepare(
-      `SELECT q.id, q.project_id, q.shard_id, p.html_capture_enabled
+      `SELECT q.id, q.project_id, q.shard_id, p.html_capture_enabled,
+        p.paused_at
        FROM tracked_queries q
        JOIN projects p ON p.id = q.project_id
-       WHERE q.id = ? AND p.workspace_id = ? AND q.deleted_at IS NULL AND p.deleted_at IS NULL`,
+       WHERE q.id = ? AND p.workspace_id = ? AND q.deleted_at IS NULL
+         AND p.deleted_at IS NULL AND p.archived_at IS NULL`,
     )
       .bind(id, principal.workspaceId)
       .first<{
@@ -1487,8 +1818,16 @@ coreRoutes.post(
         project_id: string;
         shard_id: number;
         html_capture_enabled: number;
+        paused_at: string | null;
       }>();
     if (!query) throw new ApiError(404, "query_not_found", "Tracked query not found.");
+    if (query.paused_at) {
+      throw new ApiError(
+        409,
+        "project_paused",
+        "Resume this project before starting a run.",
+      );
+    }
     const enabledSources = await projectTrackingSources(c.env, query.project_id);
     if (!enabledSources.includes(input.source)) {
       throw new ApiError(409, "tracking_source_disabled", "Enable this tracking source in Project Settings first.");

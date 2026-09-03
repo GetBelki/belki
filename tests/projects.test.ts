@@ -10,6 +10,7 @@ const project: ProjectSummaryRow = {
   name: "Canon",
   primary_domain: "canon.com",
   html_capture_enabled: 0,
+  paused_at: null,
   created_at: "2026-08-01T00:00:00.000Z",
   updated_at: "2026-08-20T00:00:00.000Z",
   query_count: 17,

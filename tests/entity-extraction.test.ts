@@ -212,6 +212,6 @@ describe("entity extraction metering", () => {
   });
 
   it("calculates the stored list-price estimate from token usage", () => {
-    expect(estimatedEntityExtractionCost(1_000_000, 1_000_000)).toBe(2.546);
+    expect(estimatedEntityExtractionCost(1_000_000, 1_000_000)).toBe(0.386);
   });
 });

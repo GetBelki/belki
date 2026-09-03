@@ -59,6 +59,7 @@ interface DispatchJobRow {
   status: string;
   dataforseo_task_id: string | null;
   submitted_at: string | null;
+  paused_at: string | null;
   location_name: string;
   location_payload_json: string | null;
 }
@@ -96,11 +97,13 @@ async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
       j.tracking_source, j.provider_account_id, j.capture_provider,
       j.capture_provider_attempt_id, j.capture_adapter_version, j.submit_attempts, j.status,
       j.dataforseo_task_id, j.submitted_at,
+      project.paused_at,
       attempt.credential_version,
       COALESCE(locale.name, CAST(q.location_code AS TEXT)) AS location_name,
       locale.payload_json AS location_payload_json
     FROM crawl_jobs j
     JOIN tracked_queries q ON q.id = j.tracked_query_id
+    JOIN projects project ON project.id = j.project_id
     JOIN workspaces w ON w.id = j.workspace_id
     LEFT JOIN locale_catalog locale
       ON locale.kind = 'location' AND locale.code = CAST(q.location_code AS TEXT)
@@ -112,6 +115,7 @@ async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
         OR (j.status = 'awaiting_result' AND j.capture_provider = 'brightdata')
       )
       AND q.deleted_at IS NULL
+      AND project.deleted_at IS NULL
       AND NOT EXISTS (
         SELECT 1 FROM prompt_purge_jobs purge
         WHERE purge.tracked_query_id = q.id
@@ -133,12 +137,28 @@ async function cancelUnavailableSourceJob(env: Env, job: DispatchJobRow): Promis
   if (reservation) await releaseUsage(env, job.workspace_id, reservation);
 }
 
+async function cancelPausedProjectJob(env: Env, job: DispatchJobRow): Promise<void> {
+  const cancelled = await env.CONTROL_DB.prepare(
+    `UPDATE crawl_jobs SET status = 'cancelled', error_code = 'project_paused',
+      error_message = 'The project was paused before this run started.', updated_at = ?
+     WHERE id = ? AND status = 'queued'`,
+  ).bind(nowIso(), job.id).run();
+  if (cancelled.meta.changes === 0) return;
+  const reservation = usageInput(job);
+  if (reservation) await releaseUsage(env, job.workspace_id, reservation);
+}
+
 async function dispatchableJobs(env: Env, jobs: DispatchJobRow[]): Promise<DispatchJobRow[]> {
   const enabledSources = new Set(await availableSources(env));
   const available: DispatchJobRow[] = [];
   for (const job of jobs) {
-    if (enabledSources.has(job.tracking_source)) available.push(job);
-    else await cancelUnavailableSourceJob(env, job);
+    if (job.paused_at && job.status === "queued") {
+      await cancelPausedProjectJob(env, job);
+    } else if (enabledSources.has(job.tracking_source)) {
+      available.push(job);
+    } else {
+      await cancelUnavailableSourceJob(env, job);
+    }
   }
   return available;
 }

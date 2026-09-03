@@ -158,6 +158,9 @@ Unless labeled otherwise, the features below are available in both modes.
 - Every project defines an owned brand and optional primary domain for mention,
   citation, seller, and competitor comparisons.
 - Projects select one or more available AI platforms, subject to the active plan.
+- Projects can be paused without releasing their plan slot. Scheduled captures,
+  recurring enrichment, and queued analytical work stop until the project is
+  resumed; history and configuration remain available.
 - Workspace owners and administrators can create and edit projects. Archived
   projects retain their history and can be restored when the plan has room.
 - Project and source selectors preserve the relevant report context and safely
@@ -173,6 +176,7 @@ for every enabled source. It includes:
 - AI Overview appearance counts when Google AI Overviews is selected;
 - daily owned-brand and competitor visibility, Share of Voice, or average
   first-mention position trends;
+- pause intervals rendered as missing-data gaps rather than zero-value results;
 - prompt-set change annotations so changes in the monitored sample are visible;
 - leading citation-source trends, with the project domain identified separately;
 - leading competitors, top products, and recently detected products when the

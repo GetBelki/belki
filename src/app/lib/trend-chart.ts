@@ -15,6 +15,11 @@ export interface TrendWindowSummary {
   change: number | null;
 }
 
+export interface TrendPausePeriod {
+  pausedAt: string;
+  resumedAt: string | null;
+}
+
 const PERCENTAGE_SCALES: PercentageChartScale[] = [
   { domain: [0, 10], ticks: [0, 2.5, 5, 7.5, 10] },
   { domain: [0, 20], ticks: [0, 5, 10, 15, 20] },
@@ -28,6 +33,42 @@ const PERCENTAGE_SCALES: PercentageChartScale[] = [
 
 function finiteNumber(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isoDate(value: string): string | null {
+  const date = value.slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/u.test(date) ? date : null;
+}
+
+export function trendDataWithPauseGaps<T extends TrendDatum>(
+  data: readonly T[],
+  pauses: readonly TrendPausePeriod[],
+  dateRange: { from: string; to: string },
+): TrendDatum[] {
+  if (!pauses.length) return [...data];
+  const byDate = new Map<string, TrendDatum>(
+    data.map((point) => [String(point.metric_date), point] as const),
+  );
+  const fromTime = Date.parse(`${dateRange.from}T00:00:00.000Z`);
+  const toTime = Date.parse(`${dateRange.to}T00:00:00.000Z`);
+  if (Number.isNaN(fromTime) || Number.isNaN(toTime) || fromTime > toTime) {
+    return [...data];
+  }
+  for (const pause of pauses) {
+    const pausedDate = isoDate(pause.pausedAt);
+    const resumedDate = pause.resumedAt ? isoDate(pause.resumedAt) : dateRange.to;
+    if (!pausedDate || !resumedDate) continue;
+    const start = Math.max(fromTime, Date.parse(`${pausedDate}T00:00:00.000Z`));
+    const end = Math.min(toTime, Date.parse(`${resumedDate}T00:00:00.000Z`));
+    if (Number.isNaN(start) || Number.isNaN(end) || start > end) continue;
+    for (let time = start; time <= end; time += 86_400_000) {
+      const metricDate = new Date(time).toISOString().slice(0, 10);
+      if (!byDate.has(metricDate)) byDate.set(metricDate, { metric_date: metricDate });
+    }
+  }
+  return [...byDate.values()].sort((left, right) =>
+    String(left.metric_date).localeCompare(String(right.metric_date)),
+  );
 }
 
 export function percentageChartScale(
@@ -88,17 +129,21 @@ export function trendWindowSummary(
   windowSize = 7,
 ): TrendWindowSummary | null {
   if (!Number.isInteger(windowSize) || windowSize < 1) return null;
-  const values = data
+  const valuesFor = (points: readonly TrendDatum[]) => points
     .map((point) => finiteNumber(point[seriesKey]))
     .filter((value): value is number => value !== null);
-  if (values.length === 0) return null;
-  const currentValues = values.slice(-windowSize);
-  const previousValues = values.slice(-windowSize * 2, -windowSize);
+  const currentWindow = data.slice(-windowSize);
+  const previousWindow = data.slice(-windowSize * 2, -windowSize);
+  const currentValues = valuesFor(currentWindow);
+  const previousValues = valuesFor(previousWindow);
+  if (currentValues.length === 0) return null;
   const value = average(currentValues);
   return {
     value,
     change:
-      currentValues.length === windowSize && previousValues.length === windowSize
+      currentWindow.length === windowSize &&
+        previousWindow.length === windowSize &&
+        previousValues.length > 0
         ? value - average(previousValues)
         : null,
   };

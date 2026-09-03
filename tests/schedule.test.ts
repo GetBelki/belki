@@ -28,4 +28,11 @@ describe("scheduling", () => {
       }),
     ).toEqual({ cadence: "daily", time: "08:15", timezone: "UTC" });
   });
+
+  it("resumes from the next future slot instead of replaying missed runs", () => {
+    expect(calculateNextRun(
+      { cadence: "daily", time: "09:00", timezone: "Europe/Berlin" },
+      new Date("2026-08-31T12:00:00.000Z"),
+    )).toBe("2026-09-01T07:00:00Z");
+  });
 });

@@ -5,6 +5,7 @@ import {
   ChartPie,
   Eye,
   ExternalLink,
+  PauseCircle,
   Plus,
   RefreshCw,
   Scale,
@@ -75,6 +76,7 @@ import {
   previousTrendValue,
   shortChartDate,
   toggleTrendSeries,
+  trendDataWithPauseGaps,
   trendWindowSummary,
   weightedTrendWindowSummary,
   type TrendDatum,
@@ -106,6 +108,11 @@ interface OverviewProduct {
 interface Overview {
   trackingSource: TrackingSource | "all";
   includedSources: TrackingSource[];
+  dateRange: { from: string; to: string };
+  pausedPeriods: Array<{
+    pausedAt: string;
+    resumedAt: string | null;
+  }>;
   platformBreakdown: Array<{
     trackingSource: TrackingSource;
     completedRuns: number;
@@ -513,6 +520,10 @@ export function OverviewPage() {
     if (source !== "all") setTrackingSource(source);
   };
   const brandComparison = overview.data?.brandComparison;
+  const overviewDateRange = overview.data?.dateRange;
+  const overviewPausedPeriods = overview.data?.pausedPeriods;
+  const overviewSeries = overview.data?.series;
+  const citationSourceTrendPoints = overview.data?.citationSourceTrends.series;
   const positionReady = brandComparison?.positionStatus === "ready";
   const displayedBrandMetric =
     !positionReady && brandMetric === "averagePosition"
@@ -527,8 +538,8 @@ export function OverviewPage() {
     comparisonBrands.find((brand) => brand.kind === "owned")?.name ??
     currentProject?.name ??
     "Your brand";
-  const brandComparisonSeries = useMemo(
-    () => (brandComparison?.series ?? []).map((point) => ({
+  const brandComparisonSeries = useMemo(() => {
+    const points = (brandComparison?.series ?? []).map((point) => ({
       metric_date: point.metric_date,
       completedRuns: point.completedRuns,
       ...Object.fromEntries(comparisonBrands.flatMap((brand) => [
@@ -538,9 +549,21 @@ export function OverviewPage() {
           point.metrics[brand.key]?.positionSamples ?? 0,
         ],
       ])),
-    })),
-    [brandComparison?.series, displayedBrandMetric, comparisonBrands],
-  );
+    }));
+    return overviewDateRange
+      ? trendDataWithPauseGaps(
+          points,
+          overviewPausedPeriods ?? [],
+          overviewDateRange,
+        )
+      : points;
+  }, [
+    brandComparison?.series,
+    comparisonBrands,
+    displayedBrandMetric,
+    overviewDateRange,
+    overviewPausedPeriods,
+  ]);
   const brandTrendSeries = useMemo<TrendSeriesDefinition[]>(
     () => comparisonBrands.map((brand, index) => ({
       key: brand.key,
@@ -558,12 +581,12 @@ export function OverviewPage() {
   const citationSourceSeries = useMemo(
     () => {
       const completedRuns = new Map(
-        (overview.data?.series ?? []).map((point) => [
+        (overviewSeries ?? []).map((point) => [
           point.metric_date,
           point.completed_runs,
         ]),
       );
-      return (overview.data?.citationSourceTrends.series ?? []).map((point) => ({
+      const points = (citationSourceTrendPoints ?? []).map((point) => ({
         metric_date: point.metric_date,
         completedRuns: completedRuns.get(point.metric_date),
         ...Object.fromEntries(
@@ -573,8 +596,21 @@ export function OverviewPage() {
           ]),
         ),
       }));
+      return overviewDateRange
+        ? trendDataWithPauseGaps(
+            points,
+            overviewPausedPeriods ?? [],
+            overviewDateRange,
+          )
+        : points;
     },
-    [citationSources, overview.data?.citationSourceTrends.series, overview.data?.series],
+    [
+      citationSources,
+      citationSourceTrendPoints,
+      overviewDateRange,
+      overviewPausedPeriods,
+      overviewSeries,
+    ],
   );
   const citationTrendSeries = useMemo<TrendSeriesDefinition[]>(
     () => citationSources.map((source, index) => ({
@@ -590,7 +626,6 @@ export function OverviewPage() {
       detailHref: isConsolidated
         ? undefined
         : `/citations/${encodeURIComponent(source.domain)}`,
-      connectNulls: true,
     })),
     [citationSources, isConsolidated],
   );
@@ -637,9 +672,9 @@ export function OverviewPage() {
     }))
     .filter((entry) => entry.summary !== null)
     .sort((left, right) => (right.summary?.value ?? 0) - (left.summary?.value ?? 0))[0];
-  const chartDates = (overview.data?.series ?? []).map(
+  const chartDates = brandComparisonSeries.map(
     (point) => point.metric_date,
-  );
+  ).filter((date): date is string => typeof date === "string");
   const chartAnnotations = clusterChartAnnotations(
     alignChartAnnotations(overview.data?.annotations ?? [], chartDates),
     chartDates,
@@ -678,6 +713,16 @@ export function OverviewPage() {
           : `How ${currentProject?.name ?? "your brand"} appears across monitored ${TRACKING_SOURCE_LABELS[overviewSource]} results.`}
         action={<Button variant="secondary" onClick={() => void overview.refetch()}><RefreshCw size={15} /> Refresh</Button>}
       />
+      {currentProject?.paused_at ? (
+        <div className="project-pause-notice" role="status">
+          <PauseCircle size={18} />
+          <div>
+            <strong>Project paused</strong>
+            <span>Scheduled runs are stopped. History remains available and paused days are shown as gaps.</span>
+          </div>
+          <Button asChild variant="secondary"><Link to="/settings">Resume in settings</Link></Button>
+        </div>
+      ) : null}
       {overview.isPending ? (
         <div className="overview-kpi-strip">{Array.from({ length: 4 }, (_, i) => <Skeleton className="overview-kpi-skeleton" key={i} />)}</div>
       ) : (
@@ -1029,7 +1074,7 @@ interface PurgePromptsResult {
 }
 
 export function PromptsPage() {
-  const { projectId, session, trackingSource } = useApp();
+  const { currentProject, projectId, session, trackingSource } = useApp();
   const canEdit = session.user.role !== "viewer";
   const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -1613,9 +1658,11 @@ export function PromptsPage() {
                       })
                     }
                     promptName={query.queryText}
-                    runDisabled={isStarting || runInProgress}
+                    runDisabled={isStarting || runInProgress || Boolean(currentProject?.paused_at)}
                     runLabel={
-                      isStarting
+                      currentProject?.paused_at
+                        ? "Project paused"
+                        : isStarting
                         ? "Queued…"
                         : runStatusLabel(query.latestRunStatus)
                     }

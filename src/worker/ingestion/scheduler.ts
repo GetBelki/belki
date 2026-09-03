@@ -48,6 +48,7 @@ export async function enqueueDueQueries(env: Env): Promise<number> {
     JOIN project_tracking_sources source ON source.project_id = p.id AND source.enabled = 1
     WHERE q.is_active = 1 AND q.deleted_at IS NULL AND p.deleted_at IS NULL
       AND p.archived_at IS NULL
+      AND p.paused_at IS NULL
       AND q.next_run_at <= ?
     ORDER BY q.next_run_at
     LIMIT 5000`,
@@ -406,6 +407,12 @@ export async function runRetention(env: Env): Promise<void> {
     ).bind(now, now),
     env.CONTROL_DB.prepare(
       "DELETE FROM ingest_events WHERE julianday(received_at) < julianday('now', '-90 days')",
+    ),
+    env.CONTROL_DB.prepare(
+      "DELETE FROM ai_usage_events WHERE julianday(created_at) < julianday('now', '-90 days')",
+    ),
+    env.CONTROL_DB.prepare(
+      "DELETE FROM ai_inference_cache WHERE julianday(last_used_at) < julianday('now', '-90 days')",
     ),
     env.CONTROL_DB.prepare(
       `UPDATE exports SET status = 'expired', updated_at = ?

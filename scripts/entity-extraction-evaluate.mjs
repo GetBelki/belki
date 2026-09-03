@@ -26,6 +26,7 @@ const evaluationConfig = resolve(
 );
 const DEFAULT_LIMIT = 300;
 const EVALUATION_PORT = 8791;
+const DEFAULT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 
 function parseOptions(argv) {
   const options = {
@@ -34,6 +35,9 @@ function parseOptions(argv) {
     concurrency: 4,
     refresh: false,
     restart: false,
+    output: v2Path,
+    spanModel: DEFAULT_MODEL,
+    relationshipModel: DEFAULT_MODEL,
   };
   for (let index = 0; index < argv.length; index += 1) {
     const value = argv[index];
@@ -42,12 +46,18 @@ function parseOptions(argv) {
     else if (value === "--concurrency") options.concurrency = Number(argv[++index]);
     else if (value === "--refresh") options.refresh = true;
     else if (value === "--restart") options.restart = true;
+    else if (value === "--output") options.output = resolve(root, argv[++index]);
+    else if (value === "--span-model") options.spanModel = argv[++index];
+    else if (value === "--relationship-model") options.relationshipModel = argv[++index];
   }
   if (!Number.isInteger(options.limit) || options.limit < 10 || options.limit > 500) {
     throw new Error("--limit must be an integer between 10 and 500");
   }
   if (!Number.isInteger(options.concurrency) || options.concurrency < 1 || options.concurrency > 8) {
     throw new Error("--concurrency must be an integer between 1 and 8");
+  }
+  if (!options.spanModel || !options.relationshipModel) {
+    throw new Error("--span-model and --relationship-model require a model ID");
   }
   return options;
 }
@@ -427,11 +437,12 @@ function applyAutoTrackEligibility(samples, predictions) {
   }
 }
 
-async function runV2(concurrency, restart) {
-  const samples = readJsonLines(samplePath);
+async function runV2({ concurrency, limit, restart, output, spanModel, relationshipModel }) {
+  const samples = readJsonLines(samplePath).slice(0, limit);
   if (!samples.length) throw new Error("No private sample exists. Run prepare first.");
-  if (restart) writeJsonLines(v2Path, []);
-  const completed = new Map(readJsonLines(v2Path).map((record) => [record.id, record]));
+  mkdirSync(resolve(output, ".."), { recursive: true });
+  if (restart) writeJsonLines(output, []);
+  const completed = new Map(readJsonLines(output).map((record) => [record.id, record]));
   const child = spawn(wrangler, [
     "dev",
     "--config",
@@ -467,7 +478,10 @@ async function runV2(concurrency, restart) {
         const response = await fetch(`http://127.0.0.1:${EVALUATION_PORT}/extract`, {
           method: "POST",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify(sample),
+          body: JSON.stringify({
+            ...sample,
+            evaluationModels: { spanModel, relationshipModel },
+          }),
         });
         if (response.ok) {
           result = await response.json();
@@ -480,18 +494,23 @@ async function runV2(concurrency, restart) {
         }
       }
       if (!result) throw new Error(`v2 extraction failed for ${sample.id}: ${lastError}`);
-      completed.set(sample.id, { id: sample.id, entities: result.entities });
+      completed.set(sample.id, {
+        id: sample.id,
+        entities: result.entities,
+        usage: result.usage,
+        models: { spanModel, relationshipModel },
+      });
       processed += 1;
       if (processed % 10 === 0 || processed === samples.length) {
-        writeJsonLines(v2Path, [...completed.values()]);
-        console.log(`Evaluated ${processed}/${samples.length} answers with v2.`);
+        writeJsonLines(output, [...completed.values()]);
+        console.log(`Evaluated ${processed}/${samples.length} answers with ${spanModel}.`);
       }
     });
     const predictions = samples.map((sample) => completed.get(sample.id));
     applyAutoTrackEligibility(samples, predictions);
-    writeJsonLines(v2Path, predictions);
+    writeJsonLines(output, predictions);
   } catch (error) {
-    if (completed.size) writeJsonLines(v2Path, [...completed.values()]);
+    if (completed.size) writeJsonLines(output, [...completed.values()]);
     throw new Error(`${String(error)}${workerErrors ? `\n${workerErrors}` : ""}`);
   } finally {
     child.kill("SIGTERM");
@@ -535,6 +554,6 @@ if (["all", "prepare"].includes(options.command)) {
   await prepare(options.limit, options.refresh);
 }
 if (["all", "run"].includes(options.command)) {
-  await runV2(options.concurrency, options.restart);
+  await runV2(options);
 }
 if (["all", "review"].includes(options.command)) buildReview();

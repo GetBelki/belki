@@ -21,6 +21,7 @@ import { useApp } from "../context";
 import { post } from "../lib/api";
 import { APP_NAME } from "../lib/branding";
 import {
+  activeProjectsFirst,
   projectDataNavigationVisible,
   projectChangeDestination,
   trackingSourcesForPath,
@@ -171,9 +172,9 @@ export function AppLayout() {
       window.location.assign("/");
     },
   });
-  const projectOptions = projects.map((project) => ({
+  const projectOptions = activeProjectsFirst(projects).map((project) => ({
     value: project.id,
-    label: project.name,
+    label: `${project.name}${project.paused_at ? " (Paused)" : ""}`,
     icon: <DomainFavicon domain={project.primary_domain} size={18} />,
   }));
   const selectProject = (value: string) => {

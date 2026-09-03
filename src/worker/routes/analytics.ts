@@ -1215,6 +1215,7 @@ analyticsRoutes.get(
       brandMentionDays,
       projectEventRows,
       captureProviderEventRows,
+      pausePeriods,
       platformSummaryRows,
     ] = await c.get("timing").measure("overview_primary_db", () => Promise.all([
       c.env.CONTROL_DB.prepare(
@@ -1572,6 +1573,20 @@ analyticsRoutes.get(
         .bind(input.projectId, dates.from, dates.to, ...includedSources)
         .all<ProjectEventRow>(),
       c.env.CONTROL_DB.prepare(
+        `SELECT paused_at, resumed_at
+         FROM project_pause_periods
+         WHERE project_id = ?
+           AND paused_at < ?
+           AND (resumed_at IS NULL OR resumed_at >= ?)
+         ORDER BY paused_at`,
+      )
+        .bind(
+          input.projectId,
+          exclusiveDateEnd(dates.to),
+          `${dates.from}T00:00:00.000Z`,
+        )
+        .all<{ paused_at: string; resumed_at: string | null }>(),
+      c.env.CONTROL_DB.prepare(
         `SELECT
            tracking_source,
            metric_date,
@@ -1769,6 +1784,11 @@ analyticsRoutes.get(
       data: {
         trackingSource: input.source,
         includedSources,
+        dateRange: dates,
+        pausedPeriods: pausePeriods.results.map((period) => ({
+          pausedAt: period.paused_at,
+          resumedAt: period.resumed_at,
+        })),
         platformBreakdown: allSources ? platformBreakdown : [],
         summary: {
           ...summary,

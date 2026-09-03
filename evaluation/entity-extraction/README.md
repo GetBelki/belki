@@ -32,6 +32,22 @@ answers are checkpointed every ten records. Use `--refresh` only with the
 Use `pnpm evaluate:entities -- run --restart` only when extractor code changed
 and every v2 prediction must be regenerated against the same sample.
 
+To compare Workers AI models without overwriting the reference prediction, pass
+an output path and the two model IDs. The output records include per-operation
+token usage:
+
+```sh
+pnpm evaluate:entities -- run \
+  --output evaluation/entity-extraction/private/qwen3-30b.jsonl \
+  --span-model @cf/qwen/qwen3-30b-a3b-fp8 \
+  --relationship-model @cf/qwen/qwen3-30b-a3b-fp8
+```
+
+`--limit` can be used for a small smoke test and the same output can later be
+resumed with a larger limit. Qwen3 requests automatically disable thinking mode
+and use non-greedy sampling to avoid consuming the structured-output budget on
+reasoning or repetition.
+
 ## Gold record
 
 Store one JSON object per line:

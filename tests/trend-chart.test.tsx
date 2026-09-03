@@ -6,8 +6,9 @@ import {
   chartDateLabel,
   mobileHiddenTrendSeries,
   percentageChartScale,
-  rankChartScale,
   previousTrendValue,
+  rankChartScale,
+  trendDataWithPauseGaps,
   toggleTrendSeries,
   trendWindowSummary,
   weightedTrendWindowSummary,
@@ -17,6 +18,24 @@ describe("trend chart dates", () => {
   it("formats chart dates and safely ignores unsupported tooltip labels", () => {
     expect(chartDateLabel("2026-08-22")).not.toBe("2026-08-22");
     expect(chartDateLabel({ date: "2026-08-22" })).toBe("");
+  });
+
+  it("inserts missing paused dates without replacing recorded observations", () => {
+    expect(trendDataWithPauseGaps([
+      { metric_date: "2026-08-10", owned: 25 },
+      { metric_date: "2026-08-13", owned: 30 },
+    ], [{
+      pausedAt: "2026-08-10T18:00:00.000Z",
+      resumedAt: "2026-08-13T07:00:00.000Z",
+    }], {
+      from: "2026-08-01",
+      to: "2026-08-31",
+    })).toEqual([
+      { metric_date: "2026-08-10", owned: 25 },
+      { metric_date: "2026-08-11" },
+      { metric_date: "2026-08-12" },
+      { metric_date: "2026-08-13", owned: 30 },
+    ]);
   });
 });
 
@@ -76,6 +95,13 @@ describe("trend summaries", () => {
       value: 3,
       change: null,
     });
+  });
+
+  it("does not treat a fully paused seven-day window as zero", () => {
+    expect(trendWindowSummary([
+      ...points.slice(0, 7),
+      ...points.slice(7).map((point) => ({ ...point, owned: null })),
+    ], "owned")).toBeNull();
   });
 
   it("finds the previous recorded value for tooltip deltas", () => {

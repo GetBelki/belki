@@ -3,7 +3,9 @@ import {
   CheckCircle2,
   ArchiveRestore,
   KeyRound,
+  PauseCircle,
   Pencil,
+  Play,
   Plus,
   ServerCog,
   Webhook,
@@ -93,6 +95,7 @@ export default function SettingsPage() {
   const [projectOpen, setProjectOpen] = useState(false);
   const [workspaceOpen, setWorkspaceOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<Project | null>(null);
+  const [pauseTarget, setPauseTarget] = useState<Project | null>(null);
   const [webhookOpen, setWebhookOpen] = useState(false);
   const [webhookSecret, setWebhookSecret] = useState("");
   const canAdmin = session.user.role === "owner" || session.user.role === "admin";
@@ -184,6 +187,20 @@ export default function SettingsPage() {
         queryClient.invalidateQueries({ queryKey: ["projects"] }),
         queryClient.invalidateQueries({ queryKey: ["archived-projects"] }),
         queryClient.invalidateQueries({ queryKey: ["managed-billing-summary"] }),
+      ]);
+    },
+  });
+  const updateProjectPause = useMutation({
+    mutationFn: ({ id, paused }: { id: string; paused: boolean }) =>
+      patch(`/projects/${id}/${paused ? "pause" : "resume"}`, {}),
+    onSuccess: async (_value, variables) => {
+      if (variables.paused) setPauseTarget(null);
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey: ["projects"] }),
+        queryClient.invalidateQueries({ queryKey: ["analytics"] }),
+        queryClient.invalidateQueries({ queryKey: ["overview"] }),
+        queryClient.invalidateQueries({ queryKey: ["shopping-product"] }),
+        queryClient.invalidateQueries({ queryKey: ["entities"] }),
       ]);
     },
   });
@@ -303,9 +320,28 @@ export default function SettingsPage() {
               <div className="settings-section-heading">
                 <div><h2>Project details</h2><p>The selected project controls all settings below.</p></div>
                 {canEditProject && currentProject ? (
-                  <Button variant="secondary" onClick={() => setEditingProject(currentProject)}>
-                    <Pencil size={14}/> Edit
-                  </Button>
+                  <div className="project-state-actions">
+                    <Button variant="secondary" onClick={() => setEditingProject(currentProject)}>
+                      <Pencil size={14}/> Edit
+                    </Button>
+                    {currentProject.paused_at ? (
+                      <Button
+                        disabled={updateProjectPause.isPending}
+                        onClick={() => updateProjectPause.mutate({ id: currentProject.id, paused: false })}
+                        variant="secondary"
+                      >
+                        <Play size={14}/> {updateProjectPause.isPending ? "Resuming…" : "Resume"}
+                      </Button>
+                    ) : (
+                      <Button
+                        disabled={updateProjectPause.isPending}
+                        onClick={() => { updateProjectPause.reset(); setPauseTarget(currentProject); }}
+                        variant="secondary"
+                      >
+                        <PauseCircle size={14}/> Pause
+                      </Button>
+                    )}
+                  </div>
                 ) : null}
               </div>
               <div className="settings-project-summary">
@@ -314,8 +350,13 @@ export default function SettingsPage() {
                   <strong>{projectSettings.data?.name ?? currentProject?.name}</strong>
                   <span>{projectSettings.data?.primaryDomain ?? "No primary domain"}</span>
                 </div>
-                <Badge tone="info">Selected project</Badge>
+                <Badge tone={currentProject?.paused_at ? "warning" : "info"}>
+                  {currentProject?.paused_at ? "Paused" : "Selected project"}
+                </Badge>
               </div>
+              {updateProjectPause.isError ? (
+                <p className="form-error">The project state could not be updated. Try again.</p>
+              ) : null}
             </section>
             <section className="settings-section">
               <div className="settings-section-heading">
@@ -462,11 +503,37 @@ export default function SettingsPage() {
                   id: project.id,
                   project: <div className="domain-cell"><DomainFavicon domain={project.primary_domain} size={18}/><div className="primary-cell"><strong>{project.name}</strong><span>{project.primary_domain ?? "No primary domain"}</span></div></div>,
                   prompts: compact(project.query_count),
-                  status: project.id === projectId ? <Badge tone="info">Selected</Badge> : <Badge>Available</Badge>,
-                  action: canEditProject ? <Button className="settings-edit-button" variant="secondary" onClick={() => setEditingProject(project)}><Pencil size={13}/> Edit</Button> : null,
+                  status: project.paused_at
+                    ? <Badge tone="warning">Paused</Badge>
+                    : project.id === projectId
+                      ? <Badge tone="info">Selected</Badge>
+                      : <Badge>Available</Badge>,
+                  action: canEditProject ? (
+                    <div className="project-table-actions">
+                      <Button className="settings-edit-button" variant="secondary" onClick={() => setEditingProject(project)}><Pencil size={13}/> Edit</Button>
+                      {project.paused_at ? (
+                        <Button
+                          className="settings-edit-button"
+                          disabled={updateProjectPause.isPending}
+                          onClick={() => updateProjectPause.mutate({ id: project.id, paused: false })}
+                          variant="secondary"
+                        ><Play size={13}/> Resume</Button>
+                      ) : (
+                        <Button
+                          className="settings-edit-button"
+                          disabled={updateProjectPause.isPending}
+                          onClick={() => { updateProjectPause.reset(); setPauseTarget(project); }}
+                          variant="secondary"
+                        ><PauseCircle size={13}/> Pause</Button>
+                      )}
+                    </div>
+                  ) : null,
                 }))}
               />
             ) : <EmptyState title="No projects" description="Create a project to start monitoring a brand." />}
+            {updateProjectPause.isError ? (
+              <p className="form-error">The project state could not be updated. Try again.</p>
+            ) : null}
           </section>
           {canAdmin && (archivedProjects.data?.length ?? 0) > 0 ? (
             <section className="settings-section">
@@ -590,6 +657,29 @@ export default function SettingsPage() {
             </div>
           </form>
         ) : null}
+      </Dialog>
+      <Dialog
+        open={Boolean(pauseTarget)}
+        onOpenChange={(open) => { if (!open && !updateProjectPause.isPending) setPauseTarget(null); }}
+        title={pauseTarget ? `Pause ${pauseTarget.name}?` : "Pause project?"}
+        description="Scheduled prompt runs and recurring enrichment will stop until the project is resumed."
+      >
+        <div className="form-stack">
+          <p className="muted">
+            History and settings will be preserved. Work already submitted to a provider may still finish, while paused days will remain gaps rather than zero-value observations.
+          </p>
+          {updateProjectPause.isError ? <p className="form-error">The project could not be paused. Try again.</p> : null}
+          <div className="dialog-actions">
+            <Button disabled={updateProjectPause.isPending} onClick={() => setPauseTarget(null)} type="button" variant="ghost">Cancel</Button>
+            <Button
+              disabled={!pauseTarget || updateProjectPause.isPending}
+              onClick={() => pauseTarget && updateProjectPause.mutate({ id: pauseTarget.id, paused: true })}
+              type="button"
+            >
+              <PauseCircle size={14}/>{updateProjectPause.isPending ? "Pausing…" : "Pause project"}
+            </Button>
+          </div>
+        </div>
       </Dialog>
       <Dialog
         open={webhookOpen}
