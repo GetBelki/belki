@@ -1,6 +1,7 @@
 import type { NotificationQueueMessage } from "../../shared/contracts";
 import { hmac } from "../lib/crypto";
 import { nowIso } from "../lib/http";
+import { assertSafeWebhookUrl } from "../lib/webhook-url";
 
 interface DeliveryRow {
   id: string;
@@ -39,8 +40,10 @@ export async function deliverWebhook(env: Env, deliveryId: string): Promise<void
   });
   const signingSecret = await hmac(row.destination_id, env.APP_CRYPTO_KEY);
   const signature = await hmac(`${timestamp}.${body}`, signingSecret);
-  const response = await fetch(row.url, {
+  const destination = assertSafeWebhookUrl(row.url);
+  const response = await fetch(destination, {
     method: "POST",
+    redirect: "error",
     headers: {
       "content-type": "application/json",
       "user-agent": "AI-Tracker-Webhook/1.0",
@@ -51,6 +54,7 @@ export async function deliverWebhook(env: Env, deliveryId: string): Promise<void
     body,
     signal: AbortSignal.timeout(10_000),
   });
+  await response.body?.cancel();
   if (!response.ok) throw new Error(`Webhook returned HTTP ${response.status}`);
   await env.CONTROL_DB.prepare(
     `UPDATE webhook_deliveries SET

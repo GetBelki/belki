@@ -643,13 +643,18 @@ export async function dispatchStandardBatch(
         const updatedAt = nowIso();
         updates.push(
           env.CONTROL_DB.prepare(
-            `UPDATE crawl_jobs SET status = ?,
+            `UPDATE crawl_jobs SET status = CASE
+                WHEN status IN ('normalizing', 'completed') THEN status ELSE ? END,
               dataforseo_task_id = COALESCE(?, dataforseo_task_id), request_cost_usd = ?,
               task_status_code = ?, task_status_message = ?,
               submitted_at = CASE WHEN ? THEN ? ELSE submitted_at END,
-              error_code = CASE WHEN ? THEN NULL ELSE 'provider_rejected' END,
-              error_message = CASE WHEN ? THEN NULL ELSE ? END, updated_at = ?
-             WHERE id = ? AND status != 'cancelled'`,
+              error_code = CASE WHEN status IN ('normalizing', 'completed') THEN error_code
+                WHEN ? THEN NULL ELSE 'provider_rejected' END,
+              error_message = CASE WHEN status IN ('normalizing', 'completed') THEN error_message
+                WHEN ? THEN NULL ELSE ? END, updated_at = ?
+             WHERE id = ?
+               AND status IN ('submitting', 'submission_unknown', 'normalizing', 'completed')
+               AND (dataforseo_task_id IS NULL OR dataforseo_task_id = ?)`,
           ).bind(
             accepted ? "awaiting_result" : "failed",
             task.id ?? null,
@@ -663,11 +668,22 @@ export async function dispatchStandardBatch(
             taskMessage,
             updatedAt,
             job.id,
+            task.id ?? null,
           ),
           env.CONTROL_DB.prepare(
-            `UPDATE capture_provider_attempts SET status = ?, external_task_id = ?,
-              request_cost_usd = ?, error_code = ?, error_message = ?,
-              completed_at = CASE WHEN ? THEN NULL ELSE ? END, updated_at = ? WHERE id = ?`,
+            `UPDATE capture_provider_attempts SET status = CASE
+              WHEN status IN ('normalizing', 'completed') THEN status ELSE ? END,
+              external_task_id = ?,
+              request_cost_usd = ?,
+              error_code = CASE WHEN status IN ('normalizing', 'completed') THEN error_code ELSE ? END,
+              error_message = CASE WHEN status IN ('normalizing', 'completed') THEN error_message ELSE ? END,
+              completed_at = CASE
+                WHEN status = 'completed' THEN completed_at
+                WHEN ? THEN NULL ELSE ? END,
+              updated_at = ?
+             WHERE id = ?
+               AND status IN ('submitting', 'ambiguous', 'normalizing', 'completed')
+               AND (external_task_id IS NULL OR external_task_id = ?)`,
           ).bind(
             accepted ? "awaiting_result" : "failed",
             task.id ?? null,
@@ -678,6 +694,7 @@ export async function dispatchStandardBatch(
             updatedAt,
             updatedAt,
             job.capture_provider_attempt_id,
+            task.id ?? null,
           ),
         );
       }
@@ -689,13 +706,13 @@ export async function dispatchStandardBatch(
             `UPDATE crawl_jobs SET status = 'submission_unknown',
               error_code = 'missing_provider_task',
               error_message = 'Provider response did not include this task.', updated_at = ?
-             WHERE id = ? AND status != 'cancelled'`,
+             WHERE id = ? AND status = 'submitting'`,
           ).bind(updatedAt, job.id),
           env.CONTROL_DB.prepare(
             `UPDATE capture_provider_attempts SET status = 'ambiguous',
               error_code = 'missing_provider_task',
               error_message = 'Provider response did not include this task.', updated_at = ?
-             WHERE id = ?`,
+             WHERE id = ? AND status = 'submitting'`,
           ).bind(updatedAt, job.capture_provider_attempt_id),
         );
       }
@@ -710,11 +727,12 @@ export async function dispatchStandardBatch(
         env.CONTROL_DB.prepare(
           `UPDATE crawl_jobs SET status = 'submission_unknown',
             error_code = 'submission_ambiguous', error_message = ?, updated_at = ?
-           WHERE id = ? AND status != 'cancelled'`,
+           WHERE id = ? AND status = 'submitting'`,
         ).bind(errorMessage, updatedAt, job.id),
         env.CONTROL_DB.prepare(
           `UPDATE capture_provider_attempts SET status = 'ambiguous',
-            error_code = 'submission_ambiguous', error_message = ?, updated_at = ? WHERE id = ?`,
+            error_code = 'submission_ambiguous', error_message = ?, updated_at = ?
+           WHERE id = ? AND status = 'submitting'`,
         ).bind(errorMessage, updatedAt, job.capture_provider_attempt_id),
       ]));
     }

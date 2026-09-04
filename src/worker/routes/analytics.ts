@@ -3586,7 +3586,7 @@ analyticsRoutes.post(
   zValidator("param", ShoppingProductParamSchema),
   zValidator("json", ProductEnrichmentRequestSchema),
   async (c) => {
-    const principal = c.get("principal");
+    const principal = requireRole(c, "editor");
     const { productKey: routeProductKey } = c.req.valid("param");
     const input = c.req.valid("json");
     await assertProjectAccess(c.env, principal.workspaceId, input.projectId, c.get("timing"));

@@ -125,6 +125,20 @@ describe("control database migrations", () => {
     expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
   });
 
+  it("adds callback claims and minimizes processed payment payloads without rebuilding tables", () => {
+    const sql = readFileSync(
+      resolve("migrations/control/0036_security_hardening.sql"),
+      "utf8",
+    );
+
+    expect(sql).toMatch(/CREATE TABLE provider_callback_claims/i);
+    expect(sql).toMatch(/PRIMARY KEY \(scope, job_id\)/i);
+    expect(sql).toMatch(/UNIQUE \(scope, external_task_id\)/i);
+    expect(sql).toMatch(/UPDATE billing_events SET payload_json = '\{\}'/i);
+    expect(sql).not.toMatch(/DROP TABLE/i);
+    expect(sql).not.toMatch(/PRAGMA foreign_keys\s*=\s*OFF/i);
+  });
+
   it("keeps the pre-launch payment reset explicit, live-guarded, and billing-only", () => {
     const resetSql = readFileSync(
       resolve("scripts/reset-test-payments.sql"),

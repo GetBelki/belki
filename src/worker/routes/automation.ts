@@ -13,6 +13,7 @@ import {
 import type { AppEnv } from "../lib/app";
 import { requireRole } from "../lib/auth";
 import { writeAudit } from "../lib/audit";
+import { assertSafeWebhookUrl } from "../lib/webhook-url";
 import { hmac } from "../lib/crypto";
 import { ApiError, jsonParse, nowIso } from "../lib/http";
 import { projectTrackingSources } from "../lib/tracking-sources";
@@ -34,23 +35,6 @@ async function assertProject(
     .bind(projectId, workspaceId)
     .first();
   if (!row) throw new ApiError(404, "project_not_found", "Project not found.");
-}
-
-function assertSafeWebhookUrl(raw: string): void {
-  const url = new URL(raw);
-  const host = url.hostname.toLowerCase();
-  const blocked =
-    host === "localhost" ||
-    host.endsWith(".localhost") ||
-    host.endsWith(".internal") ||
-    host === "0.0.0.0" ||
-    host === "::1" ||
-    /^127\./u.test(host) ||
-    /^10\./u.test(host) ||
-    /^192\.168\./u.test(host) ||
-    /^169\.254\./u.test(host) ||
-    /^172\.(?:1[6-9]|2\d|3[01])\./u.test(host);
-  if (blocked) throw new ApiError(422, "unsafe_webhook_url", "Private webhook targets are not allowed.");
 }
 
 export const automationRoutes = new Hono<AppEnv>();

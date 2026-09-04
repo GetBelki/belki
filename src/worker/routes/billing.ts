@@ -14,7 +14,14 @@ import {
 import type { AppEnv } from "../lib/app";
 import { writeAudit } from "../lib/audit";
 import { requireRole } from "../lib/auth";
-import { ApiError, jsonParse, nowIso } from "../lib/http";
+import {
+  ApiError,
+  InvalidContentLengthError,
+  jsonParse,
+  nowIso,
+  readBoundedText,
+  RequestBodyTooLargeError,
+} from "../lib/http";
 import {
   getUsageSummary,
   releaseUsage,
@@ -810,11 +817,18 @@ async function processPaymentWebhook(
   c: Context<AppEnv>,
   payment: ResolvedPaymentProviderAccount,
 ): Promise<Response> {
-  const contentLength = Number(c.req.header("content-length") ?? "0");
-  if (contentLength > MAX_PAYMENT_WEBHOOK_BYTES) {
-    throw new ApiError(400, "payment_payload_too_large", "The payment webhook payload is too large.");
+  let payload: string;
+  try {
+    payload = await readBoundedText(c.req.raw, MAX_PAYMENT_WEBHOOK_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      throw new ApiError(413, "payment_payload_too_large", "The payment webhook payload is too large.");
+    }
+    if (error instanceof InvalidContentLengthError) {
+      throw new ApiError(400, "invalid_content_length", "The Content-Length header is invalid.");
+    }
+    throw error;
   }
-  const payload = await c.req.text();
   const event = await paymentProviderAdapter(payment.provider)
     .verifyAndParseWebhook(payment, payload, c.req.raw.headers);
   const receivedAt = nowIso();
@@ -918,7 +932,8 @@ async function processPaymentWebhook(
           : workspaceId;
     }
     await c.env.CONTROL_DB.prepare(
-      "UPDATE billing_events SET workspace_id = ?, processed_at = ?, processing_error = NULL WHERE id = ?",
+      `UPDATE billing_events SET workspace_id = ?, processed_at = ?,
+        processing_error = NULL, payload_json = '{}' WHERE id = ?`,
     ).bind(workspaceId, nowIso(), eventStorageId).run();
     return c.json({ received: true });
   } catch (error) {

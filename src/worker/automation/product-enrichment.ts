@@ -10,7 +10,7 @@ import { registeredDataForSeoCredentials } from "../providers/dataforseo-credent
 import { dataForSeoWebhookToken } from "../providers/dataforseo";
 import { commitUsage, releaseUsage, reserveUsage, USAGE_UNITS } from "../lib/usage";
 import { normalizeUrl } from "../lib/domain";
-import { ApiError, jsonParse, nowIso } from "../lib/http";
+import { ApiError, jsonParse, limitReadableBytes, nowIso } from "../lib/http";
 import { workspacePublicAppOrigin } from "../lib/public-origin";
 import {
   finiteInteger,
@@ -18,6 +18,11 @@ import {
   googleProductIdentifiers,
   productEnrichmentDue,
 } from "../lib/product-enrichment";
+import {
+  acceptProviderCallbackClaim,
+  claimProviderCallback,
+  releaseProviderCallbackClaim,
+} from "../lib/provider-callbacks";
 
 const TAG_SCOPE = "product";
 const ACTIVE_STATUSES = new Set([
@@ -512,9 +517,13 @@ async function submitJob(env: Env, jobId: string): Promise<void> {
     await commitUsage(env, job.workspace_id, productUsage(job.id));
     await env.CONTROL_DB.batch([
       env.CONTROL_DB.prepare(
-        `UPDATE product_enrichment_jobs SET status = 'awaiting_result', provider_task_id = ?,
+        `UPDATE product_enrichment_jobs SET status = CASE
+            WHEN status IN ('normalizing', 'completed') THEN status ELSE 'awaiting_result' END,
+          provider_task_id = ?,
           request_cost_usd = ?, task_status_code = ?, task_status_message = ?,
-          submitted_at = ?, updated_at = ? WHERE id = ? AND status = 'submitting'`,
+          submitted_at = ?, updated_at = ?
+         WHERE id = ? AND status IN ('submitting', 'normalizing', 'completed')
+           AND (provider_task_id IS NULL OR provider_task_id = ?)`,
       ).bind(
         task.id,
         task.cost ?? null,
@@ -523,6 +532,7 @@ async function submitJob(env: Env, jobId: string): Promise<void> {
         submittedAt,
         submittedAt,
         job.id,
+        task.id,
       ),
       env.CONTROL_DB.prepare(
         `UPDATE product_enrichment_targets SET status = 'awaiting_result', updated_at = ?
@@ -553,9 +563,9 @@ async function readRawPayload(
   const object = await env.EVIDENCE_BUCKET.get(message.rawR2Key);
   if (!object) throw new Error(`Raw enrichment evidence not found: ${message.rawR2Key}`);
   if (object.size > 20 * 1024 * 1024) throw new Error("Raw enrichment evidence exceeds limit");
-  let stream: ReadableStream = object.body;
+  let stream = object.body as ReadableStream<Uint8Array>;
   if (message.contentEncoding === "gzip") stream = stream.pipeThrough(new DecompressionStream("gzip"));
-  return new Response(stream).json();
+  return new Response(limitReadableBytes(stream, 32 * 1024 * 1024)).json();
 }
 
 async function normalizeJob(
@@ -749,47 +759,106 @@ export async function acceptProductInfoPayload(
   input: {
     jobId: string;
     taskId: string;
-    body: ReadableStream;
+    body: Uint8Array;
     contentEncoding: "gzip" | "identity";
   },
-): Promise<boolean> {
+): Promise<"accepted" | "duplicate" | "not_found"> {
   const job = await env.CONTROL_DB.prepare(
-    `SELECT id, workspace_id, project_id FROM product_enrichment_jobs
-     WHERE id = ? AND status IN ('submitting', 'submission_unknown', 'awaiting_result')`,
+    `SELECT id, workspace_id, project_id, status, provider_task_id
+     FROM product_enrichment_jobs WHERE id = ?`,
   )
     .bind(input.jobId)
-    .first<{ id: string; workspace_id: string; project_id: string }>();
-  if (!job) return false;
-  const rawR2Key = `raw/product-info/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${input.taskId}.json${
+    .first<{
+      id: string;
+      workspace_id: string;
+      project_id: string;
+      status: string;
+      provider_task_id: string | null;
+    }>();
+  if (!job || (job.provider_task_id && job.provider_task_id !== input.taskId)) return "not_found";
+  if (!["submitting", "submission_unknown", "awaiting_result"].includes(job.status)) {
+    return job.provider_task_id === input.taskId ? "duplicate" : "not_found";
+  }
+
+  const callbackClaim = await claimProviderCallback(
+    env.CONTROL_DB,
+    "product",
+    input.jobId,
+    input.taskId,
+  );
+  if (callbackClaim === "duplicate") return "duplicate";
+  if (callbackClaim === "conflict") return "not_found";
+
+  const rawR2Key = `raw/product-info/${job.workspace_id}/${job.project_id}/${new Date().toISOString().slice(0, 7)}/${encodeURIComponent(input.taskId)}.json${
     input.contentEncoding === "gzip" ? ".gz" : ""
   }`;
-  await env.EVIDENCE_BUCKET.put(rawR2Key, input.body, {
-    httpMetadata: {
-      contentType: "application/json",
-      ...(input.contentEncoding === "gzip" ? { contentEncoding: "gzip" } : {}),
-    },
-    customMetadata: { jobId: input.jobId, taskId: input.taskId, source: "product-info-postback" },
-  });
-  const updatedAt = nowIso();
-  await env.CONTROL_DB.batch([
-    env.CONTROL_DB.prepare(
-      `UPDATE product_enrichment_jobs SET status = 'normalizing',
-        provider_task_id = COALESCE(provider_task_id, ?), raw_r2_key = ?, updated_at = ?
-       WHERE id = ?`,
-    ).bind(input.taskId, rawR2Key, updatedAt, input.jobId),
-    env.CONTROL_DB.prepare(
-      `UPDATE product_enrichment_targets SET status = 'normalizing', updated_at = ?
-       WHERE current_job_id = ?`,
-    ).bind(updatedAt, input.jobId),
-  ]);
-  await env.PRODUCT_ENRICHMENT_QUEUE.send({
-    kind: "normalize",
-    jobId: input.jobId,
-    taskId: input.taskId,
-    rawR2Key,
-    contentEncoding: input.contentEncoding,
-  } satisfies ProductEnrichmentQueueMessage);
-  return true;
+  try {
+    await env.EVIDENCE_BUCKET.put(rawR2Key, input.body, {
+      httpMetadata: {
+        contentType: "application/json",
+        ...(input.contentEncoding === "gzip" ? { contentEncoding: "gzip" } : {}),
+      },
+      customMetadata: { jobId: input.jobId, taskId: input.taskId, source: "product-info-postback" },
+    });
+    const updatedAt = nowIso();
+    const results = await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        `UPDATE product_enrichment_jobs SET status = 'normalizing',
+          provider_task_id = COALESCE(provider_task_id, ?), raw_r2_key = ?, updated_at = ?
+         WHERE id = ? AND status IN ('submitting', 'submission_unknown', 'awaiting_result')
+           AND (provider_task_id IS NULL OR provider_task_id = ?)`,
+      ).bind(input.taskId, rawR2Key, updatedAt, input.jobId, input.taskId),
+      env.CONTROL_DB.prepare(
+        `UPDATE product_enrichment_targets SET status = 'normalizing', updated_at = ?
+         WHERE current_job_id = ? AND EXISTS (
+           SELECT 1 FROM product_enrichment_jobs
+           WHERE id = ? AND status = 'normalizing' AND raw_r2_key = ?
+         )`,
+      ).bind(updatedAt, input.jobId, input.jobId, rawR2Key),
+      acceptProviderCallbackClaim(env.CONTROL_DB, "product", input.jobId, input.taskId, rawR2Key),
+    ]);
+    if ((results[0]?.meta.changes ?? 0) === 0) {
+      await Promise.all([
+        env.EVIDENCE_BUCKET.delete(rawR2Key),
+        releaseProviderCallbackClaim(env.CONTROL_DB, "product", input.jobId, input.taskId),
+      ]);
+      return "not_found";
+    }
+  } catch (error) {
+    await Promise.all([
+      env.EVIDENCE_BUCKET.delete(rawR2Key),
+      releaseProviderCallbackClaim(env.CONTROL_DB, "product", input.jobId, input.taskId),
+    ]);
+    throw error;
+  }
+
+  try {
+    await env.PRODUCT_ENRICHMENT_QUEUE.send({
+      kind: "normalize",
+      jobId: input.jobId,
+      taskId: input.taskId,
+      rawR2Key,
+      contentEncoding: input.contentEncoding,
+    } satisfies ProductEnrichmentQueueMessage);
+  } catch (error) {
+    const updatedAt = nowIso();
+    await env.CONTROL_DB.batch([
+      env.CONTROL_DB.prepare(
+        `UPDATE product_enrichment_jobs SET status = 'awaiting_result', raw_r2_key = NULL, updated_at = ?
+         WHERE id = ? AND status = 'normalizing' AND raw_r2_key = ?`,
+      ).bind(updatedAt, input.jobId, rawR2Key),
+      env.CONTROL_DB.prepare(
+        `UPDATE product_enrichment_targets SET status = 'queued', updated_at = ?
+         WHERE current_job_id = ? AND status = 'normalizing'`,
+      ).bind(updatedAt, input.jobId),
+    ]);
+    await Promise.all([
+      env.EVIDENCE_BUCKET.delete(rawR2Key),
+      releaseProviderCallbackClaim(env.CONTROL_DB, "product", input.jobId, input.taskId),
+    ]);
+    throw error;
+  }
+  return "accepted";
 }
 
 export async function verifyProductEnrichmentTag(

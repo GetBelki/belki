@@ -2174,11 +2174,17 @@ export function ProductAnalyticsPage() {
   });
   const selectedMarketLocale = query.data?.data.market.selectedLocale;
   useEffect(() => {
-    if (!projectId || !productKey || !selectedMarketLocale) return;
+    if (session.user.role === "viewer" || !projectId || !productKey || !selectedMarketLocale) return;
     touchMarket.mutate(selectedMarketLocale);
     // The backend deduplicates a view-triggered refresh per product and locale.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [projectId, productKey, selectedMarketLocale?.locationCode, selectedMarketLocale?.languageCode]);
+  }, [
+    projectId,
+    productKey,
+    selectedMarketLocale?.locationCode,
+    selectedMarketLocale?.languageCode,
+    session.user.role,
+  ]);
   if (!projectId) return <NoProject />;
   const detail = query.data?.data;
   const occurrenceTotal = query.data?.page.total ?? 0;

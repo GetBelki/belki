@@ -27,7 +27,14 @@ import {
 } from "./routes/billing";
 import type { AppEnv } from "./lib/app";
 import { authMiddleware } from "./lib/auth";
-import { errorResponse, nowIso, requestId } from "./lib/http";
+import {
+  errorResponse,
+  InvalidContentLengthError,
+  nowIso,
+  readBoundedBody,
+  requestId,
+  RequestBodyTooLargeError,
+} from "./lib/http";
 import { verifySignedJobTag } from "./lib/crypto";
 import { verifyDataForSeoWebhookToken } from "./providers/dataforseo";
 import { missingDefaultSecurityHeaders } from "./lib/security-headers";
@@ -69,10 +76,38 @@ import {
 } from "./automation/entity-extraction";
 import { adAssetBatch, reconcileAdAssets } from "./automation/ad-assets";
 import { TrackingSourceSchema } from "../shared/contracts";
+import {
+  acceptProviderCallbackClaim,
+  claimProviderCallback,
+  releaseProviderCallbackClaim,
+} from "./lib/provider-callbacks";
 
 export { WorkspaceUsageGate } from "./durable-objects/workspace-usage-gate";
 
 const app = new Hono<AppEnv>();
+const MAX_PROVIDER_WEBHOOK_BYTES = 20 * 1024 * 1024;
+const CALLBACK_JOB_STATES = new Set(["submitting", "submission_unknown", "awaiting_result"]);
+
+function webhookContentEncoding(request: Request): "gzip" | "identity" | null {
+  const value = request.headers.get("content-encoding")?.trim().toLowerCase();
+  if (!value || value === "identity") return "identity";
+  return value === "gzip" ? "gzip" : null;
+}
+
+async function boundedWebhookBody(request: Request): Promise<Uint8Array | Response> {
+  if (!request.body) return new Response("body required", { status: 400 });
+  try {
+    return await readBoundedBody(request, MAX_PROVIDER_WEBHOOK_BYTES);
+  } catch (error) {
+    if (error instanceof RequestBodyTooLargeError) {
+      return new Response("payload too large", { status: 413 });
+    }
+    if (error instanceof InvalidContentLengthError) {
+      return new Response("invalid content-length", { status: 400 });
+    }
+    throw error;
+  }
+}
 
 app.use("*", async (c, next) => {
   c.set("requestId", c.req.header("cf-ray") ?? requestId());
@@ -124,9 +159,11 @@ app.post("/api/webhooks/dataforseo/:source", async (c) => {
   if (!jobId) return c.text("unauthorized", 401);
   const job = await c.env.CONTROL_DB.prepare(
     `SELECT job.id, job.workspace_id, job.project_id, job.tracking_source,
-      job.capture_provider_attempt_id
+      job.capture_provider_attempt_id, job.status, job.dataforseo_task_id,
+      attempt.external_task_id
      FROM crawl_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
+     LEFT JOIN capture_provider_attempts attempt ON attempt.id = job.capture_provider_attempt_id
      WHERE job.id = ? AND job.provider_tag = ? AND job.tracking_source = ?
        AND job.capture_provider = 'dataforseo'
        AND query.deleted_at IS NULL
@@ -142,58 +179,125 @@ app.post("/api/webhooks/dataforseo/:source", async (c) => {
       project_id: string;
       tracking_source: string;
       capture_provider_attempt_id: string | null;
+      status: string;
+      dataforseo_task_id: string | null;
+      external_task_id: string | null;
     }>();
   if (!job) return c.text("not found", 404);
-  const contentLength = Number(c.req.header("content-length") ?? "0");
-  if (contentLength > 20 * 1024 * 1024) return c.text("payload too large", 413);
-  if (!c.req.raw.body) return c.text("body required", 400);
+  if (
+    (job.dataforseo_task_id && job.dataforseo_task_id !== taskId) ||
+    (job.external_task_id && job.external_task_id !== taskId)
+  ) {
+    return c.text("not found", 404);
+  }
+  if (!CALLBACK_JOB_STATES.has(job.status)) {
+    return job.dataforseo_task_id === taskId || job.external_task_id === taskId
+      ? c.text("duplicate", 200)
+      : c.text("not found", 404);
+  }
 
-  const contentEncoding = c.req.header("content-encoding")?.toLowerCase().includes("gzip")
-    ? "gzip"
-    : "identity";
-  const rawKey = `raw/${job.workspace_id}/${job.project_id}/${trackingSource}/${new Date().toISOString().slice(0, 7)}/${taskId}.json${
+  const callbackClaim = await claimProviderCallback(c.env.CONTROL_DB, "crawl", jobId, taskId);
+  if (callbackClaim === "duplicate") return c.text("duplicate", 200);
+  if (callbackClaim === "conflict") return c.text("not found", 404);
+
+  const contentEncoding = webhookContentEncoding(c.req.raw);
+  if (!contentEncoding) {
+    await releaseProviderCallbackClaim(c.env.CONTROL_DB, "crawl", jobId, taskId);
+    return c.text("unsupported content-encoding", 415);
+  }
+  const body = await boundedWebhookBody(c.req.raw);
+  if (body instanceof Response) {
+    await releaseProviderCallbackClaim(c.env.CONTROL_DB, "crawl", jobId, taskId);
+    return body;
+  }
+  const rawKey = `raw/${job.workspace_id}/${job.project_id}/${trackingSource}/${new Date().toISOString().slice(0, 7)}/${encodeURIComponent(taskId)}.json${
     contentEncoding === "gzip" ? ".gz" : ""
   }`;
-  await c.env.EVIDENCE_BUCKET.put(rawKey, c.req.raw.body, {
-    httpMetadata: {
-      contentType: "application/json",
-      ...(contentEncoding === "gzip" ? { contentEncoding: "gzip" } : {}),
-    },
-    customMetadata: { jobId, taskId, source: "postback", trackingSource },
-  });
   try {
-    await c.env.CONTROL_DB.batch([
+    await c.env.EVIDENCE_BUCKET.put(rawKey, body, {
+      httpMetadata: {
+        contentType: "application/json",
+        ...(contentEncoding === "gzip" ? { contentEncoding: "gzip" } : {}),
+      },
+      customMetadata: { jobId, taskId, source: "postback", trackingSource },
+    });
+    const updatedAt = nowIso();
+    const results = await c.env.CONTROL_DB.batch([
       c.env.CONTROL_DB.prepare(
         `UPDATE crawl_jobs SET
           status = 'normalizing', dataforseo_task_id = COALESCE(dataforseo_task_id, ?),
           raw_r2_key = ?, updated_at = ?
-         WHERE id = ? AND status != 'cancelled'
+         WHERE id = ? AND status IN ('submitting', 'submission_unknown', 'awaiting_result')
+           AND (dataforseo_task_id IS NULL OR dataforseo_task_id = ?)
            AND NOT EXISTS (
              SELECT 1 FROM prompt_purge_jobs purge
              WHERE purge.tracked_query_id = crawl_jobs.tracked_query_id
            )`,
-      ).bind(taskId, rawKey, nowIso(), jobId),
+      ).bind(taskId, rawKey, updatedAt, jobId, taskId),
       c.env.CONTROL_DB.prepare(
         `UPDATE capture_provider_attempts SET status = 'normalizing',
           external_task_id = COALESCE(external_task_id, ?), raw_r2_key = ?, updated_at = ?
-         WHERE id = ?`,
-      ).bind(taskId, rawKey, nowIso(), job.capture_provider_attempt_id),
+         WHERE id = ? AND status IN ('submitting', 'accepted', 'awaiting_result', 'ambiguous')
+           AND (external_task_id IS NULL OR external_task_id = ?)
+           AND EXISTS (
+             SELECT 1 FROM crawl_jobs
+             WHERE id = ? AND status = 'normalizing' AND raw_r2_key = ?
+           )`,
+      ).bind(taskId, rawKey, updatedAt, job.capture_provider_attempt_id, taskId, jobId, rawKey),
       c.env.CONTROL_DB.prepare(
         `INSERT INTO ingest_events (
           id, crawl_job_id, dataforseo_task_id, event_type, status, r2_key, received_at
-        ) VALUES (?, ?, ?, 'postback', 'accepted', ?, ?)`,
-      ).bind(crypto.randomUUID(), jobId, taskId, rawKey, nowIso()),
+        ) SELECT ?, ?, ?, 'postback', 'accepted', ?, ?
+          WHERE EXISTS (
+            SELECT 1 FROM crawl_jobs
+            WHERE id = ? AND status = 'normalizing' AND raw_r2_key = ?
+          )`,
+      ).bind(crypto.randomUUID(), jobId, taskId, rawKey, updatedAt, jobId, rawKey),
+      acceptProviderCallbackClaim(c.env.CONTROL_DB, "crawl", jobId, taskId, rawKey),
     ]);
+    if ((results[0]?.meta.changes ?? 0) === 0) {
+      await Promise.all([
+        c.env.EVIDENCE_BUCKET.delete(rawKey),
+        releaseProviderCallbackClaim(c.env.CONTROL_DB, "crawl", jobId, taskId),
+      ]);
+      return c.text("not found", 404);
+    }
   } catch (error) {
-    await c.env.EVIDENCE_BUCKET.delete(rawKey);
+    await Promise.all([
+      c.env.EVIDENCE_BUCKET.delete(rawKey),
+      releaseProviderCallbackClaim(c.env.CONTROL_DB, "crawl", jobId, taskId),
+    ]);
     throw error;
   }
-  await c.env.NORMALIZE_QUEUE.send({
-    jobId,
-    taskId,
-    rawR2Key: rawKey,
-    contentEncoding,
-  } satisfies NormalizeQueueMessage);
+  try {
+    await c.env.NORMALIZE_QUEUE.send({
+      jobId,
+      taskId,
+      rawR2Key: rawKey,
+      contentEncoding,
+    } satisfies NormalizeQueueMessage);
+  } catch (error) {
+    const updatedAt = nowIso();
+    await c.env.CONTROL_DB.batch([
+      c.env.CONTROL_DB.prepare(
+        `UPDATE crawl_jobs SET status = 'awaiting_result', raw_r2_key = NULL, updated_at = ?
+         WHERE id = ? AND status = 'normalizing' AND raw_r2_key = ?`,
+      ).bind(updatedAt, jobId, rawKey),
+      c.env.CONTROL_DB.prepare(
+        `UPDATE capture_provider_attempts SET status = 'awaiting_result', raw_r2_key = NULL,
+          updated_at = ? WHERE id = ? AND status = 'normalizing' AND raw_r2_key = ?`,
+      ).bind(updatedAt, job.capture_provider_attempt_id, rawKey),
+      c.env.CONTROL_DB.prepare(
+        `DELETE FROM ingest_events
+         WHERE crawl_job_id = ? AND event_type = 'postback' AND r2_key = ?`,
+      ).bind(jobId, rawKey),
+    ]);
+    await Promise.all([
+      c.env.EVIDENCE_BUCKET.delete(rawKey),
+      releaseProviderCallbackClaim(c.env.CONTROL_DB, "crawl", jobId, taskId),
+    ]);
+    throw error;
+  }
   return c.text("accepted", 202);
 });
 
@@ -211,19 +315,19 @@ app.post("/api/webhooks/dataforseo/product-info", async (c) => {
   }
   const jobId = await verifyProductEnrichmentTag(tag, c.env);
   if (!jobId) return c.text("unauthorized", 401);
-  const contentLength = Number(c.req.header("content-length") ?? "0");
-  if (contentLength > 20 * 1024 * 1024) return c.text("payload too large", 413);
-  if (!c.req.raw.body) return c.text("body required", 400);
-  const contentEncoding = c.req.header("content-encoding")?.toLowerCase().includes("gzip")
-    ? "gzip"
-    : "identity";
+  const contentEncoding = webhookContentEncoding(c.req.raw);
+  if (!contentEncoding) return c.text("unsupported content-encoding", 415);
+  const body = await boundedWebhookBody(c.req.raw);
+  if (body instanceof Response) return body;
   const accepted = await acceptProductInfoPayload(c.env, {
     jobId,
     taskId,
-    body: c.req.raw.body,
+    body,
     contentEncoding,
   });
-  return accepted ? c.text("accepted", 202) : c.text("not found", 404);
+  if (accepted === "accepted") return c.text("accepted", 202);
+  if (accepted === "duplicate") return c.text("duplicate", 200);
+  return c.text("not found", 404);
 });
 
 app.post("/api/webhooks/stripe", handleStripeWebhook);

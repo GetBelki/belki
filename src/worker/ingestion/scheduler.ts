@@ -409,10 +409,18 @@ export async function runRetention(env: Env): Promise<void> {
       "DELETE FROM ingest_events WHERE julianday(received_at) < julianday('now', '-90 days')",
     ),
     env.CONTROL_DB.prepare(
+      "DELETE FROM provider_callback_claims WHERE julianday(updated_at) < julianday('now', '-90 days')",
+    ),
+    env.CONTROL_DB.prepare(
       "DELETE FROM ai_usage_events WHERE julianday(created_at) < julianday('now', '-90 days')",
     ),
     env.CONTROL_DB.prepare(
       "DELETE FROM ai_inference_cache WHERE julianday(last_used_at) < julianday('now', '-90 days')",
+    ),
+    env.CONTROL_DB.prepare(
+      `UPDATE billing_events SET payload_json = '{}'
+       WHERE payload_json != '{}'
+         AND julianday(received_at) < julianday('now', '-7 days')`,
     ),
     env.CONTROL_DB.prepare(
       `UPDATE exports SET status = 'expired', updated_at = ?

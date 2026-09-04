@@ -13,7 +13,7 @@ import {
 } from "../lib/domain";
 import { getTaskHtml } from "../providers/dataforseo";
 import type { DataForSeoCredentials } from "../lib/provider-credentials";
-import { jsonParse, nowIso } from "../lib/http";
+import { jsonParse, limitReadableBytes, nowIso } from "../lib/http";
 import { sha256 } from "../lib/crypto";
 import { getShard } from "../lib/shards";
 import { promptPurgeRequested } from "../lib/prompt-purges";
@@ -109,11 +109,11 @@ async function readRawPayload(
   const object = await env.EVIDENCE_BUCKET.get(message.rawR2Key);
   if (!object) throw new Error(`Raw evidence not found: ${message.rawR2Key}`);
   if (object.size > 20 * 1024 * 1024) throw new Error("Raw evidence exceeds normalization limit");
-  let stream: ReadableStream = object.body;
+  let stream = object.body as ReadableStream<Uint8Array>;
   if (message.contentEncoding === "gzip") {
     stream = stream.pipeThrough(new DecompressionStream("gzip"));
   }
-  return new Response(stream).json();
+  return new Response(limitReadableBytes(stream, 32 * 1024 * 1024)).json();
 }
 
 export async function normalizeSnapshot(
