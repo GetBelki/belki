@@ -178,7 +178,7 @@ export default function OperatorPaymentsPage() {
     setAddOpen(true);
   };
   return (
-    <div className="page operator-page provider-operator-page page-flow">
+    <div className="page operator-page payment-operator-page page-flow">
       <PageHeader
         title="Payments"
         description="Configure the installation payment provider, encrypted credentials, plan catalogue, and webhook endpoint."
@@ -218,7 +218,7 @@ export default function OperatorPaymentsPage() {
       <section className="operator-section">
         <div className="operator-section-heading"><h2>Payment accounts</h2><p>The default account is used during initial Checkout. Existing subscriptions retain their recorded account.</p></div>
         {configuration.isPending ? <Skeleton className="settings-feature-skeleton" /> : (
-          <div className="provider-account-grid">
+          <div className="payment-account-grid">
             {accounts.map((account) => {
               const webhookUrl = `${window.location.origin}${account.webhookPath}`;
               const isCurrentTest = testAccount.variables === account.id;
@@ -230,32 +230,34 @@ export default function OperatorPaymentsPage() {
                 ? testAccount.error
                 : null;
               return (
-                <Card className="provider-account-card" key={account.id}>
-                  <div className="provider-account-heading">
-                    <div className="provider-account-identity"><CreditCard size={22} /><div><span>{account.providerLabel} · {account.environment}</span><h3>{account.label}</h3></div></div>
-                    <div className="provider-account-badges">
+                <Card className="payment-account-card" key={account.id}>
+                  <div className="payment-account-heading">
+                    <div className="payment-account-identity"><CreditCard size={22} /><div><span>{account.providerLabel} · {account.environment}</span><h3>{account.label}</h3></div></div>
+                    <div className="payment-account-badges">
                       {account.isDefault && configuration.data?.mode === "managed" ? <Badge tone="info">Installation default</Badge> : null}
                       <Badge tone={account.status === "active" && account.credentialConfigured ? "success" : "warning"}>{account.status === "disabled" ? "Disabled" : account.credentialConfigured ? "Ready" : "Needs setup"}</Badge>
                       <Badge tone={account.environment === "live" ? "warning" : "neutral"}>{account.environment === "live" ? "Live" : "Test"}</Badge>
                     </div>
                   </div>
-                  <div className="provider-account-activity">
-                    <div><strong>{account.activeSubscriptions}</strong><span>Subscriptions</span></div>
-                    <div><strong>{account.catalogue.filter((plan) => plan.configured).length}/{account.catalogue.length}</strong><span>Plans mapped</span></div>
-                    <div><strong>{account.credentialVersion ?? "env"}</strong><span>Credential version</span></div>
-                    <div><strong>{account.lastTestStatus === "passed" ? "OK" : account.lastTestStatus === "failed" ? "Failed" : "—"}</strong><span>Last test</span></div>
+                  <div className="payment-account-details">
+                    <div className="payment-account-activity">
+                      <div><strong>{account.activeSubscriptions}</strong><span>Subscriptions</span></div>
+                      <div><strong>{account.catalogue.filter((plan) => plan.configured).length}/{account.catalogue.length}</strong><span>Plans mapped</span></div>
+                      <div><strong>{account.credentialVersion ?? "env"}</strong><span>Credential version</span></div>
+                      <div><strong>{account.lastTestStatus === "passed" ? "OK" : account.lastTestStatus === "failed" ? "Failed" : "—"}</strong><span>Last test</span></div>
+                    </div>
+                    <div className="payment-account-meta">
+                      <span><KeyRound size={14} /> {account.credentialSource === "environment" ? "Worker bindings" : `Encrypted version ${account.credentialVersion}`}</span>
+                      <ProviderTestStatus
+                        message={account.lastTestMessage}
+                        status={account.lastTestStatus}
+                        untestedMessage="Not tested from Operator"
+                      />
+                      <span><CreditCard size={14} /> {account.catalogue.map(cataloguePlanLabel).join(" · ")}</span>
+                      <span><Copy size={14} /> <button className="payment-webhook-copy" onClick={() => void navigator.clipboard.writeText(webhookUrl)} type="button">Copy webhook URL</button></span>
+                    </div>
                   </div>
-                  <div className="provider-account-meta">
-                    <span><KeyRound size={14} /> {account.credentialSource === "environment" ? "Worker bindings" : `Encrypted version ${account.credentialVersion}`}</span>
-                    <ProviderTestStatus
-                      message={account.lastTestMessage}
-                      status={account.lastTestStatus}
-                      untestedMessage="Not tested from Operator"
-                    />
-                    <span><CreditCard size={14} /> {account.catalogue.map(cataloguePlanLabel).join(" · ")}</span>
-                    <span><Copy size={14} /> <button className="payment-webhook-copy" onClick={() => void navigator.clipboard.writeText(webhookUrl)} type="button">Copy webhook URL</button></span>
-                  </div>
-                  <div className="provider-account-actions">
+                  <div className="payment-account-actions">
                     {!account.isDefault || configuration.data?.mode !== "managed" ? <Button disabled={!account.credentialConfigured || account.lastTestStatus !== "passed" || account.status !== "active" || makeDefault.isPending} onClick={() => makeDefault.mutate(account.id)} variant="secondary"><Star size={14} /> {configuration.data?.mode === "self_hosted" ? "Enable managed billing" : "Use for new Checkouts"}</Button> : null}
                     <Button asChild variant="secondary"><a href={PAYMENT_PROVIDER_DASHBOARD_URLS[account.provider]} rel="noreferrer" target="_blank">Provider dashboard <ExternalLink size={13} /></a></Button>
                     <Button
@@ -286,8 +288,8 @@ export default function OperatorPaymentsPage() {
       {unavailable.length ? (
         <section className="operator-section">
           <div className="operator-section-heading"><h2>Available adapters</h2><p>These providers fit the modular contract but cannot be selected until their adapter is installed and verified.</p></div>
-          <div className="provider-account-grid">
-            {unavailable.map((provider) => <Card className="provider-account-card" key={provider.id}><div className="provider-account-heading"><div className="provider-account-identity"><CreditCard size={22} /><div><span>Payment adapter</span><h3>{PAYMENT_PROVIDER_LABELS[provider.id]}</h3></div></div><Badge tone="neutral">Not installed</Badge></div></Card>)}
+          <div className="payment-account-grid">
+            {unavailable.map((provider) => <Card className="payment-account-card" key={provider.id}><div className="payment-account-heading"><div className="payment-account-identity"><CreditCard size={22} /><div><span>Payment adapter</span><h3>{PAYMENT_PROVIDER_LABELS[provider.id]}</h3></div></div><Badge tone="neutral">Not installed</Badge></div></Card>)}
           </div>
         </section>
       ) : null}
