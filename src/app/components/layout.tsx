@@ -41,6 +41,7 @@ import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
 
 const NAVIGATION = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
+  { to: "/ai-traffic", label: "AI Traffic", icon: ChartNoAxesCombined },
   { to: "/prompts", label: "Prompts", icon: PromptsIcon },
   { to: "/related-queries", label: "Related queries", icon: RelatedQueriesIcon },
   { to: "/citations", label: "Citation Sources", icon: SourcesIcon },
@@ -315,6 +316,7 @@ export function AppLayout() {
         </header>
         {projectId && pageTrackingSources.length > 1 && location.pathname !== "/" && ![
           "/billing",
+          "/ai-traffic",
           "/settings",
           "/users",
           "/operator",

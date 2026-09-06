@@ -148,6 +148,15 @@ Belki has two deployment modes:
 
 Unless labeled otherwise, the features below are available in both modes.
 
+### AI Traffic
+
+Install a small JavaScript tag to measure sessions originating from recognized
+AI `utm_source` values, including subsequent page views, approximate visible
+time, country, device and conversions by page or explicit JS event. Projects
+have their own domain allowlist, custom source aliases and goals, with 12 months
+of history. Collection is opt-in; unrelated traffic sends no analytics events.
+See [AI Traffic setup and metric definitions](docs/ai-traffic.md).
+
 ### Workspaces, projects, and onboarding
 
 - Users can belong to multiple isolated workspaces and switch between them

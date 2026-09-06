@@ -1,0 +1,28 @@
+.traffic-page { display: grid; gap: 24px; }
+.traffic-filters { display: flex; align-items: end; flex-wrap: wrap; gap: 16px; }
+.traffic-filters label, .traffic-setup label { display: grid; gap: 8px; font-size: 13px; font-weight: 500; }
+.traffic-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
+.traffic-metrics .card-content { display: grid; gap: 12px; }
+.traffic-metrics span, .traffic-footnote, .traffic-setup p, .traffic-install p { color: var(--muted); font-size: 13px; }
+.traffic-metrics strong { font-size: 28px; font-weight: 600; }
+.traffic-chart { height: 280px; width: 100%; }
+.traffic-tables { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+.traffic-table-scroll { overflow-x: auto; }
+.traffic-table { width: 100%; font-size: 13px; border-collapse: collapse; }
+.traffic-table th { color: var(--muted); font-weight: 500; }
+.traffic-table td, .traffic-table th { padding: 12px 8px; text-align: right; border-bottom: 1px solid var(--border); }
+.traffic-table td:first-child, .traffic-table th:first-child { text-align: left; overflow-wrap: anywhere; }
+.traffic-setup fieldset { display: grid; gap: 16px; border: 0; padding: 0; margin: 0; min-width: 0; }
+.traffic-setup h3, .traffic-install h3 { margin-top: 12px; }
+.traffic-setup .traffic-enable { display: flex; align-items: center; }
+.traffic-edit-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(130px, 1fr) auto; gap: 10px; align-items: center; }
+.traffic-goal-row { grid-template-columns: minmax(0, 1fr) 130px minmax(0, 1fr) auto; }
+.traffic-setup textarea { min-height: 90px; }
+.traffic-install { display: grid; gap: 14px; margin-top: 24px; }
+.traffic-install pre { padding: 16px; border: 1px solid var(--border); border-radius: 8px; overflow-x: auto; background: var(--brand-soft); font-size: 12px; }
+.traffic-notice { padding: 12px 16px; background: var(--brand-soft); border-radius: 8px; }
+@media (max-width: 800px) {
+  .traffic-tables { grid-template-columns: 1fr; }
+  .traffic-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .traffic-edit-row, .traffic-goal-row { grid-template-columns: 1fr; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
+}
