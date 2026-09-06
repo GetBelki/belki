@@ -86,8 +86,13 @@ pnpm deploy:getbelki:dry         # Check managed packages without publishing
 ```
 
 `deploy:analytics -- --dry-run` uses a placeholder D1 ID when the config has no
-explicit ID. A real deploy resolves the existing database by name and fails if
-it cannot find it. Deploy/migrate the application's database first; analytics
+explicit ID. A real deploy uses `CONTROL_DB.database_id` when configured. A managed profile
+can supply `analytics.controlDatabaseId` instead, keeping account-specific IDs
+out of the open-source default configuration. If neither is present, it resolves
+the existing database by name. Scoped tokens that cannot list D1 databases require
+an explicit ID; obtain it from the existing database's Cloudflare settings.
+The GetBelki profile uses this explicit binding. The child deployment also
+isolates Workers Builds name overrides so it cannot target the application Worker. Deploy/migrate the application's database first; analytics
 must never create a separate empty control database.
 
 **Operator → Analytics service** displays resolved addresses and offers an
@@ -108,7 +113,7 @@ Changing domains does not make a third-party tracker immune to blockers.
 - `/v1/events`: never cached; every request checks the current enabled flag,
   domain allowlist, workspace and project state before writing.
 
-Static assets bypass Worker code. The generated `_headers` configures both
+Static assets bypass Worker code. The checked-in `public/_headers` configures both
 integrated and separate Workers. CDN operators should use equivalent headers.
 The stable URL requires no tag edits for SDK updates; allow five minutes for
 cached versions to expire, including after a rollback. The small full SDK avoids

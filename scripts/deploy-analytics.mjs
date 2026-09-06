@@ -2,7 +2,7 @@ import { spawnSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readJsonConfig, analyticsWorkerConfig, analyticsUrls } from "./analytics-deployment.mjs";
+import { readJsonConfig, analyticsWorkerConfig, analyticsUrls, analyticsDatabase, analyticsDeployEnvironment } from "./analytics-deployment.mjs";
 
 const root = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const wrangler = resolve(root, "node_modules/.bin/wrangler");
@@ -22,12 +22,11 @@ if (!origin || origin === vars.PUBLIC_APP_ORIGIN) {
   process.exit(0);
 }
 function run(argv, capture = false) {
-  const result = spawnSync(wrangler, argv, { cwd: root, encoding: "utf8", stdio: capture ? "pipe" : "inherit" });
+  const result = spawnSync(wrangler, argv, { cwd: root, env: analyticsDeployEnvironment(process.env, `${base.name}-analytics`), encoding: "utf8", stdio: capture ? "pipe" : "inherit" });
   if (result.status !== 0) throw new Error(`Wrangler failed (${result.status ?? result.error}). ${capture ? result.stderr : ""}`);
   return result.stdout;
 }
-let database = base.d1_databases.find((db) => db.binding === "CONTROL_DB");
-if (!database) throw new Error("The application must define its CONTROL_DB binding.");
+let database = analyticsDatabase(base, profile);
 if (!database.database_id) {
   if (args.includes("--dry-run")) database = { ...database, database_id: "00000000-0000-0000-0000-000000000001" };
   else {
