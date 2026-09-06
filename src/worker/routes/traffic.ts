@@ -1,30 +1,12 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { TrafficSettingsSchema, trafficAliases, trafficDevice, trafficPath, TRAFFIC_SOURCES, type TrafficSettings } from "../../shared/traffic";
+import { TrafficSettingsSchema, TRAFFIC_SOURCES, type TrafficTestResult, type TrafficSettings } from "../../shared/traffic";
 import type { AppEnv } from "../lib/app";
-import { checkLoginRateLimit, requireRole } from "../lib/auth";
-import { randomToken } from "../lib/crypto";
-import { ApiError, readBoundedText, RequestBodyTooLargeError, InvalidContentLengthError } from "../lib/http";
-import { TRAFFIC_TAG } from "../lib/traffic-tag";
-
-type SettingsRow = { project_id: string; public_key: string; enabled: number; config_json: string; last_event_at: number | null };
-const SESSION_TIMEOUT = 30 * 60_000;
-const EventSchema = z.object({
-  key: z.string().min(20).max(100), id: z.string().uuid(), sessionId: z.string().uuid(), pageId: z.string().uuid(),
-  utm: z.string().trim().toLowerCase().min(1).max(100), startedAt: z.number().int().nonnegative(),
-  activityAt: z.number().int().nonnegative(), entryPath: trafficPath, path: trafficPath,
-  visibleMs: z.number().int().min(0).max(86_400_000), type: z.enum(["page", "event"]),
-  event: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/).optional(),
-}).strict().refine((v) => v.type !== "event" || Boolean(v.event));
-
-async function body(c: Context<AppEnv>, maximum = 16384): Promise<unknown> {
-  try { return JSON.parse(await readBoundedText(c.req.raw, maximum)); }
-  catch (error) {
-    if (error instanceof RequestBodyTooLargeError) throw new ApiError(413, "payload_too_large", "Payload too large.");
-    if (error instanceof InvalidContentLengthError || error instanceof SyntaxError) throw new ApiError(400, "invalid_body", "Invalid request body.");
-    throw error;
-  }
-}
+import { requireRole, assertOperator } from "../lib/auth";
+import { randomToken, sha256 } from "../lib/crypto";
+import { ApiError } from "../lib/http";
+import { body, type SettingsRow } from "../lib/traffic-common";
+import { analyticsInstallation } from "../lib/traffic-installation";
 async function project(c: Context<AppEnv>): Promise<string> {
   const id = c.req.param("projectId");
   const row = await c.env.CONTROL_DB.prepare(`SELECT id FROM projects WHERE id = ? AND workspace_id = ? AND deleted_at IS NULL AND archived_at IS NULL`)
@@ -35,83 +17,11 @@ async function project(c: Context<AppEnv>): Promise<string> {
 async function settings(db: D1Database, id: string) {
   return db.prepare("SELECT * FROM traffic_settings WHERE project_id = ?").bind(id).first<SettingsRow>();
 }
-async function publicSettings(c: Context<AppEnv>, key: string): Promise<{ row: SettingsRow; config: TrafficSettings; origin: URL }> {
-  let origin: URL;
-  try { origin = new URL(c.req.header("Origin") ?? (c.req.header("Sec-Fetch-Site") === "same-origin" ? new URL(c.req.url).origin : "")); }
-  catch { throw new ApiError(403, "invalid_origin", "Origin required."); }
-  if (!["https:", "http:"].includes(origin.protocol)) throw new ApiError(403, "invalid_origin", "Invalid origin.");
-  const row = await c.env.CONTROL_DB.prepare(`SELECT t.* FROM traffic_settings t JOIN projects p ON p.id = t.project_id
-    JOIN workspaces w ON w.id = p.workspace_id
-    WHERE t.public_key = ? AND t.enabled = 1 AND p.deleted_at IS NULL AND p.archived_at IS NULL AND w.status = 'active'`)
-    .bind(key).first<SettingsRow>();
-  if (!row) throw new ApiError(404, "traffic_disabled", "Traffic collection unavailable.");
-  const config = JSON.parse(row.config_json) as TrafficSettings;
-  if (!config.domains.includes(origin.hostname)) throw new ApiError(403, "invalid_origin", "Domain is not authorized.");
-  c.header("Access-Control-Allow-Origin", origin.origin);
-  c.header("Vary", "Origin");
-  c.header("Cache-Control", "no-store");
-  return { row, config, origin };
-}
-
-export const trafficPublicRoutes = new Hono<AppEnv>();
-trafficPublicRoutes.get("/v1.js", (c) => {
-  c.header("Content-Type", "application/javascript; charset=utf-8");
-  c.header("Cache-Control", "public, max-age=3600");
-  c.header("Access-Control-Allow-Origin", "*");
-  return c.body(TRAFFIC_TAG);
-});
-trafficPublicRoutes.get("/config/:key", async (c) => {
-  const { config } = await publicSettings(c, c.req.param("key"));
-  return c.json({ aliases: trafficAliases(config.aliases) });
-});
-trafficPublicRoutes.post("/collect", async (c) => {
-  const parsed = EventSchema.safeParse(await body(c, 4096));
-  if (!parsed.success) throw new ApiError(400, "invalid_event", "Invalid traffic event.");
-  const e = parsed.data;
-  const { row, config, origin } = await publicSettings(c, e.key);
-  const db = c.env.CONTROL_DB;
-  const now = Date.now();
-  if (e.activityAt > now + 5000 || e.activityAt < now - SESSION_TIMEOUT || e.startedAt > e.activityAt) {
-    throw new ApiError(400, "expired_session", "Session expired.");
-  }
-  const existing = await db.prepare("SELECT hostname, activity_at FROM traffic_sessions WHERE project_id = ? AND id = ?")
-    .bind(row.project_id, e.sessionId).first<{ hostname: string; activity_at: number }>();
-  const source = trafficAliases(config.aliases)[e.utm];
-  if ((!existing && (!source || e.startedAt < now - SESSION_TIMEOUT)) ||
-      (existing && (existing.hostname !== origin.hostname || e.activityAt - existing.activity_at > SESSION_TIMEOUT))) {
-    throw new ApiError(400, "invalid_session", "Invalid traffic session.");
-  }
-  // One bounded rate-limit row per project, never keyed by visitor IP or identifier.
-  await checkLoginRateLimit(db, `traffic:${row.project_id}`, 30_000);
-  const cf = c.req.raw.cf as IncomingRequestCfProperties | undefined;
-  const country = typeof cf?.country === "string" && /^[A-Z]{2}$/.test(cf.country) ? cf.country : "unknown";
-  const statements = [
-    db.prepare(`INSERT INTO traffic_sessions (project_id, id, source, hostname, entry_path, country, device, started_at, activity_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(project_id, id) DO UPDATE SET activity_at = MAX(activity_at, excluded.activity_at)`)
-      .bind(row.project_id, e.sessionId, source ?? "unknown", origin.hostname, e.entryPath, country, trafficDevice(c.req.header("User-Agent") ?? ""), e.startedAt, Math.min(now, e.activityAt)),
-  ];
-  for (const goal of config.goals) {
-    if ((goal.type === "path" && goal.value === e.path) || (goal.type === "event" && e.type === "event" && goal.value === e.event)) {
-      statements.push(db.prepare(`INSERT OR IGNORE INTO traffic_conversions (project_id, session_id, goal_id, goal_name)
-        SELECT ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM ${goal.type === "path" ? "traffic_pages" : "traffic_events"} WHERE project_id = ? AND session_id = ? AND id = ?)`)
-        .bind(row.project_id, e.sessionId, goal.id, goal.name, row.project_id, e.sessionId, goal.type === "path" ? e.pageId : e.id));
-    }
-  }
-  statements.push(db.prepare(`INSERT INTO traffic_pages (project_id, session_id, id, path, visible_ms) VALUES (?, ?, ?, ?, ?)
-    ON CONFLICT(project_id, session_id, id) DO UPDATE SET visible_ms = MAX(visible_ms, excluded.visible_ms)`)
-    .bind(row.project_id, e.sessionId, e.pageId, e.path, Math.min(e.visibleMs, Math.max(0, now - e.startedAt))));
-  // Page updates are cumulative; only custom events need a separate deduplication receipt.
-  if (e.type === "event") statements.push(db.prepare("INSERT OR IGNORE INTO traffic_events VALUES (?, ?, ?)").bind(row.project_id, e.sessionId, e.id));
-  statements.push(db.prepare("UPDATE traffic_settings SET last_event_at = ? WHERE project_id = ?").bind(now, row.project_id));
-  await db.batch(statements);
-  return c.body(null, 204);
-});
-
 export const trafficRoutes = new Hono<AppEnv>();
 trafficRoutes.get("/:projectId/config", async (c) => {
   const row = await settings(c.env.CONTROL_DB, await project(c));
-  return c.json({ data: row ? { ...(JSON.parse(row.config_json) as TrafficSettings), enabled: Boolean(row.enabled), key: row.public_key, lastEvent: row.last_event_at }
-    : { enabled: false, domains: [], aliases: [], goals: [], key: null, lastEvent: null } });
+  return c.json({ data: row ? { ...(JSON.parse(row.config_json) as TrafficSettings), enabled: Boolean(row.enabled), key: row.public_key, lastEvent: row.last_event_at, installation: analyticsInstallation(c.env, c.req.url) }
+    : { enabled: false, domains: [], aliases: [], goals: [], key: null, lastEvent: null, installation: analyticsInstallation(c.env, c.req.url) } });
 });
 trafficRoutes.put("/:projectId/config", async (c) => {
   requireRole(c, "editor");
@@ -129,7 +39,34 @@ trafficRoutes.put("/:projectId/config", async (c) => {
     ON CONFLICT(project_id) DO UPDATE SET enabled = excluded.enabled, config_json = excluded.config_json`)
     .bind(id, randomToken(), Number(parsed.data.enabled), JSON.stringify(parsed.data)).run();
   const row = (await settings(c.env.CONTROL_DB, id))!;
-  return c.json({ data: { ...parsed.data, key: row.public_key, lastEvent: row.last_event_at } });
+  return c.json({ data: { ...parsed.data, key: row.public_key, lastEvent: row.last_event_at, installation: analyticsInstallation(c.env, c.req.url) } });
+});
+
+trafficRoutes.post("/:projectId/test", async (c) => {
+  requireRole(c, "editor");
+  const id = await project(c);
+  const row = await settings(c.env.CONTROL_DB, id);
+  if (!row) throw new ApiError(409, "save_settings", "Save your authorized domains first.");
+  const parsed = z.object({ url: z.url().max(2048) }).strict().safeParse(await body(c));
+  if (!parsed.success) throw new ApiError(400, "invalid_url", "Enter the URL of an authorized page.");
+  const url = new URL(parsed.data.url);
+  const config = TrafficSettingsSchema.parse(JSON.parse(row.config_json));
+  if (!["https:", "http:"].includes(url.protocol) || url.username || url.password || !config.domains.includes(url.hostname)) {
+    throw new ApiError(400, "invalid_url", "Use a page on an authorized domain, without credentials.");
+  }
+  const token = randomToken();
+  const expiresAt = Date.now() + 10 * 60_000;
+  await c.env.CONTROL_DB.prepare(`INSERT INTO traffic_installation_tests (project_id, token_hash, expires_at, result_json)
+    VALUES (?, ?, ?, NULL) ON CONFLICT(project_id) DO UPDATE SET token_hash = excluded.token_hash,
+    expires_at = excluded.expires_at, result_json = NULL`).bind(id, await sha256(token), expiresAt).run();
+  url.searchParams.set("belki_test", token);
+  return c.json({ data: { url: url.href, expiresAt } });
+});
+trafficRoutes.get("/:projectId/test", async (c) => {
+  const id = await project(c);
+  const row = await c.env.CONTROL_DB.prepare("SELECT expires_at, result_json FROM traffic_installation_tests WHERE project_id = ? AND expires_at > ?")
+    .bind(id, Date.now()).first<{ expires_at: number; result_json: string | null }>();
+  return c.json({ data: row ? { expiresAt: row.expires_at, result: row.result_json ? { event: null, goals: [], ...(JSON.parse(row.result_json) as { receivedAt: number; path: string; event?: string; goals?: string[] }) } : null } satisfies TrafficTestResult : null });
 });
 
 const ReportQuery = z.object({
@@ -141,6 +78,7 @@ export function trafficRetentionCutoff(now = new Date()): number {
   return cutoff.getTime();
 }
 export async function retainTraffic(db: D1Database) {
+  await db.prepare("DELETE FROM traffic_installation_tests WHERE expires_at < ?").bind(Date.now()).run();
   // Cascades remove pages, conversions and receipts. Bound cleanup work per invocation.
   return db.prepare(`DELETE FROM traffic_sessions WHERE rowid IN
     (SELECT rowid FROM traffic_sessions WHERE started_at < ? LIMIT 10000)`)
@@ -177,4 +115,26 @@ trafficRoutes.get("/:projectId/report", async (c) => {
   return c.json({ data: { summary: results[0]?.results[0], daily: results[1]?.results,
     sources: results[2]?.results, entries: results[3]?.results, countries: results[4]?.results,
     devices: results[5]?.results, pages: results[6]?.results, goals: results[7]?.results } });
+});
+
+export const trafficOperatorRoutes = new Hono<AppEnv>();
+trafficOperatorRoutes.get("/operator/analytics", async (c) => {
+  await assertOperator(c);
+  return c.json({ data: analyticsInstallation(c.env, c.req.url) });
+});
+trafficOperatorRoutes.post("/operator/analytics/check", async (c) => {
+  await assertOperator(c);
+  const installation = analyticsInstallation(c.env, c.req.url);
+  const results = await Promise.all([
+    { name: "JavaScript", url: installation.scriptUrl, method: "HEAD" },
+    { name: "Event service", url: `${installation.origin}/v1/health`, method: "GET" },
+  ].map(async ({ name, url, method }) => {
+    try {
+      const response = await fetch(url, { method, redirect: "error", signal: AbortSignal.timeout(5000) });
+      const valid = name === "JavaScript" ? /javascript/.test(response.headers.get("Content-Type") ?? "")
+        : (await response.json<{ service?: string }>()).service === "belki-analytics";
+      return { name, ok: response.ok && valid };
+    } catch { return { name, ok: false }; }
+  }));
+  return c.json({ data: results });
 });

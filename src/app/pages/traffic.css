@@ -26,3 +26,11 @@
   .traffic-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .traffic-edit-row, .traffic-goal-row { grid-template-columns: 1fr; padding-bottom: 12px; border-bottom: 1px solid var(--border); }
 }
+
+.traffic-tabs { display: flex; flex-wrap: wrap; gap: 8px; }
+.traffic-section, .traffic-goal, .traffic-test { display: grid; gap: 12px; }
+.traffic-page [hidden] { display: none !important; }
+.traffic-goal { border-bottom: 1px solid var(--border); padding-bottom: 16px; }
+.traffic-goal-code { display: flex; align-items: center; justify-content: space-between; gap: 12px; overflow-wrap: anywhere; }
+.traffic-test { border-top: 1px solid var(--border); padding-top: 16px; }
+.traffic-test label { display: grid; gap: 8px; }

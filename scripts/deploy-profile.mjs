@@ -1,5 +1,6 @@
 import { spawnSync } from "node:child_process";
 import { readFileSync, unlinkSync, writeFileSync } from "node:fs";
+import { analyticsUrls } from "./analytics-deployment.mjs";
 import { dirname, resolve } from "node:path";
 
 const root = resolve(import.meta.dirname, "..");
@@ -30,6 +31,8 @@ const allowedVars = new Set([
   "PAYMENT_MODE",
   "BILLING_PLAN_CHANGES_ENABLED",
   "PUBLIC_APP_ORIGIN",
+  "PUBLIC_ANALYTICS_ORIGIN",
+  "PUBLIC_ANALYTICS_SCRIPT_URL",
   "EMAIL_FROM_ADDRESS",
   // Migration-only compatibility: a temporary profile can expose the previous
   // non-secret Stripe catalogue long enough for Operator → Payments to import it.
@@ -61,6 +64,8 @@ const generated = {
   routes: profile.routes,
   vars: { ...base.vars, ...profile.vars },
 };
+
+analyticsUrls(generated.vars);
 
 const publicAppOrigin = String(generated.vars.PUBLIC_APP_ORIGIN ?? "").trim();
 if (publicAppOrigin) {

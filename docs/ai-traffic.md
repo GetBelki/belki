@@ -4,25 +4,119 @@ AI Traffic measures sessions that enter a customer website with a recognized
 `utm_source`. It measures tagged traffic, not verified referrals or all visits
 from AI products. It does not infer attribution from referrers.
 
-## Installation
+## Installation in a project
 
-1. Apply control migration `0037_ai_traffic.sql` with the normal migration runner
-   before deploying this release. No new production bindings are required.
-2. Open **AI Traffic → Installation & goals** in the selected project.
-3. List exact hostnames, including each subdomain, enable collection, and save.
-4. Copy the generated asynchronous script into every page to be measured.
-5. Visit the site with `?utm_source=chatgpt`, navigate to another page, and check
-   the last-event timestamp and dashboard. The dashboard refreshes every minute.
+1. Open **AI Traffic → Installation** in the selected project.
+2. List exact hostnames, including each subdomain, and save. Collection can remain off.
+3. Copy the complete generated tag (the queue initializer and the asynchronous
+   `belki-analytics.js` script) into the site's global template, before calls to `belki.track`.
+4. Enter an authorized page URL and select **Create test link → Open test page**.
+   Navigate or complete a conversion. The dashboard displays received pages,
+   events and matched goals. The temporary test works while collection is off,
+   is excluded from reports, and expires after ten minutes. Creating a new test
+   replaces the previous one. It is intended for sites you control.
+5. Enable collection and save when ready. **Overview** displays real traffic;
+   **Conversions** manages goals and **Sources** manages custom UTM aliases.
 
 The installation key is public and identifies a project; never put an API token
 or secret in the tag. The collector checks the request origin against configured
 hostnames. CORS/origin checks do not authenticate a visitor or prove AI provenance.
-The tag configuration endpoint returns only the source alias map.
+The public configuration endpoint returns only the source alias map.
 
-For sites with a Content Security Policy, allow the Belki origin in `script-src`
-and `connect-src`. If Belki sits behind an access proxy, allow public access to
-`/api/traffic/*` while keeping the dashboard and `/api/v1/*` protected. Load the
+For Content Security Policy, allow the script's origin in `script-src`, the
+analytics origin in `connect-src`, and authorize the inline queue initializer
+with your site's nonce or hash. You can instead move the initializer into an
+existing permitted local script that executes before your conversion code.
+If an access proxy protects Belki, leave `/belki-analytics.js`, the published SDK
+assets and `/v1/*` public; keep the dashboard and `/api/v1/*` protected. Load the
 tag through the site's consent manager when appropriate.
+
+## Open-source hosting configuration
+
+The default installation is complete with **one application Worker**. No extra
+hostname, subscription or Belki-hosted service is required. The SDK and public
+endpoints use the application's public origin. Set `PUBLIC_APP_ORIGIN` when an
+installation is accessed through a proxy or more than one hostname.
+
+Use the configurator before building/deploying:
+
+```sh
+# Interactive selection: integrated, separate service, optional custom CDN.
+pnpm configure:analytics
+
+# Non-interactive examples:
+pnpm configure:analytics -- --integrated
+pnpm configure:analytics -- --origin https://analytics.example.com
+pnpm configure:analytics -- --origin https://analytics.example.com \
+  --script-url https://cdn.example.com/belki-analytics.js
+```
+
+The command writes non-secret deployment variables to `wrangler.jsonc`. For a
+managed profile, append `--profile deployment/getbelki.json`. The guided deploy
+also offers this step interactively. Configuration changes take effect after a
+build and deployment; they are not per-project settings.
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `PUBLIC_ANALYTICS_ORIGIN` | Empty: use application origin | Public origin of the configuration/events service |
+| `PUBLIC_ANALYTICS_SCRIPT_URL` | `<analytics-origin>/belki-analytics.js` | Optional complete URL of the SDK on your CDN |
+
+URLs require HTTPS in production, without credentials, query strings or
+fragments. The generated tag supplies `data-api` explicitly, so a CDN-hosted
+script never guesses where events belong. Local development supports localhost
+HTTP; use the integrated `pnpm dev` setup for that mode.
+
+For the **separate service**, the regular deploy commands publish an independent
+`<application-worker-name>-analytics` Worker before publishing the application.
+It has only the control D1 binding and the shared public analytics routes: no
+dashboard, app secrets, scheduled jobs or application placement setting. It
+shares the existing analytics tables with the app. Its hostname must be a domain
+available for a Cloudflare Workers Custom Domain in your account; Cloudflare
+provisions the route and certificate. An external CDN must be configured/uploaded
+by its operator before using its script URL.
+
+```sh
+pnpm build
+pnpm db:migrate:remote
+pnpm deploy:analytics             # Separate service only; integrated mode is a no-op
+pnpm deploy                      # Normal self-hosted deployment, including analytics
+pnpm deploy:getbelki:with-migrations  # Managed profile, including analytics
+pnpm deploy:dry                  # Check self-hosted packages without publishing
+pnpm deploy:getbelki:dry         # Check managed packages without publishing
+```
+
+`deploy:analytics -- --dry-run` uses a placeholder D1 ID when the config has no
+explicit ID. A real deploy resolves the existing database by name and fails if
+it cannot find it. Deploy/migrate the application's database first; analytics
+must never create a separate empty control database.
+
+**Operator → Analytics service** displays resolved addresses and offers an
+availability check. Hosting settings remain in deployment configuration. The
+separate hostname isolates execution and deployment, not the shared D1 workload.
+Changing domains does not make a third-party tracker immune to blockers.
+
+## SDK publishing and cache
+
+`pnpm build` generates the minified standalone SDK before the application build:
+
+- `/belki-analytics.js`: the complete SDK in one request, cached for five minutes.
+- `/assets/belki-analytics.<content-hash>.js`: immutable release artifact, cached
+  for one year. Useful for operators deliberately pinning a release on their CDN;
+  those operators must retain pinned artifacts and choose when to update them.
+- `/v1/config/:key`: browser and edge cache of up to 60 seconds, separated by
+  installation/project key and request origin. Test configuration is never cached.
+- `/v1/events`: never cached; every request checks the current enabled flag,
+  domain allowlist, workspace and project state before writing.
+
+Static assets bypass Worker code. The generated `_headers` configures both
+integrated and separate Workers. CDN operators should use equivalent headers.
+The stable URL requires no tag edits for SDK updates; allow five minutes for
+cached versions to expire, including after a rollback. The small full SDK avoids
+an extra loader request on cold visits. The browser, API and dashboard have no
+hardcoded dependency on `getbelki.com`.
+
+The old `/api/traffic/v1.js` and collector routes have been replaced directly.
+Re-copy the tag on existing development/test sites. Stored report data is retained.
 
 ## Attribution
 
@@ -41,6 +135,10 @@ Projects can add up to 50 aliases assigned to these sources. Values are trimmed
 and compared case-insensitively, without substring matching. Aliases cannot
 override a built-in value with a different source. These traffic sources are
 independent of the platforms enabled for AI-answer capture or billing plans.
+
+No UTM and no existing attributed session or queued delivery means no configuration
+request either. An unknown UTM can trigger a configuration lookup to check custom
+aliases. Explicit installation tests are an exception to this network optimization.
 
 No recognized UTM and no existing attributed session means no analytics events
 or visitor identifiers. A qualifying session uses a random ID in `sessionStorage`
@@ -62,7 +160,7 @@ default period is 30 days. Breakdown tables show the top 100 entries.
 - **Page views:** distinct page IDs, including traditional loads and SPA pathname
   changes. Cumulative heartbeats and unload retries never increment views.
 - **Visible time:** approximate time while the document is visible, sent every
-  15 seconds and when hidden or unloaded. This is not a measure of attention;
+  30 seconds and when hidden or unloaded. This is not a measure of attention;
   browser suspension, blocking or failed delivery can undercount time.
 - **Countries:** Cloudflare country metadata or Unknown. No geolocation prompt.
 - **Devices:** a User-Agent estimate of mobile, tablet, desktop or Unknown.
@@ -74,21 +172,27 @@ Define up to 30 goals using an exact pathname (for example `/thanks`) or an
 explicit event name. Fire an event only after a successful action:
 
 ```js
-window.belki?.track('signup');
+// After your application's successful registration response:
+window.belki.track('signup_completed');
 ```
 
-For actions that can occur before the asynchronous script loads, initialize a
-queue before the tag:
+Use descriptive `snake_case` names for new events. Existing simple event names
+are still accepted. The generated tag already initializes a bounded early-event
+queue with the original time and URL; copy the complete snippet. A page goal
+matches an exact pathname, ignores queries/fragments, and distinguishes trailing
+slashes. Arrival at `/thanks` alone does not verify a completed business action.
 
-```js
-window.belki = window.belki || {
-  q: [],
-  track(name) { this.q.push(name); }
-};
-```
+The SDK keeps up to 30 unacknowledged deliveries in per-tab `sessionStorage` for
+up to five minutes. Conversions send immediately. Transient network failures,
+408/429 and server errors retry with bounded backoff (at most five fetch attempts),
+using the same event ID and original page/session/time. A successful HTTP response
+acknowledges the database write; permanent validation failures are discarded.
+`sendBeacon` on exit does not acknowledge delivery, so a subsequent document may
+retry the same ID. Server deduplication prevents duplicate conversions. Offline
+storage, tab closure, blockers or extended outages can still cause undercounting.
 
 Only an event name is accepted; there are no arbitrary event properties, revenue
-fields or customer identifiers. Unknown event names do not create goals. Goal
+fields or customer identifiers. Server-to-server conversion tracking is not included. Unknown event names do not create goals. Goal
 definitions are evaluated on arrival, not against historical pages or events.
 Changing a goal's matching rule creates a new goal ID; historical conversion
 names remain unchanged. Disabling collection retains historical reports.
@@ -97,14 +201,19 @@ names remain unchanged. Disabling collection retains historical reports.
 
 Migration 0037 creates separate settings, sessions, pages, conversion and event
 receipt tables in the control D1 database. No response/citation data is reused.
+Migration 0038 adds one expiring installation-test record per project. Normal
+migration commands apply both before publication.
 Pages store cumulative time; only custom events need deduplication receipts.
 Reports never include sessions older than 12 calendar months, and scheduled
 cleanup removes expired sessions and cascades to their child records.
 
 Stored data is limited to session/page/event identifiers, timestamps, normalized
 source, hostname/pathname, country, device class and completed goal names.
-IP addresses, full User-Agents, URL queries/fragments and request bodies are not
-persisted by this feature or added to application logs. Avoid embedding personal
+IP addresses, full User-Agents and URL queries/fragments are not persisted by
+this feature or added to application logs. The browser temporarily stores bounded,
+sanitized event payloads for retries; it never stores the original full URL there.
+Diagnostic tokens are stored hashed on the server; diagnostics retain one bounded
+result per project until their ten-minute expiry and subsequent scheduled cleanup. Avoid embedding personal
 information in pathnames or goal names. Hosting-provider access logs are governed
 by the operator's own configuration.
 
@@ -119,13 +228,18 @@ Authenticated interfaces:
 
 - `GET /api/v1/traffic/:projectId/config`
 - `PUT /api/v1/traffic/:projectId/config`
+- `POST /api/v1/traffic/:projectId/test` (editor, authorized page URL)
+- `GET /api/v1/traffic/:projectId/test`
+- `GET /api/v1/operator/analytics` (operator)
+- `POST /api/v1/operator/analytics/check` (operator)
 - `GET /api/v1/traffic/:projectId/report?from=YYYY-MM-DD&to=YYYY-MM-DD&source=chatgpt`
 
 Public interfaces:
 
-- `GET /api/traffic/v1.js`
-- `GET /api/traffic/config/:publicKey`
-- `POST /api/traffic/collect` (plain text JSON, no credentials)
+- `GET /belki-analytics.js` (static SDK)
+- `GET /v1/health`
+- `GET /v1/config/:publicKey`
+- `POST /v1/events` (plain text JSON, no credentials)
 
 Unit tests exercise browser attribution and visibility. Workers tests use a
 dedicated local D1 binding to verify real SQL, isolation, deduplication and

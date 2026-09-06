@@ -229,6 +229,16 @@ if [[ -n "${release_warning}" && "${ALLOW_UNREVIEWED}" -ne 1 ]]; then
   confirm "Continue with this unreviewed checkout?" || die "Deployment cancelled."
 fi
 
+if is_interactive && [[ "${ASSUME_YES}" -ne 1 ]]; then
+  if confirm "Configure analytics hosting before deployment?"; then
+    if [[ "${TARGET}" == "getbelki" ]]; then
+      run pnpm configure:analytics -- --profile deployment/getbelki.json
+    else
+      run pnpm configure:analytics
+    fi
+  fi
+fi
+
 CURRENT_STEP="Cloudflare authentication"
 run pnpm exec wrangler whoami
 
@@ -410,6 +420,7 @@ CURRENT_STEP="Worker deployment"
 if [[ "${TARGET}" == "getbelki" ]]; then
   run pnpm deploy:getbelki
 else
+  run pnpm deploy:analytics
   run pnpm exec wrangler deploy
 fi
 

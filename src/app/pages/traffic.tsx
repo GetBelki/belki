@@ -5,9 +5,10 @@ import { NoProject, PageHeader } from "../components/layout";
 import { Button, Card, CardContent, CardHeader, EmptyState, Input, Select } from "../components/ui";
 import { useApp } from "../context";
 import { api } from "../lib/api";
-import { TRAFFIC_LABELS, TRAFFIC_SOURCES, type TrafficBreakdown, type TrafficConfig, type TrafficReport, type TrafficSettings, type TrafficSource } from "../../shared/traffic";
+import { TRAFFIC_LABELS, TRAFFIC_SOURCES, trafficSnippet, type TrafficTestResult, type TrafficBreakdown, type TrafficConfig, type TrafficReport, type TrafficSettings, type TrafficSource } from "../../shared/traffic";
 import "./traffic.css";
 
+type TrafficTab = "summary" | "installation" | "conversions" | "sources";
 const sourceOptions = TRAFFIC_SOURCES.map((value) => ({ value, label: TRAFFIC_LABELS[value] }));
 const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 const percent = (part: number, total: number) => `${total ? (part / total * 100).toFixed(1) : "0"}%`;
@@ -22,13 +23,14 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
   const [from, setFrom] = useState(() => isoDate(new Date(Date.now() - 29 * 86400000)));
   const [to, setTo] = useState(() => isoDate(new Date()));
   const [source, setSource] = useState("all");
-  const [configure, setConfigure] = useState(false);
+  const [selectedTab, setSelectedTab] = useState<TrafficTab>("summary");
   const config = useQuery({ queryKey: ["traffic-config", projectId], queryFn: () => api<TrafficConfig>(`/traffic/${projectId}/config`), refetchInterval: 60000 });
   const report = useQuery({
     queryKey: ["traffic-report", projectId, from, to, source],
     queryFn: () => api<TrafficReport>(`/traffic/${projectId}/report?${new URLSearchParams({ from, to, ...(source === "all" ? {} : { source }) })}`),
     enabled: Boolean(from && to), refetchInterval: 60000,
   });
+  const tab = !config.data?.key && selectedTab === "summary" ? "installation" : selectedTab;
   const data = report.data;
   const editable = session.user.role !== "viewer" && session.workspace.status === "active";
   const daily = [];
@@ -40,13 +42,16 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
     }
   }
   return <div className="page traffic-page">
-    <PageHeader title="AI Traffic" description="Visits and conversions from AI-tagged links. Only recognized utm_source sessions are measured."
-      action={<Button variant="secondary" onClick={() => setConfigure(!configure)}>{configure ? "View traffic" : "Installation & goals"}</Button>} />
+    <PageHeader title="AI Traffic" description="Visits and conversions from AI-tagged links. Only recognized utm_source sessions are measured." />
+    <nav className="traffic-tabs" aria-label="AI Traffic sections">
+      {([["summary", "Overview"], ["installation", "Installation"], ["conversions", "Conversions"], ["sources", "Sources"]] as const).map(([value, label]) =>
+        <Button key={value} variant={tab === value ? "default" : "ghost"} aria-pressed={tab === value} onClick={() => setSelectedTab(value)}>{label}</Button>)}
+    </nav>
     {config.error ? <p role="alert">{config.error.message}</p> : null}
     {config.isPending ? <p role="status">Loading installation settings…</p> : null}
-    {config.data && (configure || !config.data.key) ? <TrafficSetup key={`${projectId}:${config.data.key ?? "new"}`} projectId={projectId}
-      initial={config.data} domain={currentProject?.primary_domain ?? ""} editable={editable} /> : null}
-    {config.data?.key && !configure ? <>
+    {config.data ? <div hidden={tab === "summary"}><TrafficSetup section={tab} key={`${projectId}:${config.data.key ?? "new"}`} projectId={projectId}
+      initial={config.data} domain={currentProject?.primary_domain ?? ""} editable={editable} /></div> : null}
+    {config.data?.key && tab === "summary" ? <>
       {!config.data.enabled ? <p className="traffic-notice">Collection is disabled. Historical traffic remains available.</p> : null}
       <div className="traffic-filters">
         <label>From (UTC)<Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></label>
@@ -92,20 +97,23 @@ function Breakdown({ title, rows }: { title: string; rows: TrafficBreakdown[] })
     <tbody>{rows.map((row) => <tr key={row.label}><td>{row.label}</td><td>{count(row.sessions)}</td><td>{count(row.views)}</td><td>{percent(row.converted, row.sessions)}</td></tr>)}</tbody>
   </table></div></CardContent></Card>;
 }
-function TrafficSetup({ projectId, initial, domain, editable }: { projectId: string; initial: TrafficConfig; domain: string; editable: boolean }) {
+function TrafficSetup({ projectId, initial, domain, editable, section }: { projectId: string; initial: TrafficConfig; domain: string; editable: boolean; section: TrafficTab }) {
   const queryClient = useQueryClient();
   const [settings, setSettings] = useState<TrafficSettings>({ enabled: initial.enabled, domains: initial.domains.length ? initial.domains : domain ? [domain] : [], aliases: initial.aliases, goals: initial.goals });
   const [domains, setDomains] = useState(settings.domains.join("\n"));
   const [copied, setCopied] = useState(false);
   const save = useMutation({ mutationFn: () => api<TrafficConfig>(`/traffic/${projectId}/config`, { method: "PUT", body: JSON.stringify({ ...settings, domains: domains.split(/[\n,]/).map((v) => v.trim()).filter(Boolean) }) }),
-    onSuccess: (value) => { setSettings(value); queryClient.setQueryData(["traffic-config", projectId], value); } });
+    onSuccess: (value) => { setSettings({ enabled: value.enabled, domains: value.domains, aliases: value.aliases, goals: value.goals }); queryClient.setQueryData(["traffic-config", projectId], value); } });
   const config = save.data ?? initial;
-  const snippet = `<script async src="${window.location.origin}/api/traffic/v1.js" data-site="${config.key ?? "SAVE_TO_GENERATE_KEY"}"></script>`;
-  return <Card><CardHeader title="Installation & goals" description="Install once on every page you want to measure. Subdomains must be listed explicitly." /><CardContent>
+  const snippet = trafficSnippet(config.installation, config.key ?? "SAVE_TO_GENERATE_KEY");
+  return <Card><CardHeader title={section === "conversions" ? "Conversion goals" : section === "sources" ? "AI sources" : "Install Belki Analytics"} description={section === "conversions" ? "Count a successful action or arrival at a specific page. Each goal counts once per session." : section === "sources" ? "Attribute visits using recognized utm_source values." : "Add the tag once to your site’s global template. Include every hostname you want to measure."} /><CardContent>
     <form className="traffic-setup" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
       <fieldset disabled={!editable || save.isPending}>
+        <div className="traffic-section" hidden={section !== "installation"}>
         <label className="traffic-enable"><input type="checkbox" checked={settings.enabled} onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })} /> Enable traffic collection</label>
         <label>Authorized hostnames<textarea aria-label="Authorized hostnames" className="input" rows={3} placeholder="example.com&#10;www.example.com" value={domains} onChange={(e) => setDomains(e.target.value)} /></label>
+        </div>
+        <div className="traffic-section" hidden={section !== "sources"}>
         <h3>Source aliases</h3><p>Built-in names and domains for ChatGPT, Claude, Gemini, Perplexity, Copilot and Grok are included. Add your own utm_source values below.</p>
         {settings.aliases.map((alias, index) => <div className="traffic-edit-row" key={index}>
           <Input aria-label={`Alias ${index + 1}`} value={alias.alias} placeholder="my-chatgpt-campaign" onChange={(e) => setSettings({ ...settings, aliases: settings.aliases.map((v, i) => i === index ? { ...v, alias: e.target.value } : v) })} />
@@ -113,24 +121,52 @@ function TrafficSetup({ projectId, initial, domain, editable }: { projectId: str
           <Button type="button" variant="ghost" aria-label={`Remove alias ${index + 1}`} onClick={() => setSettings({ ...settings, aliases: settings.aliases.filter((_, i) => i !== index) })}>Remove</Button>
         </div>)}
         <Button type="button" variant="secondary" disabled={settings.aliases.length >= 50} onClick={() => setSettings({ ...settings, aliases: [...settings.aliases, { alias: "", source: "chatgpt" }] })}>Add alias</Button>
-        <h3>Conversion goals</h3><p>Match an exact pathname, such as /thanks, or call <code>window.belki?.track('signup')</code> after a successful action. Events accept only a name.</p>
-        {settings.goals.map((goal, index) => <div className="traffic-edit-row traffic-goal-row" key={goal.id}>
+        </div>
+        <div className="traffic-section" hidden={section !== "conversions"}>
+        <p>Use an exact page path such as <code>/thanks</code>, or send a JavaScript event after your application confirms success. Visiting a page does not prove a purchase or registration completed.</p>
+        {settings.goals.map((goal, index) => <div className="traffic-goal" key={goal.id}><div className="traffic-edit-row traffic-goal-row">
           <Input aria-label={`Goal name ${index + 1}`} value={goal.name} placeholder="Signup" onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, name: e.target.value } : g) })} />
-          <select aria-label={`Goal type ${index + 1}`} className="input" value={goal.type} onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, type: e.target.value as "path" | "event" } : g) })}><option value="path">Page path</option><option value="event">JS event</option></select>
-          <Input aria-label={`Goal value ${index + 1}`} value={goal.value} placeholder={goal.type === "path" ? "/thanks" : "signup"} onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, value: e.target.value } : g) })} />
+          <select aria-label={`Goal type ${index + 1}`} className="input" value={goal.type} onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, type: e.target.value as "path" | "event" } : g) })}><option value="path">Page visit</option><option value="event">JavaScript event</option></select>
+          <Input aria-label={`Goal value ${index + 1}`} value={goal.value} placeholder={goal.type === "path" ? "/thanks" : "signup_completed"} onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, value: e.target.value } : g) })} />
           <Button type="button" variant="ghost" aria-label={`Remove goal ${index + 1}`} onClick={() => setSettings({ ...settings, goals: settings.goals.filter((_, i) => i !== index) })}>Remove</Button>
+        </div>
+          {goal.type === "event" ? <div className="traffic-goal-code"><code>{`window.belki.track(${JSON.stringify(goal.value || "signup_completed")});`}</code>
+            <Button type="button" variant="ghost" onClick={() => { void navigator.clipboard.writeText(`window.belki.track(${JSON.stringify(goal.value || "signup_completed")});`); }}>Copy event</Button></div>
+            : <p>Matches only <code>{goal.value || "/thanks"}</code>. Query parameters and fragments are ignored; trailing slashes must match.</p>}
         </div>)}
         <Button type="button" variant="secondary" disabled={settings.goals.length >= 30} onClick={() => setSettings({ ...settings, goals: [...settings.goals, { id: crypto.randomUUID(), name: "", type: "path", value: "" }] })}>Add goal</Button>
+        </div>
         <div><Button type="submit" disabled={save.isPending}>{save.isPending ? "Saving…" : "Save settings"}</Button></div>
       </fieldset>
       {save.error ? <p role="alert">{save.error.message}</p> : save.isSuccess ? <p role="status">Settings saved.</p> : null}
       {!editable ? <p>Editing requires an editor role and an active workspace.</p> : null}
     </form>
-    {config.key ? <div className="traffic-install"><h3>Your installation tag</h3><pre><code>{snippet}</code></pre>
+    {config.key && section === "installation" ? <div className="traffic-install"><h3>Your installation tag</h3><pre><code>{snippet}</code></pre>
       <Button variant="secondary" onClick={() => { void navigator.clipboard.writeText(snippet).then(() => setCopied(true)).catch(() => setCopied(false)); }}>{copied ? "Copied" : "Copy tag"}</Button>
-      <p>Last event: {initial.lastEvent ? new Date(initial.lastEvent).toLocaleString() : "Not received yet"}.</p>
-      <p>Test an authorized page with <code>?utm_source=chatgpt</code>. Events appear within a minute. Untagged visits create no analytics events.</p>
-      <p>Load this tag through your consent manager when needed. Allow this Belki origin in your site's script-src and connect-src policies. No visitor cookies or persistent visitor IDs are used.</p>
+      <p>Last real event: {initial.lastEvent ? new Date(initial.lastEvent).toLocaleString() : "Not received yet"}.</p>
+      <p>{config.enabled ? "Collection is active for recognized AI sources." : "Real traffic collection is off. You can verify the installation before enabling it."} Untagged visits create no analytics events.</p>
+      <TrafficInstallationTest projectId={projectId} domain={config.domains[0] ?? domain} editable={editable} />
+      <p>Load this tag through your consent manager when needed. Allow the script’s origin in script-src and the analytics service in connect-src. The inline queue initializer also needs your CSP nonce or hash. No visitor cookies or persistent visitor IDs are used.</p>
     </div> : null}
   </CardContent></Card>;
+}
+function TrafficInstallationTest({ projectId, domain, editable }: { projectId: string; domain: string; editable: boolean }) {
+  const [url, setUrl] = useState(`https://${domain}/`);
+  const start = useMutation({ mutationFn: () => api<{ url: string; expiresAt: number }>(`/traffic/${projectId}/test`, { method: "POST", body: JSON.stringify({ url }) }) });
+  const status = useQuery({ queryKey: ["traffic-test", projectId, start.data?.expiresAt], queryFn: () => api<TrafficTestResult | null>(`/traffic/${projectId}/test`), enabled: Boolean(start.data), refetchInterval: () => start.data && start.data.expiresAt > Date.now() ? 3000 : false });
+  const result = status.data?.result;
+  return <div className="traffic-test">
+    <h3>Check your installation</h3>
+    <p>Open a temporary test session on your site, then navigate or complete a goal. Test events stay out of your reports and expire after 10 minutes.</p>
+    <label>Page to test<Input aria-label="Page to test" type="url" value={url} onChange={(event) => setUrl(event.target.value)} /></label>
+    <Button variant="secondary" disabled={!editable || start.isPending} onClick={() => start.mutate()}>{start.isPending ? "Preparing test…" : "Create test link"}</Button>
+    {start.error ? <p role="alert">{start.error.message}</p> : null}
+    {start.data ? <>
+      <a href={start.data.url} target="_blank" rel="noreferrer">Open test page ↗</a>
+      <p role="status">{status.isSuccess && status.data === null ? "Test expired. Create a new link to continue." : result ? `Page received: ${result.path}` : "Waiting for a test event. No signal yet does not necessarily mean the tag is missing."}</p>
+      {result?.event ? <p>Event received: <code>{result.event}</code></p> : null}
+      {result?.goals.length ? <p>Goals matched: {result.goals.join(", ")}</p> : null}
+      {status.error ? <p role="alert">{status.error.message}</p> : null}
+    </> : null}
+  </div>;
 }

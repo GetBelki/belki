@@ -11,6 +11,7 @@ import {
   operatorStatusLabel,
   type OperatorWorkspaceStatus,
 } from "../lib/operator-console";
+import { AnalyticsServiceSettings } from "../components/analytics-service-settings";
 import { formText } from "../lib/utils";
 
 const WORKSPACE_STATUS_OPTIONS: Array<{
@@ -145,6 +146,7 @@ export default function OperatorPage() {
           <Button onClick={openInviteDialog}><MailPlus size={16} /> Create invitation</Button>
         )}
       />
+      <AnalyticsServiceSettings />
       <div aria-label="Operations summary" className="operator-summary-strip">
         <div><strong>{workspaceData.length}</strong><span>Workspaces</span></div>
         <div><strong>{customerWorkspaces}</strong><span>Managed customers</span></div>
