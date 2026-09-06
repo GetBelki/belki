@@ -42,7 +42,7 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
     }
   }
   return <div className="page traffic-page">
-    <PageHeader title="AI Traffic" description="Visits and conversions from AI-tagged links. Only recognized utm_source sessions are measured." />
+    <PageHeader title="AI Traffic" description="Visits and conversions from links tagged with a recognized AI utm_source." />
     <nav className="traffic-tabs" aria-label="AI Traffic sections">
       {([["summary", "Overview"], ["installation", "Installation"], ["conversions", "Conversions"], ["sources", "Sources"]] as const).map(([value, label]) =>
         <Button key={value} variant={tab === value ? "default" : "ghost"} aria-pressed={tab === value} onClick={() => setSelectedTab(value)}>{label}</Button>)}
@@ -56,7 +56,7 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
       <div className="traffic-filters">
         <label>From (UTC)<Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></label>
         <label>To (UTC)<Input type="date" value={to} min={from} max={isoDate(new Date())} onChange={(e) => setTo(e.target.value)} /></label>
-        <label>AI source<Select ariaLabel="AI traffic source" value={source} onValueChange={setSource} options={[{ value: "all", label: "All AI sources" }, ...sourceOptions]} /></label>
+        <label className="traffic-source-filter">AI source<Select ariaLabel="AI traffic source" value={source} onValueChange={setSource} options={[{ value: "all", label: "All AI sources" }, ...sourceOptions]} /></label>
       </div>
       {report.isPending ? <p role="status">Loading traffic…</p> : null}
       {report.error ? <p role="alert">{report.error.message}</p> : null}
@@ -67,10 +67,11 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
           ["Visible time / session", `${data.summary.sessions ? Math.round(data.summary.visibleMs / data.summary.sessions / 1000) : 0}s`],
           ["Converted sessions", count(data.summary.converted)], ["Conversion rate", percent(data.summary.converted, data.summary.sessions)],
         ].map(([label, value]) => <Card key={label}><CardContent><span>{label}</span><strong>{value}</strong></CardContent></Card>)}</div>
-        {!data.summary.sessions ? <EmptyState title="No attributed visits yet" description="Install the tag, enable collection, and visit an authorized domain with ?utm_source=chatgpt. Untagged traffic is not recorded." /> : <>
+        {!data.summary.sessions ? <div className="traffic-empty"><EmptyState title="No visits for these filters" description="Try another date range or AI source. To verify collection, check your tag installation and test an AI-tagged visit." action={<Button variant="secondary" onClick={() => setSelectedTab("installation")}>Check installation</Button>} /></div> : <>
           <Card><CardHeader title="Daily traffic" description="Sessions and their page views, grouped by session start date in UTC." /><CardContent>
+            <div className="traffic-chart-legend" aria-label="Chart legend"><span><i className="traffic-legend-sessions" />Sessions</span><span><i className="traffic-legend-views" />Page views</span></div>
             <div className="traffic-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={daily} accessibilityLayer>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" tickFormatter={(v: string) => v.slice(5)} minTickGap={32} /><YAxis allowDecimals={false} />
+              <CartesianGrid strokeDasharray="3 3" vertical={false} /><XAxis dataKey="label" tickFormatter={(v: string) => v.slice(5)} minTickGap={32} /><YAxis allowDecimals={false} width={40} />
               <Tooltip /><Line type="monotone" dataKey="sessions" name="Sessions" stroke="#1e73be" dot={false} strokeWidth={2} />
               <Line type="monotone" dataKey="views" name="Page views" stroke="#8c62c4" dot={false} strokeWidth={2} />
             </LineChart></ResponsiveContainer></div>
@@ -111,13 +112,14 @@ function TrafficSetup({ projectId, initial, domain, editable, section }: { proje
       <fieldset disabled={!editable || save.isPending}>
         <div className="traffic-section" hidden={section !== "installation"}>
         <label className="traffic-enable"><input type="checkbox" checked={settings.enabled} onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })} /> Enable traffic collection</label>
-        <label>Authorized hostnames<textarea aria-label="Authorized hostnames" className="input" rows={3} placeholder="example.com&#10;www.example.com" value={domains} onChange={(e) => setDomains(e.target.value)} /></label>
+        <label>Authorized hostnames<textarea aria-label="Authorized hostnames" aria-describedby="traffic-hostnames-hint" className="input" rows={3} placeholder="example.com&#10;www.example.com" value={domains} onChange={(e) => setDomains(e.target.value)} /></label>
+        <p className="traffic-field-hint" id="traffic-hostnames-hint">One hostname per line or separated by commas. Include each subdomain, without https:// or a path.</p>
         </div>
         <div className="traffic-section" hidden={section !== "sources"}>
         <h3>Source aliases</h3><p>Built-in names and domains for ChatGPT, Claude, Gemini, Perplexity, Copilot and Grok are included. Add your own utm_source values below.</p>
         {settings.aliases.map((alias, index) => <div className="traffic-edit-row" key={index}>
-          <Input aria-label={`Alias ${index + 1}`} value={alias.alias} placeholder="my-chatgpt-campaign" onChange={(e) => setSettings({ ...settings, aliases: settings.aliases.map((v, i) => i === index ? { ...v, alias: e.target.value } : v) })} />
-          <select aria-label={`Alias source ${index + 1}`} className="input" value={alias.source} onChange={(e) => setSettings({ ...settings, aliases: settings.aliases.map((v, i) => i === index ? { ...v, source: e.target.value as TrafficSource } : v) })}>{sourceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select>
+          <label>UTM source<Input aria-label={`Alias ${index + 1}`} value={alias.alias} placeholder="my-chatgpt-campaign" onChange={(e) => setSettings({ ...settings, aliases: settings.aliases.map((v, i) => i === index ? { ...v, alias: e.target.value } : v) })} /></label>
+          <label>AI source<select aria-label={`Alias source ${index + 1}`} className="input" value={alias.source} onChange={(e) => setSettings({ ...settings, aliases: settings.aliases.map((v, i) => i === index ? { ...v, source: e.target.value as TrafficSource } : v) })}>{sourceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
           <Button type="button" variant="ghost" aria-label={`Remove alias ${index + 1}`} onClick={() => setSettings({ ...settings, aliases: settings.aliases.filter((_, i) => i !== index) })}>Remove</Button>
         </div>)}
         <Button type="button" variant="secondary" disabled={settings.aliases.length >= 50} onClick={() => setSettings({ ...settings, aliases: [...settings.aliases, { alias: "", source: "chatgpt" }] })}>Add alias</Button>
@@ -125,9 +127,9 @@ function TrafficSetup({ projectId, initial, domain, editable, section }: { proje
         <div className="traffic-section" hidden={section !== "conversions"}>
         <p>Use an exact page path such as <code>/thanks</code>, or send a JavaScript event after your application confirms success. Visiting a page does not prove a purchase or registration completed.</p>
         {settings.goals.map((goal, index) => <div className="traffic-goal" key={goal.id}><div className="traffic-edit-row traffic-goal-row">
-          <Input aria-label={`Goal name ${index + 1}`} value={goal.name} placeholder="Signup" onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, name: e.target.value } : g) })} />
-          <select aria-label={`Goal type ${index + 1}`} className="input" value={goal.type} onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, type: e.target.value as "path" | "event" } : g) })}><option value="path">Page visit</option><option value="event">JavaScript event</option></select>
-          <Input aria-label={`Goal value ${index + 1}`} value={goal.value} placeholder={goal.type === "path" ? "/thanks" : "signup_completed"} onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, value: e.target.value } : g) })} />
+          <label>Goal name<Input aria-label={`Goal name ${index + 1}`} value={goal.name} placeholder="Signup" onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, name: e.target.value } : g) })} /></label>
+          <label>Track by<select aria-label={`Goal type ${index + 1}`} className="input" value={goal.type} onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, type: e.target.value as "path" | "event" } : g) })}><option value="path">Page visit</option><option value="event">JavaScript event</option></select></label>
+          <label>{goal.type === "path" ? "Page path" : "Event name"}<Input aria-label={`Goal value ${index + 1}`} value={goal.value} placeholder={goal.type === "path" ? "/thanks" : "signup_completed"} onChange={(e) => setSettings({ ...settings, goals: settings.goals.map((g, i) => i === index ? { ...g, value: e.target.value } : g) })} /></label>
           <Button type="button" variant="ghost" aria-label={`Remove goal ${index + 1}`} onClick={() => setSettings({ ...settings, goals: settings.goals.filter((_, i) => i !== index) })}>Remove</Button>
         </div>
           {goal.type === "event" ? <div className="traffic-goal-code"><code>{`window.belki.track(${JSON.stringify(goal.value || "signup_completed")});`}</code>
@@ -136,12 +138,12 @@ function TrafficSetup({ projectId, initial, domain, editable, section }: { proje
         </div>)}
         <Button type="button" variant="secondary" disabled={settings.goals.length >= 30} onClick={() => setSettings({ ...settings, goals: [...settings.goals, { id: crypto.randomUUID(), name: "", type: "path", value: "" }] })}>Add goal</Button>
         </div>
-        <div><Button type="submit" disabled={save.isPending}>{save.isPending ? "Saving…" : "Save settings"}</Button></div>
+        <div className="traffic-save"><Button type="submit" disabled={save.isPending}>{save.isPending ? "Saving…" : "Save settings"}</Button></div>
       </fieldset>
       {save.error ? <p role="alert">{save.error.message}</p> : save.isSuccess ? <p role="status">Settings saved.</p> : null}
       {!editable ? <p>Editing requires an editor role and an active workspace.</p> : null}
     </form>
-    {config.key && section === "installation" ? <div className="traffic-install"><h3>Your installation tag</h3><pre><code>{snippet}</code></pre>
+    {config.key && section === "installation" ? <div className="traffic-install"><h3>Your installation tag</h3><p>Paste both script blocks inside &lt;head&gt;, before &lt;/head&gt;, in your shared layout so they load on every page. Keep them in this order.</p><pre tabIndex={0} aria-label="Installation tag"><code>{snippet}</code></pre>
       <Button variant="secondary" onClick={() => { void navigator.clipboard.writeText(snippet).then(() => setCopied(true)).catch(() => setCopied(false)); }}>{copied ? "Copied" : "Copy tag"}</Button>
       <p>Last real event: {initial.lastEvent ? new Date(initial.lastEvent).toLocaleString() : "Not received yet"}.</p>
       <p>{config.enabled ? "Collection is active for recognized AI sources." : "Real traffic collection is off. You can verify the installation before enabling it."} Untagged visits create no analytics events.</p>
