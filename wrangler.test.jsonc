@@ -4,6 +4,9 @@
   "main": "./src/worker/index.ts",
   "compatibility_date": "2026-08-17",
   "compatibility_flags": ["nodejs_compat"],
+  "d1_databases": [
+    { "binding": "TRAFFIC_TEST_DB", "database_name": "traffic-test", "database_id": "00000000-0000-0000-0000-000000000001" }
+  ],
   "durable_objects": {
     "bindings": [
       { "name": "WORKSPACE_USAGE", "class_name": "WorkspaceUsageGate" }

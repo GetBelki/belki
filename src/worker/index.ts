@@ -12,6 +12,7 @@ import type {
 } from "../shared/contracts";
 import { automationRoutes } from "./routes/automation";
 import { analyticsRoutes } from "./routes/analytics";
+import { trafficRoutes, trafficPublicRoutes, retainTraffic } from "./routes/traffic";
 import { adsRoutes } from "./routes/ads";
 import { authRoutes } from "./routes/auth";
 import { coreRoutes } from "./routes/core";
@@ -333,7 +334,9 @@ app.post("/api/webhooks/dataforseo/product-info", async (c) => {
 app.post("/api/webhooks/stripe", handleStripeWebhook);
 app.post("/api/webhooks/payments/:endpointKey", handlePaymentWebhook);
 
+app.route("/api/traffic", trafficPublicRoutes);
 app.use("/api/v1/*", authMiddleware);
+app.route("/api/v1/traffic", trafficRoutes);
 app.route("/api/v1", authRoutes);
 app.route("/api/v1", onboardingRoutes);
 app.route("/api/v1", operatorInsightRoutes);
@@ -418,6 +421,7 @@ async function scheduled(
     metrics.enqueuedProductEnrichments = await enqueueDueProductEnrichments(env);
     metrics.reconciledProductEnrichmentJobs = await reconcileProductEnrichmentJobs(env);
   } else if (event.cron === "* * * * *") {
+    metrics.expiredTrafficSessions = (await retainTraffic(env.CONTROL_DB)).meta.changes;
     metrics.reconciledBillingPlanChanges = await reconcileBillingPlanChanges(env);
     metrics.recoveredPostbacks = await collectReadyTasks(env);
     metrics.recoveredProductInfoPostbacks = await collectReadyProductInfoTasks(env);
