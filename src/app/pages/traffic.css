@@ -6,6 +6,7 @@
 .traffic-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 200px)); align-items: end; gap: 16px; }
 .traffic-filters label, .traffic-setup label, .traffic-test label { display: grid; gap: 8px; min-width: 0; font-size: 13px; font-weight: 500; }
 .traffic-page .input, .traffic-page .select-trigger { min-width: 0; max-width: 100%; min-height: 40px; }
+.traffic-page select.input { appearance: none; padding-right: 36px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%2371717a' stroke-width='2'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E"); background-repeat: no-repeat; background-position: right 12px center; background-size: 16px; }
 .traffic-filters input[type="date"] { display: block; width: 100%; }
 .traffic-filters input[type="date"]::-webkit-date-and-time-value { text-align: left; }
 .traffic-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; }
