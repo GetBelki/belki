@@ -1,8 +1,9 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
+import { ChevronDown } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { NoProject, PageHeader } from "../components/layout";
-import { Button, Card, CardContent, CardHeader, EmptyState, Input, Select } from "../components/ui";
+import { Button, Card, CardContent, CardHeader, Dialog, EmptyState, Input, Select } from "../components/ui";
 import { useApp } from "../context";
 import { api } from "../lib/api";
 import { TRAFFIC_LABELS, TRAFFIC_SOURCES, trafficSnippet, type TrafficTestResult, type TrafficBreakdown, type TrafficConfig, type TrafficReport, type TrafficSettings, type TrafficSource } from "../../shared/traffic";
@@ -54,8 +55,7 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
     {config.data?.key && tab === "summary" ? <>
       {!config.data.enabled ? <p className="traffic-notice">Collection is disabled. Historical traffic remains available.</p> : null}
       <div className="traffic-filters">
-        <label>From (UTC)<Input type="date" value={from} max={to} onChange={(e) => setFrom(e.target.value)} /></label>
-        <label>To (UTC)<Input type="date" value={to} min={from} max={isoDate(new Date())} onChange={(e) => setTo(e.target.value)} /></label>
+        <TrafficDateRange from={from} to={to} onChange={(range) => { setFrom(range.from); setTo(range.to); }} />
         <label className="traffic-source-filter">AI source<Select ariaLabel="AI traffic source" value={source} onValueChange={setSource} options={[{ value: "all", label: "All AI sources" }, ...sourceOptions]} /></label>
       </div>
       {report.isPending ? <p role="status">Loading traffic…</p> : null}
@@ -90,6 +90,34 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
         <p className="traffic-footnote">12 months of history · Anonymous sessions per tab · Visible time is approximate, not a measure of attention. Tables show the top 100 entries.</p>
       </> : null}
     </> : null}
+  </div>;
+}
+function TrafficDateRange({ from, to, onChange }: { from: string; to: string; onChange: (range: { from: string; to: string }) => void }) {
+  const [open, setOpen] = useState(false);
+  const [draftFrom, setDraftFrom] = useState(from);
+  const [draftTo, setDraftTo] = useState(to);
+  const today = isoDate(new Date());
+  const format = (value: string, year: boolean) => new Intl.DateTimeFormat("en", { month: "short", day: "numeric", ...(year ? { year: "numeric" } as const : {}), timeZone: "UTC" }).format(new Date(`${value}T00:00:00Z`));
+  const includeYear = from.slice(0, 4) !== to.slice(0, 4);
+  const rangeTooLong = Date.parse(draftTo) - Date.parse(draftFrom) > 366 * 86400000;
+  const apply = (nextFrom: string, nextTo: string) => { onChange({ from: nextFrom, to: nextTo }); setOpen(false); };
+  return <div className="traffic-date-range">
+    <span id="traffic-date-range-label">Date range (UTC)</span>
+    <Dialog title="Date range" description="Choose a preset or enter custom dates. Reports use UTC." contentClassName="traffic-date-dialog" open={open}
+      onOpenChange={(value) => { if (value) { setDraftFrom(from); setDraftTo(to); } setOpen(value); }}
+      trigger={<Button variant="secondary" className="traffic-date-trigger" aria-labelledby="traffic-date-range-label traffic-date-range-value">
+        <span id="traffic-date-range-value" title={`${format(from, true)} – ${format(to, true)}`}>{format(from, includeYear)} – {format(to, includeYear)}</span><ChevronDown size={15} aria-hidden="true" />
+      </Button>}>
+      <div className="traffic-date-presets" aria-label="Quick date ranges">
+        {[7, 30, 90].map((days) => <Button key={days} variant="secondary" onClick={() => apply(isoDate(new Date(Date.parse(today) - (days - 1) * 86400000)), today)}>Last {days} days</Button>)}
+      </div>
+      <form className="traffic-date-form" onSubmit={(event) => { event.preventDefault(); if (!rangeTooLong) apply(draftFrom, draftTo); }}>
+        <label>From (UTC)<Input type="date" required value={draftFrom} max={draftTo || today} onChange={(event) => setDraftFrom(event.target.value)} /></label>
+        <label>To (UTC)<Input type="date" required value={draftTo} min={draftFrom} max={today} onChange={(event) => setDraftTo(event.target.value)} /></label>
+        {rangeTooLong ? <p role="alert">Choose a range of no more than 12 months.</p> : null}
+        <div className="traffic-date-actions"><Button type="button" variant="secondary" onClick={() => setOpen(false)}>Cancel</Button><Button type="submit" disabled={!draftFrom || !draftTo || rangeTooLong}>Apply dates</Button></div>
+      </form>
+    </Dialog>
   </div>;
 }
 function Breakdown({ title, rows }: { title: string; rows: TrafficBreakdown[] }) {

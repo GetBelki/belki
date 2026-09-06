@@ -41,3 +41,40 @@ describe("analytics project setup", () => {
     await waitFor(() => expect(vi.mocked(api).mock.calls.find(([path, init]) => path === "/traffic/p1/config" && init?.method === "PUT")?.[1]?.body).toContain('"value":"signup_completed"'));
   });
 });
+
+describe("analytics date range", () => {
+  it("applies custom dates together and preserves them when a later edit is cancelled", async () => {
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: /Date range \(UTC\)/ }));
+    const before = vi.mocked(api).mock.calls.filter(([path]) => path.includes("/report?")).length;
+    fireEvent.change(screen.getByLabelText("From (UTC)"), { target: { value: "2020-04-01" } });
+    fireEvent.change(screen.getByLabelText("To (UTC)"), { target: { value: "2020-04-09" } });
+    expect(vi.mocked(api).mock.calls.filter(([path]) => path.includes("/report?"))).toHaveLength(before);
+    fireEvent.click(screen.getByRole("button", { name: "Apply dates" }));
+    await waitFor(() => expect(api).toHaveBeenCalledWith("/traffic/p1/report?from=2020-04-01&to=2020-04-09"));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /Date range \(UTC\)/ }));
+    fireEvent.change(screen.getByLabelText("From (UTC)"), { target: { value: "2020-04-02" } });
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
+    fireEvent.click(screen.getByRole("button", { name: /Date range \(UTC\)/ }));
+    expect(screen.getByLabelText("From (UTC)")).toHaveValue("2020-04-01");
+  });
+  it("selects an inclusive seven-day range ending today in UTC", async () => {
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: /Date range \(UTC\)/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Last 7 days" }));
+    const today = new Date().toISOString().slice(0, 10);
+    const from = new Date(Date.parse(today) - 6 * 86400000).toISOString().slice(0, 10);
+    await waitFor(() => expect(api).toHaveBeenCalledWith(`/traffic/p1/report?from=${from}&to=${today}`));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+  it("keeps incomplete or overly long custom ranges from being applied", async () => {
+    open();
+    fireEvent.click(await screen.findByRole("button", { name: /Date range \(UTC\)/ }));
+    fireEvent.change(screen.getByLabelText("From (UTC)"), { target: { value: "" } });
+    expect(screen.getByRole("button", { name: "Apply dates" })).toBeDisabled();
+    fireEvent.change(screen.getByLabelText("From (UTC)"), { target: { value: "2000-01-01" } });
+    expect(screen.getByRole("button", { name: "Apply dates" })).toBeDisabled();
+    expect(screen.getByRole("alert")).toHaveTextContent("no more than 12 months");
+  });
+});
