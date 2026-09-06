@@ -17,3 +17,6 @@ brand-reputation-prompt-templates.md
 website/
 belki-logo.png
 /assets/
+# Generated standalone analytics assets
+public/belki-analytics.js
+public/assets/belki-analytics.*.js

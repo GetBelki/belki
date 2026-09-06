@@ -12,7 +12,8 @@ import type {
 } from "../shared/contracts";
 import { automationRoutes } from "./routes/automation";
 import { analyticsRoutes } from "./routes/analytics";
-import { trafficRoutes, trafficPublicRoutes, retainTraffic } from "./routes/traffic";
+import { trafficRoutes, trafficOperatorRoutes, retainTraffic } from "./routes/traffic";
+import { trafficPublicRoutes } from "./routes/traffic-public";
 import { adsRoutes } from "./routes/ads";
 import { authRoutes } from "./routes/auth";
 import { coreRoutes } from "./routes/core";
@@ -334,9 +335,10 @@ app.post("/api/webhooks/dataforseo/product-info", async (c) => {
 app.post("/api/webhooks/stripe", handleStripeWebhook);
 app.post("/api/webhooks/payments/:endpointKey", handlePaymentWebhook);
 
-app.route("/api/traffic", trafficPublicRoutes);
+app.route("/", trafficPublicRoutes);
 app.use("/api/v1/*", authMiddleware);
 app.route("/api/v1/traffic", trafficRoutes);
+app.route("/api/v1", trafficOperatorRoutes);
 app.route("/api/v1", authRoutes);
 app.route("/api/v1", onboardingRoutes);
 app.route("/api/v1", operatorInsightRoutes);

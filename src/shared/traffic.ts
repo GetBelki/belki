@@ -38,7 +38,27 @@ export const TrafficSettingsSchema = z.object({
   }
 });
 export type TrafficSettings = z.infer<typeof TrafficSettingsSchema>;
-export type TrafficConfig = TrafficSettings & { key: string | null; lastEvent: number | null };
+export interface TrafficInstallation {
+  origin: string;
+  scriptUrl: string;
+  mode: "integrated" | "separate";
+  customScript: boolean;
+}
+export interface TrafficTestResult {
+  expiresAt: number;
+  result: { receivedAt: number; path: string; event: string | null; goals: string[] } | null;
+}
+export type TrafficConfig = TrafficSettings & { key: string | null; lastEvent: number | null; installation: TrafficInstallation };
+
+export function trafficSnippet(installation: TrafficInstallation, key: string): string {
+  const attr = (value: string) => value.replaceAll("&", "&amp;").replaceAll('"', "&quot;").replaceAll("<", "&lt;").replaceAll(">", "&gt;");
+  return `<script>
+  window.belki = window.belki || { q: [], track: function (name) {
+    if (this.q.length < 30) this.q.push({ name: name, at: Date.now(), url: location.href });
+  }};
+</script>
+<script async src="${attr(installation.scriptUrl)}" data-site="${attr(key)}" data-api="${attr(installation.origin)}"></script>`;
+}
 export function trafficAliases(aliases: TrafficSettings["aliases"]): Record<string, TrafficSource> {
   return Object.assign(Object.create(null) as Record<string, TrafficSource>, TRAFFIC_ALIASES,
     Object.fromEntries(aliases.map(({ alias, source }) => [alias, source])));

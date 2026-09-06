@@ -955,3 +955,25 @@ collect completed results whose old postback URL is no longer reachable.
 - [DataForSEO LLM Responses](https://docs.dataforseo.com/v3/ai_optimization-llm_responses-overview/)
 - [DataForSEO Google AI Mode](https://docs.dataforseo.com/v3/serp/google/ai_mode/overview/)
 - [DataForSEO Google Organic AI Overview](https://docs.dataforseo.com/v3/serp/google/organic/task_post/)
+
+## Analytics hosting
+
+AI Traffic uses the public `belki-analytics.js` SDK. Self-hosted installations
+serve it and `/v1/*` from the app by default. Run `pnpm configure:analytics`
+before building to choose a separate analytics origin and optional CDN script
+URL. For managed installs, pass `--profile deployment/getbelki.json`.
+
+The normal deployment commands publish the separate analytics Worker first when
+configured. It shares `CONTROL_DB` and has no application secrets, scheduled
+jobs or dashboard routes. Its hostname must be available in your Cloudflare
+account. `pnpm deploy:analytics -- --dry-run` checks its package without publishing.
+The guided deploy offers configuration interactively; unattended runs use the
+saved deployment variables.
+
+Apply migrations `0037_ai_traffic.sql` and `0038_analytics_installation_tests.sql`
+before publishing. The latter adds one expiring test record per project without
+changing historical traffic. Test sites using the old `/api/traffic/v1.js` tag
+must copy the new installation snippet; legacy public routes are removed.
+
+See [AI Traffic hosting and installation](ai-traffic.md) for configuration,
+CSP/CORS, cache behaviour, diagnostics and retry semantics.

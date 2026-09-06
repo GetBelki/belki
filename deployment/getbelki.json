@@ -2,13 +2,17 @@
   "profileVersion": 1,
   "workers_dev": false,
   "routes": [
-    { "pattern": "app.getbelki.com", "custom_domain": true }
+    {
+      "pattern": "app.getbelki.com",
+      "custom_domain": true
+    }
   ],
   "vars": {
     "DEPLOYMENT_MODE": "managed",
     "PAYMENT_MODE": "enabled",
     "BILLING_PLAN_CHANGES_ENABLED": "true",
     "PUBLIC_APP_ORIGIN": "https://app.getbelki.com",
-    "EMAIL_FROM_ADDRESS": "noreply@notifications.getbelki.com"
+    "EMAIL_FROM_ADDRESS": "noreply@notifications.getbelki.com",
+    "PUBLIC_ANALYTICS_ORIGIN": "https://analytics.getbelki.com"
   }
 }

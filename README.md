@@ -150,12 +150,23 @@ Unless labeled otherwise, the features below are available in both modes.
 
 ### AI Traffic
 
-Install a small JavaScript tag to measure sessions originating from recognized
-AI `utm_source` values, including subsequent page views, approximate visible
-time, country, device and conversions by page or explicit JS event. Projects
-have their own domain allowlist, custom source aliases and goals, with 12 months
-of history. Collection is opt-in; unrelated traffic sends no analytics events.
-See [AI Traffic setup and metric definitions](docs/ai-traffic.md).
+Install **`belki-analytics.js`** to measure sessions originating from recognized
+AI `utm_source` values, subsequent page views, approximate visible time, country,
+device and conversions by page or JavaScript event. Collection is opt-in, with
+per-project domains, custom source aliases, goals and 12 months of history.
+
+**AI Traffic → Installation** generates the complete tag and provides a temporary
+test session excluded from real reports. Conversion delivery includes a bounded
+per-tab retry queue and server deduplication. **Conversions** and **Sources** have
+their own configuration sections.
+
+Open-source installs work with the application origin by default. Run
+`pnpm configure:analytics` to choose an independent analytics subdomain or an
+optional CDN script URL. The deployment commands support both modes, sharing the
+same SDK and collection logic. **Operator → Analytics service** shows the resolved
+configuration and can check availability. No Belki-hosted service is required.
+
+See [AI Traffic installation, hosting and metric definitions](docs/ai-traffic.md).
 
 ### Workspaces, projects, and onboarding
 
