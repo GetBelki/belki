@@ -41,7 +41,7 @@ import { TRACKING_SOURCE_LABELS } from "../../shared/tracking-sources";
 
 const NAVIGATION = [
   { to: "/", label: "Overview", icon: LayoutDashboard, end: true },
-  { to: "/ai-traffic", label: "AI Traffic", icon: ChartNoAxesCombined },
+  { to: "/ai-traffic", label: "AI Analytics", icon: ChartNoAxesCombined },
   { to: "/prompts", label: "Prompts", icon: PromptsIcon },
   { to: "/related-queries", label: "Related queries", icon: RelatedQueriesIcon },
   { to: "/citations", label: "Citation Sources", icon: SourcesIcon },

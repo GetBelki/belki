@@ -1,12 +1,12 @@
-# AI Traffic
+# AI Analytics
 
-AI Traffic measures sessions that enter a customer website with a recognized
+AI Analytics measures sessions that enter a customer website with a recognized
 `utm_source`. It measures tagged traffic, not verified referrals or all visits
 from AI products. It does not infer attribution from referrers.
 
 ## Installation in a project
 
-1. Open **AI Traffic → Installation** in the selected project.
+1. Open **AI Analytics → Installation** in the selected project.
 2. List exact hostnames, including each subdomain, and save. Collection can remain off.
 3. Copy the complete generated tag (the queue initializer and the asynchronous
    `belki-analytics.js` script) into the site's global template, before calls to `belki.track`.

@@ -958,7 +958,7 @@ collect completed results whose old postback URL is no longer reachable.
 
 ## Analytics hosting
 
-AI Traffic uses the public `belki-analytics.js` SDK. Self-hosted installations
+AI Analytics uses the public `belki-analytics.js` SDK. Self-hosted installations
 serve it and `/v1/*` from the app by default. Run `pnpm configure:analytics`
 before building to choose a separate analytics origin and optional CDN script
 URL. For managed installs, pass `--profile deployment/getbelki.json`.
@@ -975,5 +975,5 @@ before publishing. The latter adds one expiring test record per project without
 changing historical traffic. Test sites using the old `/api/traffic/v1.js` tag
 must copy the new installation snippet; legacy public routes are removed.
 
-See [AI Traffic hosting and installation](ai-traffic.md) for configuration,
+See [AI Analytics hosting and installation](ai-traffic.md) for configuration,
 CSP/CORS, cache behaviour, diagnostics and retry semantics.
