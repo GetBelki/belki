@@ -32,3 +32,21 @@ export function analyticsWorkerConfig(base, vars, root, database) {
     observability: { enabled: true, head_sampling_rate: 0.1 },
   };
 }
+
+export function analyticsDeployEnvironment(parent, workerName) {
+  const env = { ...parent };
+  // Workers Builds pins its primary Worker. This child deployment intentionally
+  // targets another service: never inherit a name override for the application.
+  if (env.WRANGLER_CI_OVERRIDE_NAME) env.WRANGLER_CI_OVERRIDE_NAME = workerName;
+  delete env.WRANGLER_CI_MATCH_TAG;
+  return env;
+}
+export function analyticsDatabase(base, profile = {}) {
+  const database = base.d1_databases.find((db) => db.binding === "CONTROL_DB");
+  if (!database) throw new Error("The application must define its CONTROL_DB binding.");
+  const id = profile.analytics?.controlDatabaseId ?? database.database_id;
+  if (id && !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(id)) {
+    throw new Error("The analytics control database ID must be a UUID.");
+  }
+  return { ...database, ...(id ? { database_id: id } : {}) };
+}

@@ -14,5 +14,8 @@
     "PUBLIC_APP_ORIGIN": "https://app.getbelki.com",
     "EMAIL_FROM_ADDRESS": "noreply@notifications.getbelki.com",
     "PUBLIC_ANALYTICS_ORIGIN": "https://analytics.getbelki.com"
+  },
+  "analytics": {
+    "controlDatabaseId": "cf21b68a-a943-4cf3-b12d-8ff93c8c86d6"
   }
 }
