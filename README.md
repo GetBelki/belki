@@ -148,14 +148,14 @@ Belki has two deployment modes:
 
 Unless labeled otherwise, the features below are available in both modes.
 
-### AI Traffic
+### AI Analytics
 
 Install **`belki-analytics.js`** to measure sessions originating from recognized
 AI `utm_source` values, subsequent page views, approximate visible time, country,
 device and conversions by page or JavaScript event. Collection is opt-in, with
 per-project domains, custom source aliases, goals and 12 months of history.
 
-**AI Traffic → Installation** generates the complete tag and provides a temporary
+**AI Analytics → Installation** generates the complete tag and provides a temporary
 test session excluded from real reports. Conversion delivery includes a bounded
 per-tab retry queue and server deduplication. **Conversions** and **Sources** have
 their own configuration sections.
@@ -166,7 +166,7 @@ optional CDN script URL. The deployment commands support both modes, sharing the
 same SDK and collection logic. **Operator → Analytics service** shows the resolved
 configuration and can check availability. No Belki-hosted service is required.
 
-See [AI Traffic installation, hosting and metric definitions](docs/ai-traffic.md).
+See [AI Analytics installation, hosting and metric definitions](docs/ai-traffic.md).
 
 ### Workspaces, projects, and onboarding
 

@@ -43,8 +43,8 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
     }
   }
   return <div className="page traffic-page">
-    <PageHeader title="AI Traffic" description="Visits and conversions from links tagged with a recognized AI utm_source." />
-    <nav className="traffic-tabs" aria-label="AI Traffic sections">
+    <PageHeader title="AI Analytics" description="Understand visits and conversions from AI sources." />
+    <nav className="traffic-tabs" aria-label="AI Analytics sections">
       {([["summary", "Overview"], ["installation", "Installation"], ["conversions", "Conversions"], ["sources", "Sources"]] as const).map(([value, label]) =>
         <Button key={value} variant={tab === value ? "default" : "ghost"} aria-pressed={tab === value} onClick={() => setSelectedTab(value)}>{label}</Button>)}
     </nav>
