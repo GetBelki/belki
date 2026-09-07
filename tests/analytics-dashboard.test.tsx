@@ -7,7 +7,7 @@ import type { TrafficConfig } from "../src/shared/traffic";
 vi.mock("../src/app/context", () => ({ useApp: () => ({ projectId: "p1", session: { user: { role: "editor" }, workspace: { status: "active" } }, currentProject: { primary_domain: "example.com" } }) }));
 vi.mock("../src/app/lib/api", () => ({ api: vi.fn() }));
 const config: TrafficConfig = { key: "public-project-key", enabled: false, domains: ["example.com"], aliases: [], goals: [], lastEvent: null, installation: { mode: "separate", origin: "https://analytics.example", scriptUrl: "https://cdn.example/belki-analytics.js", customScript: true } };
-afterEach(() => { cleanup(); vi.clearAllMocks(); });
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 function open(configResponse: Promise<TrafficConfig> = Promise.resolve(config)) {
   vi.mocked(api).mockImplementation((path, init) => {
     if (path.endsWith("/config")) return Promise.resolve(init?.method === "PUT" ? { ...config, ...(JSON.parse(init.body as string) as Partial<TrafficConfig>) } : configResponse);
@@ -120,5 +120,51 @@ describe("analytics initial section", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Settings unavailable");
     expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+describe("analytics copy actions", () => {
+  it("copies the complete tag and resets confirmation two seconds after each copy", async () => {
+    const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "Installation" }));
+    const code = await screen.findByLabelText("Installation tag");
+    vi.useFakeTimers();
+    await act(() => { fireEvent.click(screen.getByRole("button", { name: "Copy tag" })); return Promise.resolve(); });
+    expect(writeText).toHaveBeenCalledWith(code.textContent);
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(1500); });
+    await act(() => { fireEvent.click(screen.getByRole("button", { name: "Copied" })); return Promise.resolve(); });
+    act(() => { vi.advanceTimersByTime(1500); });
+    expect(screen.getByRole("button", { name: "Copied" })).toBeInTheDocument();
+    act(() => { vi.advanceTimersByTime(500); });
+    expect(screen.getByRole("button", { name: "Copy tag" })).toBeInTheDocument();
+  });
+  it("shows the generated test URL and copies that exact link", async () => {
+    const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "Installation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Create test link" }));
+    const field = await screen.findByRole("textbox", { name: "Test link" });
+    expect(field).toHaveValue("https://example.com/?belki_test=token");
+    expect(field).toHaveAttribute("readonly");
+    expect(screen.getByRole("link", { name: "Open test page" })).toHaveAttribute("href", "https://example.com/?belki_test=token");
+    fireEvent.click(screen.getByRole("button", { name: "Copy link" }));
+    await screen.findByRole("button", { name: "Copied" });
+    expect(writeText).toHaveBeenCalledWith("https://example.com/?belki_test=token");
+  });
+  it("reports a clipboard failure without claiming success and allows retry", async () => {
+    const writeText = vi.fn<(value: string) => Promise<void>>().mockResolvedValue(undefined).mockRejectedValueOnce(new Error("Permission denied"));
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "Installation" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Copy tag" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Couldn’t copy");
+    expect(screen.queryByRole("button", { name: "Copied" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy tag" }));
+    await screen.findByRole("button", { name: "Copied" });
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
