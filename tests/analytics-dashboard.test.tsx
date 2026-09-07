@@ -93,7 +93,7 @@ describe("analytics initial section", () => {
     expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.queryByText("Install Belki Analytics")).not.toBeInTheDocument();
-    await act(() => pending.resolve(config));
+    await act(() => { pending.resolve(config); return pending.promise; });
     await waitFor(() => expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "true"));
     expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "false");
   });
@@ -101,7 +101,7 @@ describe("analytics initial section", () => {
     const pending = deferredConfig();
     open(pending.promise);
     expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "false");
-    await act(() => pending.resolve({ ...config, key: null }));
+    await act(() => { pending.resolve({ ...config, key: null }); return pending.promise; });
     await screen.findByText("Install Belki Analytics");
     expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "true");
   });
@@ -109,14 +109,14 @@ describe("analytics initial section", () => {
     const pending = deferredConfig();
     open(pending.promise);
     fireEvent.click(screen.getByRole("button", { name: "Conversions" }));
-    await act(() => pending.resolve(config));
+    await act(() => { pending.resolve(config); return pending.promise; });
     await screen.findByRole("button", { name: "Add goal" });
     expect(screen.getByRole("button", { name: "Conversions" })).toHaveAttribute("aria-pressed", "true");
   });
   it("does not mistake a failed settings request for a missing installation", async () => {
     const pending = deferredConfig();
     open(pending.promise);
-    await act(() => pending.reject(new Error("Settings unavailable")));
+    await act(() => { pending.reject(new Error("Settings unavailable")); return pending.promise.catch(() => undefined); });
     expect(await screen.findByRole("alert")).toHaveTextContent("Settings unavailable");
     expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "false");
     expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "false");
