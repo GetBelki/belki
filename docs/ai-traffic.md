@@ -204,11 +204,23 @@ slashes. Arrival at `/thanks` alone does not verify a completed business action.
 The SDK keeps up to 30 unacknowledged deliveries in per-tab `sessionStorage` for
 up to five minutes. Conversions send immediately. Transient network failures,
 408/429 and server errors retry with bounded backoff (at most five fetch attempts),
-using the same event ID and original page/session/time. A successful HTTP response
-acknowledges the database write; permanent validation failures are discarded.
+randomized to avoid synchronized retry spikes, using the same event ID and original
+page/session/time. Configuration requests use the same transient-status rules and
+restart when the browser comes back online. If the initial queue has expired by then,
+the SDK can attribute the current tagged page from the recovery time but never revives
+an expired conversion. A successful HTTP response acknowledges the database write;
+permanent validation failures are discarded.
 `sendBeacon` on exit does not acknowledge delivery, so a subsequent document may
 retry the same ID. Server deduplication prevents duplicate conversions. Offline
 storage, tab closure, blockers or extended outages can still cause undercounting.
+
+The SDK uses `crypto.randomUUID()` when available and falls back to a UUID v4 made
+with `crypto.getRandomValues()`. If neither browser capability exists, collection
+stops quietly without affecting the host page. Add `data-debug="true"` to the SDK
+script tag temporarily to log bounded reason codes such as retry, queue saturation
+or unavailable IDs. Debug output contains no URLs, tokens or event payloads. In debug
+mode, `window.belki.diagnostics()` returns the per-page reason counters. Remove the
+attribute after troubleshooting.
 
 Only an event name is accepted; there are no arbitrary event properties, revenue
 fields or customer identifiers. Server-to-server conversion tracking is not included. Unknown event names do not create goals. Goal

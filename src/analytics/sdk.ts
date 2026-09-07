@@ -5,6 +5,7 @@ export const ANALYTICS_SDK = String.raw`(function () {
   if (!script || window.__belkiAnalytics) return;
   var key = script.getAttribute('data-site');
   if (!key) return;
+  var debug = script.getAttribute('data-debug') === 'true';
   var base;
   try {
     base = new URL(script.getAttribute('data-api') || script.src).origin;
@@ -17,8 +18,9 @@ export const ANALYTICS_SDK = String.raw`(function () {
   var timeout = 30 * 60000, queueTTL = 5 * 60000;
   var session = null, page = null, config = null, currentUrl = '';
   var lastTick = Date.now(), lastActivityWrite = 0, hidden = document.visibilityState === 'hidden';
-  var loading = false, configAttempts = 0, stopped = false, configTimer = null;
+  var loading = false, configAttempts = 0, stopped = false, configTimer = null, resumeConfig = false;
   var outbox = [], running = {}, retryTimer = null;
+  var diagnostics = {};
   var backlog = [], test = read(testKey);
   var initial = new URL(location.href);
   var testToken = initial.searchParams.get('belki_test');
@@ -46,11 +48,35 @@ export const ANALYTICS_SDK = String.raw`(function () {
       backlog.push({ type: 'event', name: item.name, url: item.url, at: item.at });
     }
   });
-  function read(k) { try { return JSON.parse(sessionStorage.getItem(k) || 'null'); } catch (_) { return null; } }
-  function write(k, value) { try { if (value === null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, JSON.stringify(value)); } catch (_) {} }
+  function read(k) { try { return JSON.parse(sessionStorage.getItem(k) || 'null'); } catch (_) { note('storage_unavailable'); return null; } }
+  function write(k, value) { try { if (value === null) sessionStorage.removeItem(k); else sessionStorage.setItem(k, JSON.stringify(value)); } catch (_) { note('storage_unavailable'); } }
   function validSession(s) { return s && typeof s.id === 'string' && typeof s.entry === 'string' && typeof s.utm === 'string' &&
     typeof s.started === 'number' && typeof s.activity === 'number' && s.started <= s.activity && s.activity <= Date.now(); }
-  function id() { return crypto.randomUUID(); }
+  function note(name) {
+    diagnostics[name] = (diagnostics[name] || 0) + 1;
+    if (debug && typeof console !== 'undefined' && typeof console.debug === 'function') {
+      try { console.debug('[Belki Analytics] ' + name); } catch (_) {}
+    }
+  }
+  function id() {
+    if (typeof crypto === 'object' && crypto) {
+      if (typeof crypto.randomUUID === 'function') {
+        try { return crypto.randomUUID(); } catch (_) {}
+      }
+      if (typeof crypto.getRandomValues === 'function') {
+        try {
+          var bytes = crypto.getRandomValues(new Uint8Array(16));
+          bytes[6] = (bytes[6] & 15) | 64;
+          bytes[8] = (bytes[8] & 63) | 128;
+          var hex = Array.prototype.map.call(bytes, function (value) { return value.toString(16).padStart(2, '0'); }).join('');
+          return hex.slice(0, 8) + '-' + hex.slice(8, 12) + '-' + hex.slice(12, 16) + '-' + hex.slice(16, 20) + '-' + hex.slice(20);
+        } catch (_) {}
+      }
+    }
+    stopped = true; note('id_unavailable'); return null;
+  }
+  function safely(fn) { try { fn(); } catch (_) { note('internal_error'); } }
+  function backoff(attempt, cap) { return Math.min(cap, 1000 * Math.pow(2, attempt) * (0.5 + Math.random())); }
   function save() { if (!test) write(storageKey, session); }
   function persist() { if (!test) write(outboxKey, outbox.length ? outbox : null); }
   function expire() {
@@ -81,7 +107,7 @@ export const ANALYTICS_SDK = String.raw`(function () {
       }
       running[item.payload.id] = true;
       item.attempts++;
-      item.nextAt = now + Math.min(30000, 1000 * Math.pow(2, item.attempts));
+      item.nextAt = now + backoff(item.attempts, 30000);
       persist();
       var controller = typeof AbortController === 'function' ? new AbortController() : null;
       var deadline = controller ? setTimeout(function () { controller.abort(); }, 10000) : null;
@@ -90,12 +116,15 @@ export const ANALYTICS_SDK = String.raw`(function () {
         if (response.ok) remove(item);
         else if (response.status === 403 || response.status === 404 || response.status === 410) {
           stopped = true; outbox = []; session = null; page = null; save(); persist();
+          note('collection_stopped');
           if (test) write(testKey, null);
         } else if (response.status === 429) {
+          note('event_retry');
           var after = Number(response.headers && response.headers.get('Retry-After'));
           if (after > 0) item.nextAt = Date.now() + Math.min(after * 1000, queueTTL);
-        } else if (response.status !== 408 && response.status < 500) remove(item);
-      }).catch(function () {}).finally(function () {
+        } else if (response.status === 408 || response.status >= 500) note('event_retry');
+        else { note('event_rejected'); remove(item); }
+      }).catch(function () { note('event_delivery_failed'); }).finally(function () {
         if (deadline) clearTimeout(deadline);
         delete running[item.payload.id]; persist(); schedule();
       });
@@ -105,7 +134,9 @@ export const ANALYTICS_SDK = String.raw`(function () {
   function emit(type, event, closing, at) {
     expire();
     if (!session || !page || !config || stopped) return;
-    var payload = { key: key, id: id(), sessionId: session.id, pageId: page.id,
+    var payloadId = id();
+    if (!payloadId) return;
+    var payload = { key: key, id: payloadId, sessionId: session.id, pageId: page.id,
       utm: session.utm, startedAt: session.started, activityAt: session.activity,
       occurredAt: at || Date.now(), entryPath: session.entry, path: page.path,
       visibleMs: Math.round(page.visible), type: type, event: event || undefined,
@@ -114,9 +145,11 @@ export const ANALYTICS_SDK = String.raw`(function () {
     if (type === 'page') outbox = outbox.filter(function (item) {
       return item.payload.type !== 'page' || item.payload.pageId !== page.id || running[item.payload.id];
     });
+    var now = Date.now();
+    outbox = outbox.filter(function (item) { return item.expiresAt > now && item.attempts < 5; });
     if (outbox.length >= 30) {
       var disposable = outbox.find(function (item) { return item.payload.type === 'page' && !running[item.payload.id]; });
-      if (disposable) remove(disposable); else return;
+      if (disposable) remove(disposable); else { note('queue_full'); return; }
     }
     outbox.push({ payload: payload, attempts: 0, nextAt: 0, expiresAt: Date.now() + queueTTL });
     persist(); flush(Boolean(closing));
@@ -132,13 +165,19 @@ export const ANALYTICS_SDK = String.raw`(function () {
     if (changed) {
       var utm = raw.trim().toLowerCase();
       if (Object.prototype.hasOwnProperty.call(config.aliases, utm)) {
-        if (previous || !session || session.utm !== utm) session = { id: id(), utm: utm, started: at, activity: at, entry: url.pathname };
+        if (previous || !session || session.utm !== utm) {
+          var sessionId = id();
+          if (!sessionId) return;
+          session = { id: sessionId, utm: utm, started: at, activity: at, entry: url.pathname };
+        }
       } else session = null;
     }
     if (!session) { page = null; save(); return; }
     session.activity = Math.max(session.activity, at); save();
     if (previous && previous.pathname === url.pathname && page && !changed) return;
-    page = { id: id(), path: url.pathname, visible: 0 };
+    var pageId = id();
+    if (!pageId) return;
+    page = { id: pageId, path: url.pathname, visible: 0 };
     lastTick = Date.now(); emit('page', null, false, at);
   }
   function process(item) {
@@ -158,18 +197,42 @@ export const ANALYTICS_SDK = String.raw`(function () {
     var deadline = controller ? setTimeout(function () { controller.abort(); }, 10000) : null;
     fetch(base + '/v1/config/' + encodeURIComponent(key) + (test ? '?test=' + encodeURIComponent(test.token) : ''), { credentials: 'omit', signal: controller ? controller.signal : undefined })
       .then(function (response) {
-        if (!response.ok) { if (response.status < 500 && response.status !== 429) stopped = true; throw new Error(); }
+        if (!response.ok) {
+          if (response.status < 500 && response.status !== 408 && response.status !== 429) stopped = true;
+          var error = new Error();
+          var after = Number(response.headers && response.headers.get('Retry-After'));
+          if (response.status === 429 && after > 0) error.retryAfter = Math.min(after * 1000, queueTTL);
+          throw error;
+        }
         return response.json();
       }).then(function (value) {
         if (!value || !value.aliases) throw new Error();
         config = value;
         if (session && !Object.prototype.hasOwnProperty.call(config.aliases, session.utm)) { session = null; save(); }
         backlog.splice(0).sort(function (a, b) { return a.at - b.at; }).forEach(process);
+        // A late online recovery may happen after the initial backlog expires.
+        // Attribute the current page from now; never revive stale conversions.
+        if (!currentUrl) process({ type: 'page', url: location.href, at: Date.now() });
         flush(false);
-      }).catch(function () {
-        if (stopped) { outbox = []; persist(); }
-        else configTimer = setTimeout(function () { configTimer = null; loadConfig(); }, 1000 * Math.pow(2, configAttempts));
-      }).finally(function () { if (deadline) clearTimeout(deadline); loading = false; });
+      }).catch(function (error) {
+        if (stopped) {
+          note('config_rejected'); outbox = []; session = null; page = null; save(); persist();
+          if (test) write(testKey, null);
+        }
+        else if (configAttempts < 4) {
+          note('config_retry');
+          var delay = error && error.retryAfter ? error.retryAfter : backoff(configAttempts, 30000);
+          configTimer = setTimeout(function () { configTimer = null; loadConfig(); }, delay);
+        } else note('config_paused');
+      }).finally(function () {
+        if (deadline) clearTimeout(deadline);
+        loading = false;
+        if (resumeConfig && !config && !stopped) {
+          resumeConfig = false;
+          if (configTimer) { clearTimeout(configTimer); configTimer = null; }
+          loadConfig();
+        }
+      });
   }
   function capture(type, name) {
     var item = { type: type, name: name, url: location.href, at: Date.now() };
@@ -182,22 +245,30 @@ export const ANALYTICS_SDK = String.raw`(function () {
     session.activity = Date.now(); lastActivityWrite = session.activity; save();
   }
   window.belki = { track: function (name) {
-    if (typeof name === 'string' && /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(name)) capture('event', name);
+    if (typeof name === 'string' && /^[a-zA-Z][a-zA-Z0-9_-]{0,63}$/.test(name)) safely(function () { capture('event', name); });
   } };
-  ['pointerdown', 'keydown', 'scroll'].forEach(function (name) { addEventListener(name, activity, { passive: true }); });
+  if (debug) window.belki.diagnostics = function () { return Object.assign({}, diagnostics); };
+  ['pointerdown', 'keydown', 'scroll'].forEach(function (name) { addEventListener(name, function () { safely(activity); }, { passive: true }); });
   ['pushState', 'replaceState'].forEach(function (name) {
     var original = history[name];
-    history[name] = function () { var result = original.apply(this, arguments); capture('page'); return result; };
+    history[name] = function () { var result = original.apply(this, arguments); safely(function () { capture('page'); }); return result; };
   });
-  addEventListener('popstate', function () { capture('page'); });
+  addEventListener('popstate', function () { safely(function () { capture('page'); }); });
   addEventListener('pageshow', function (event) {
-    if (event.persisted) { currentUrl = ''; page = null; lastTick = Date.now(); hidden = document.visibilityState === 'hidden'; capture('page'); }
+    safely(function () { if (event.persisted) { currentUrl = ''; page = null; lastTick = Date.now(); hidden = document.visibilityState === 'hidden'; capture('page'); } });
   });
   document.addEventListener('visibilitychange', function () {
-    tick(); hidden = document.visibilityState === 'hidden'; emit('page', null, hidden); if (!hidden) flush(false);
+    safely(function () { tick(); hidden = document.visibilityState === 'hidden'; emit('page', null, hidden); if (!hidden) flush(false); });
   });
-  addEventListener('pagehide', function () { tick(); emit('page', null, true); flush(true); });
-  addEventListener('online', function () { flush(false); if (!config) loadConfig(); });
-  setInterval(function () { tick(); if (!hidden) emit('page'); }, 30000);
-  capture('page');
+  addEventListener('pagehide', function () { safely(function () { tick(); emit('page', null, true); flush(true); }); });
+  addEventListener('online', function () { safely(function () {
+    flush(false);
+    if (!config && !stopped) {
+      configAttempts = 0;
+      if (configTimer) { clearTimeout(configTimer); configTimer = null; }
+      if (loading) resumeConfig = true; else loadConfig();
+    }
+  }); });
+  setInterval(function () { safely(function () { tick(); if (!hidden) emit('page'); }); }, 30000);
+  safely(function () { capture('page'); });
 })();`;

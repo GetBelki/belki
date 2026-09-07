@@ -9,34 +9,52 @@ async function browser(url: string, options: {
   storage?: Map<string, string>; blocked?: boolean; script?: string; api?: string;
   response?: (payload: Payload) => number | "offline";
   queue?: Array<{ name: string; at: number; url: string }>;
+  configResponse?: (attempt: number) => number | "offline" | { status: number; retryAfter: string };
+  crypto?: Pick<Crypto, "randomUUID" | "getRandomValues"> | Record<string, never>;
+  debug?: boolean; random?: number;
 } = {}) {
   let now = 100000000;
   const storage = options.storage ?? new Map<string, string>();
-  const events: Payload[] = [], requests: string[] = [];
+  const events: Payload[] = [], requests: string[] = [], debugMessages: string[] = [];
+  let configRequests = 0;
   const listeners = new Map<string, Array<(event?: unknown) => void>>();
   const intervals: Array<() => void> = [];
   const timers = new Map<number, { at: number; fn: () => void }>(); let nextTimer = 0;
   const listen = (name: string, callback: (event?: unknown) => void) => listeners.set(name, [...listeners.get(name) ?? [], callback]);
   const location = { href: url };
-  const document = { currentScript: { src: options.script ?? "https://belki.example/belki-analytics.js", getAttribute: (name: string) => name === "data-site" ? "test-key" : options.api ?? null }, visibilityState: "visible", addEventListener: listen };
+  const document = { currentScript: { src: options.script ?? "https://belki.example/belki-analytics.js", getAttribute: (name: string) => name === "data-site" ? "test-key" : name === "data-api" ? options.api ?? null : name === "data-debug" && options.debug ? "true" : null }, visibilityState: "visible", addEventListener: listen };
   const history = {
     pushState(_state: unknown, _unused: unknown, path: string) { location.href = new URL(path, location.href).href; },
     replaceState(_state: unknown, _unused: unknown, path: string) { location.href = new URL(path, location.href).href; },
   };
-  const win = { belki: { q: options.queue ?? [] } as unknown as { track: (name: string) => void } };
+  const win = { belki: { q: options.queue ?? [] } as unknown as {
+    track: (name: string) => void;
+    diagnostics: () => Record<string, number>;
+  } };
   const fetch = (url: string, init?: { body?: string }) => {
     requests.push(url);
-    let status = 200;
+    let status: number;
     if (init?.body) {
       const payload = JSON.parse(init.body) as Payload; events.push(payload);
       const result = options.response?.(payload) ?? 204;
       if (result === "offline") return Promise.reject(new Error("offline"));
       status = result;
+    } else {
+      configRequests++;
+      const result = options.configResponse?.(configRequests) ?? 200;
+      if (result === "offline") return Promise.reject(new Error("offline"));
+      status = typeof result === "number" ? result : result.status;
+      const headers = new Headers();
+      if (typeof result === "object") headers.set("Retry-After", result.retryAfter);
+      return Promise.resolve({ status, ok: status >= 200 && status < 300, headers, json: () => Promise.resolve({ aliases: { ...TRAFFIC_ALIASES, custom: "claude" } }) });
     }
     return Promise.resolve({ status, ok: status >= 200 && status < 300, headers: new Headers(), json: () => Promise.resolve({ aliases: { ...TRAFFIC_ALIASES, custom: "claude" } }) });
   };
+  const testMath = Object.create(Math) as Math;
+  testMath.random = () => options.random ?? 0.5;
   runInNewContext(ANALYTICS_SDK, {
-    window: win, document, location, history, crypto, URL, fetch,
+    window: win, document, location, history, crypto: options.crypto ?? crypto, URL, fetch, Math: testMath,
+    console: { debug(message: string) { debugMessages.push(message); } },
     navigator: { sendBeacon(_url: string, body: string) { events.push(JSON.parse(body) as Payload); return true; } },
     sessionStorage: {
       getItem(k: string) { if (options.blocked) throw Error(); return storage.get(k); },
@@ -48,7 +66,8 @@ async function browser(url: string, options: {
     clearTimeout(id: number) { timers.delete(id); },
   });
   await settle();
-  return { events, requests, storage, document, history, win, location,
+  return { events, requests, storage, document, history, win, location, debugMessages,
+    get configRequests() { return configRequests; },
     fire(name: string, event?: unknown) { for (const fn of listeners.get(name) ?? []) fn(event); },
     advance(ms: number) {
       now += ms;
@@ -128,12 +147,65 @@ describe("standalone traffic tag", () => {
   });
   it("retries transient failures with the same ID but drops permanent validation errors", async () => {
     let attempt = 0;
-    const tab = await browser("https://example.com/?utm_source=chatgpt", { response: (event) => event.type === "event" && ++attempt === 1 ? 503 : 204 });
-    tab.win.belki.track("signup"); await settle(); tab.advance(3000); await settle();
+    const tab = await browser("https://example.com/?utm_source=chatgpt", { random: 0.75, response: (event) => event.type === "event" && ++attempt === 1 ? 503 : 204 });
+    tab.win.belki.track("signup"); await settle();
+    const pending = JSON.parse([...tab.storage.entries()].find(([key]) => key.includes(":outbox:"))![1]) as Array<{ nextAt: number }>;
+    expect(pending[0]?.nextAt).toBe(100002500);
+    tab.advance(3000); await settle();
     const events = tab.events.filter((event) => event.type === "event");
     expect(events).toHaveLength(2); expect(events[1]?.id).toBe(events[0]?.id);
     const invalid = await browser("https://example.com/?utm_source=chatgpt", { response: () => 400 });
     await settle(); expect([...invalid.storage.keys()].some((key) => key.includes(":outbox:"))).toBe(false);
+  });
+  it("recovers configuration after retry exhaustion without reviving stale conversions", async () => {
+    let online = false;
+    const tab = await browser("https://example.com/?utm_source=chatgpt", {
+      configResponse: () => online ? 200 : "offline",
+      queue: [{ name: "signup", at: 100000000, url: "https://example.com/?utm_source=chatgpt" }],
+    });
+    for (let attempt = 1; attempt < 4; attempt++) { tab.advance(60000); await settle(); }
+    expect(tab.configRequests).toBe(4);
+    tab.advance(6 * 60000); await settle();
+    online = true; tab.fire("online"); await settle();
+    expect(tab.configRequests).toBe(5);
+    expect(tab.events).toHaveLength(1);
+    expect(tab.events[0]).toMatchObject({ type: "page", path: "/", utm: "chatgpt", occurredAt: 100540000 });
+  });
+  it("retries 408 configuration responses and honors Retry-After for 429", async () => {
+    const statuses: Array<number | { status: number; retryAfter: string }> = [408, { status: 429, retryAfter: "20" }, 200];
+    const tab = await browser("https://example.com/?utm_source=chatgpt", { configResponse: (attempt) => statuses[attempt - 1] ?? 200 });
+    tab.advance(3000); await settle();
+    expect(tab.configRequests).toBe(2);
+    tab.advance(19000); await settle();
+    expect(tab.configRequests).toBe(2);
+    tab.advance(1000); await settle();
+    expect(tab.configRequests).toBe(3);
+    expect(tab.events[0]).toMatchObject({ type: "page", utm: "chatgpt" });
+  });
+  it("uses a valid UUID fallback and contains failures when random IDs are unavailable", async () => {
+    let byte = 0;
+    const fallbackCrypto = { getRandomValues<T extends ArrayBufferView | null>(array: T) {
+      const values = array as Uint8Array;
+      for (let index = 0; index < values.length; index++) values[index] = byte++;
+      return array;
+    } } as unknown as Pick<Crypto, "randomUUID" | "getRandomValues">;
+    const fallback = await browser("http://example.com/?utm_source=chatgpt", { crypto: fallbackCrypto });
+    expect(fallback.events[0]?.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
+    expect(fallback.events[0]?.sessionId).not.toBe(fallback.events[0]?.pageId);
+
+    const unavailable = await browser("http://example.com/?utm_source=chatgpt", { crypto: {}, debug: true });
+    expect(() => unavailable.history.pushState(null, "", "/pricing?utm_source=chatgpt")).not.toThrow();
+    expect(() => unavailable.win.belki.track("signup")).not.toThrow();
+    expect(unavailable.events).toHaveLength(0);
+    expect(unavailable.win.belki.diagnostics()).toMatchObject({ id_unavailable: 1 });
+  });
+  it("reports queue saturation in opt-in debug mode without exposing payload data", async () => {
+    const tab = await browser("https://example.com/?utm_source=chatgpt&email=private@example.com", { response: () => "offline", debug: true });
+    for (let index = 0; index < 31; index++) tab.win.belki.track(`conversion_${index}`);
+    await settle();
+    expect(tab.win.belki.diagnostics()).toMatchObject({ queue_full: 1 });
+    expect(tab.debugMessages.some((message) => message.includes("queue_full"))).toBe(true);
+    expect(JSON.stringify(tab.debugMessages)).not.toContain("private@example.com");
   });
   it("captures pre-load calls with their original URL without attributing earlier untagged events", async () => {
     const tab = await browser("https://example.com/?utm_source=chatgpt", { queue: [
