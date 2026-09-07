@@ -62,7 +62,7 @@ export function TrafficSources({ customSources, aliases, disabled, onChange }: {
     const label = newLabel.trim();
     const parsedAlias = TrafficAliasValueSchema.safeParse(newAlias);
     if (!label || label.length > 50) { setNewError("Enter a source name of up to 50 characters."); return; }
-    if (!parsedAlias.success) { setNewError("Enter one exact UTM value, such as iask.ai or my-ai-source."); return; }
+    if (!parsedAlias.success) { setNewError("Enter one exact UTM value, such as my-ai-source."); return; }
     if (sources.some((source) => source.label.toLowerCase() === label.toLowerCase())) { setNewError("A source with this name already exists."); return; }
     if (recognized[parsedAlias.data]) { setNewError(`“${parsedAlias.data}” is already recognized by another source.`); return; }
     if (customSources.length >= 20) { setNewError("You can add up to 20 custom sources."); return; }
@@ -86,8 +86,8 @@ export function TrafficSources({ customSources, aliases, disabled, onChange }: {
         description="Create a source for traffic Belki does not recognize yet. Its first UTM value is required."
         contentClassName="traffic-source-dialog" trigger={<Button type="button" variant="secondary" disabled={disabled || customSources.length >= 20}><Plus size={15} aria-hidden="true" />Add source</Button>}>
         <form onSubmit={(event) => { event.preventDefault(); event.stopPropagation(); addSource(); }}>
-          <label>Source name<Input autoFocus disabled={disabled} value={newLabel} placeholder="iAsk" onChange={(event) => { setNewLabel(event.target.value); setNewError(null); }} /></label>
-          <label>First UTM source<Input disabled={disabled} value={newAlias} placeholder="iask.ai" autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(event) => { setNewAlias(event.target.value); setNewError(null); }} /></label>
+          <label>Source name<Input autoFocus disabled={disabled} value={newLabel} placeholder="My AI source" onChange={(event) => { setNewLabel(event.target.value); setNewError(null); }} /></label>
+          <label>First UTM source<Input disabled={disabled} value={newAlias} placeholder="my-ai-source" autoCapitalize="none" autoCorrect="off" spellCheck={false} onChange={(event) => { setNewAlias(event.target.value); setNewError(null); }} /></label>
           <p>Use the exact value found after <code>utm_source=</code>. Don’t include <code>https://</code>, paths, wildcards or regex.</p>
           {newError ? <p className="traffic-source-error" role="alert">{newError}</p> : null}
           <div><Button type="button" variant="secondary" onClick={() => setDialogOpen(false)}>Cancel</Button><Button type="submit" disabled={disabled}>Add source</Button></div>
