@@ -45,7 +45,7 @@ const NAVIGATION = [
   { to: "/prompts", label: "Prompts", icon: PromptsIcon },
   { to: "/related-queries", label: "Related queries", icon: RelatedQueriesIcon },
   { to: "/citations", label: "Citation Sources", icon: SourcesIcon },
-  { to: "/brands", label: "Entities", icon: ScanSearch },
+  { to: "/entities", label: "Entities", icon: ScanSearch },
   { to: "/ads", label: "Ads", icon: Megaphone },
   { to: "/shopping", label: "Shopping", icon: ShoppingBag },
 ] as const;

@@ -83,7 +83,7 @@ describe("project navigation", () => {
     "/snapshots",
     "/citations",
     "/related-queries",
-    "/brands",
+    "/entities",
     "/shopping",
     "/settings",
   ])("preserves project-level section navigation on %s", (pathname) => {
