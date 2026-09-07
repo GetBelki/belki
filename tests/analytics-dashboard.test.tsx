@@ -78,6 +78,8 @@ describe("analytics sources", () => {
     fireEvent.click(screen.getByRole("button", { name: "Sources" }));
     fireEvent.click(await screen.findByRole("button", { name: "Add source" }));
     const dialog = screen.getByRole("dialog", { name: "Add AI source" });
+    expect(within(dialog).getByLabelText("Source name")).toHaveAttribute("placeholder", "My AI source");
+    expect(within(dialog).getByLabelText("First UTM source")).toHaveAttribute("placeholder", "my-ai-source");
     fireEvent.change(within(dialog).getByLabelText("Source name"), { target: { value: "iAsk" } });
     fireEvent.change(within(dialog).getByLabelText("First UTM source"), { target: { value: "iask.ai" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Add source" }));
