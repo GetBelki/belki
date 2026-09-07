@@ -5637,6 +5637,17 @@ a.evidence-source:hover strong {
   padding-top: 8px;
 }
 
+.brand-comparison-card .empty-state p {
+  line-height: 1.5;
+  margin: 0;
+  max-width: 420px;
+}
+
+.brand-comparison-card .empty-state .button {
+  margin-top: 16px;
+  padding-inline: 14px;
+}
+
 @media (max-width: 620px) {
   .brand-comparison-card .card-header {
     flex-direction: column;
