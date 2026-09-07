@@ -13,7 +13,7 @@ import type { TrafficReport, TrafficSettings } from "../src/shared/traffic";
 const db = (env as unknown as { TRAFFIC_TEST_DB: D1Database }).TRAFFIC_TEST_DB;
 const key = "test-public-key-with-enough-entropy";
 const goalId = crypto.randomUUID();
-const config: TrafficSettings = { enabled: true, domains: ["example.com"], aliases: [{ alias: "custom", source: "claude" }], goals: [
+const config: TrafficSettings = { enabled: true, domains: ["example.com"], customSources: [], aliases: [{ alias: "custom", source: "claude" }], goals: [
   { id: goalId, name: "Thanks", type: "path", value: "/thanks" },
   { id: crypto.randomUUID(), name: "Signup", type: "event", value: "signup" },
 ] };
@@ -59,6 +59,15 @@ beforeEach(async () => {
   ]);
 });
 describe("AI traffic on D1", () => {
+  it("normalizes settings saved before custom sources were introduced", async () => {
+    const legacy = { enabled: config.enabled, domains: config.domains, aliases: config.aliases, goals: config.goals };
+    await db.prepare("UPDATE traffic_settings SET config_json = ? WHERE project_id = 'p1'").bind(JSON.stringify(legacy)).run();
+    const response = await request("/api/v1/traffic/p1/config");
+    expect(response.status).toBe(200);
+    const payload: { data: TrafficSettings } = await response.json();
+    expect(payload.data.customSources).toEqual([]);
+    expect((await collect(event())).status).toBe(204);
+  });
   it("rejects unknown sources, unauthorized domains and oversized bodies without storing sessions", async () => {
     expect((await collect(event({ utm: "google" }))).status).toBe(400);
     expect((await collect(event(), "https://evil.example.com")).status).toBe(403);
@@ -87,6 +96,17 @@ describe("AI traffic on D1", () => {
     expect((await request("/api/v1/traffic/p1/config", { headers: { "x-workspace": "w2" } })).status).toBe(404);
     expect((await request("/api/v1/traffic/p1/config", { method: "PUT", headers: { "x-role": "viewer" }, body: JSON.stringify(config) })).status).toBe(403);
     expect((await request(`/v1/config/${key}`, { headers: { Origin: "https://example.com" } })).headers.get("Access-Control-Allow-Origin")).toBe("https://example.com");
+  });
+  it("collects and filters a project-defined source", async () => {
+    const updated: TrafficSettings = { ...config, customSources: [{ id: "iask", label: "iAsk" }], aliases: [...config.aliases, { alias: "iask.ai", source: "iask" }] };
+    expect((await request("/api/v1/traffic/p1/config", { method: "PUT", body: JSON.stringify(updated) })).status).toBe(200);
+    expect((await collect(event({ utm: "iask.ai" }))).status).toBe(204);
+    expect((await report()).sources[0]?.label).toBe("iask");
+    const day = new Date().toISOString().slice(0, 10);
+    const filtered = await request(`/api/v1/traffic/p1/report?from=${day}&to=${day}&source=iask`);
+    expect(filtered.status).toBe(200);
+    const payload: { data: TrafficReport } = await filtered.json();
+    expect(payload.data.summary.sessions).toBe(1);
   });
   it("does not apply newly configured path goals to a heartbeat or a retried event", async () => {
     const first = event({ path: "/pricing", type: "event", event: "purchase" });

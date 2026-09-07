@@ -1,6 +1,6 @@
 import { Hono, type Context } from "hono";
 import { z } from "zod";
-import { TrafficSettingsSchema, TRAFFIC_SOURCES, type TrafficTestResult, type TrafficSettings } from "../../shared/traffic";
+import { TrafficSettingsSchema, TrafficSourceIdSchema, type TrafficTestResult } from "../../shared/traffic";
 import type { AppEnv } from "../lib/app";
 import { requireRole, assertOperator } from "../lib/auth";
 import { randomToken, sha256 } from "../lib/crypto";
@@ -20,8 +20,8 @@ async function settings(db: D1Database, id: string) {
 export const trafficRoutes = new Hono<AppEnv>();
 trafficRoutes.get("/:projectId/config", async (c) => {
   const row = await settings(c.env.CONTROL_DB, await project(c));
-  return c.json({ data: row ? { ...(JSON.parse(row.config_json) as TrafficSettings), enabled: Boolean(row.enabled), key: row.public_key, lastEvent: row.last_event_at, installation: analyticsInstallation(c.env, c.req.url) }
-    : { enabled: false, domains: [], aliases: [], goals: [], key: null, lastEvent: null, installation: analyticsInstallation(c.env, c.req.url) } });
+  return c.json({ data: row ? { ...TrafficSettingsSchema.parse(JSON.parse(row.config_json)), enabled: Boolean(row.enabled), key: row.public_key, lastEvent: row.last_event_at, installation: analyticsInstallation(c.env, c.req.url) }
+    : { enabled: false, domains: [], customSources: [], aliases: [], goals: [], key: null, lastEvent: null, installation: analyticsInstallation(c.env, c.req.url) } });
 });
 trafficRoutes.put("/:projectId/config", async (c) => {
   requireRole(c, "editor");
@@ -29,7 +29,7 @@ trafficRoutes.put("/:projectId/config", async (c) => {
   const parsed = TrafficSettingsSchema.safeParse(await body(c));
   if (!parsed.success) throw new ApiError(400, "invalid_settings", parsed.error.issues[0]?.message ?? "Invalid settings.");
   const previous = await settings(c.env.CONTROL_DB, id);
-  const oldGoals = previous ? (JSON.parse(previous.config_json) as TrafficSettings).goals : [];
+  const oldGoals = previous ? TrafficSettingsSchema.parse(JSON.parse(previous.config_json)).goals : [];
   // Changing a goal's matching rule creates a new definition; completed goals remain historical.
   parsed.data.goals = parsed.data.goals.map((goal) => {
     const old = oldGoals.find((g) => g.id === goal.id);
@@ -70,7 +70,7 @@ trafficRoutes.get("/:projectId/test", async (c) => {
 });
 
 const ReportQuery = z.object({
-  from: z.iso.date(), to: z.iso.date(), source: z.enum(TRAFFIC_SOURCES).optional(),
+  from: z.iso.date(), to: z.iso.date(), source: TrafficSourceIdSchema.optional(),
 });
 export function trafficRetentionCutoff(now = new Date()): number {
   const cutoff = new Date(now);

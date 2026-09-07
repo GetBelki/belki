@@ -1,5 +1,5 @@
 import { Hono, type Context } from "hono";
-import { trafficAliases, trafficDevice, type TrafficSettings } from "../../shared/traffic";
+import { TrafficSettingsSchema, trafficAliases, trafficDevice, type TrafficSettings } from "../../shared/traffic";
 import { checkLoginRateLimit } from "../lib/auth";
 import { sha256 } from "../lib/crypto";
 import { ApiError } from "../lib/http";
@@ -19,7 +19,7 @@ async function publicSettings(c: Context<TrafficEnv>, key: string, testToken?: s
       .bind(row.project_id, await sha256(testToken), Date.now()).first();
     if (!test) throw new ApiError(410, "test_expired", "Create a new installation test in Belki.");
   } else if (!row.enabled) throw new ApiError(404, "traffic_disabled", "Traffic collection unavailable.");
-  const config = JSON.parse(row.config_json) as TrafficSettings;
+  const config = TrafficSettingsSchema.parse(JSON.parse(row.config_json));
   if (!config.domains.includes(origin.hostname)) throw new ApiError(403, "invalid_origin", "Domain is not authorized.");
   c.header("Access-Control-Allow-Origin", origin.origin);
   c.header("Vary", "Origin");
@@ -59,7 +59,7 @@ trafficPublicRoutes.get("/v1/config/:key", async (c) => {
   }
   const { config } = await publicSettings(c, c.req.param("key"), testToken);
   if (!testToken) c.header("Cache-Control", "public, max-age=60");
-  const response = c.json({ aliases: trafficAliases(config.aliases) });
+  const response = c.json({ aliases: trafficAliases(config) });
   if (!testToken) await cache.put(cacheKey, response.clone());
   return response;
 });
@@ -84,7 +84,7 @@ trafficPublicRoutes.post("/v1/events", async (c) => {
   }
   const existing = await db.prepare("SELECT hostname, activity_at FROM traffic_sessions WHERE project_id = ? AND id = ?")
     .bind(row.project_id, e.sessionId).first<{ hostname: string; activity_at: number }>();
-  const source = trafficAliases(config.aliases)[e.utm];
+  const source = trafficAliases(config)[e.utm];
   if ((!existing && (!source || e.startedAt < now - SESSION_TIMEOUT)) ||
       (existing && (existing.hostname !== origin.hostname || e.activityAt - existing.activity_at > SESSION_TIMEOUT))) {
     throw new ApiError(400, "invalid_session", "Invalid traffic session.");
@@ -114,4 +114,3 @@ trafficPublicRoutes.post("/v1/events", async (c) => {
   await db.batch(statements);
   return c.body(null, 204);
 });
-

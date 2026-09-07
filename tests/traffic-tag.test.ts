@@ -167,9 +167,17 @@ describe("traffic settings", () => {
   it("normalizes aliases and rejects ambiguity, wildcard domains and query-based goals", () => {
     const settings = { enabled: true, domains: ["example.com"], aliases: [{ alias: " MY-AI ", source: "grok" }], goals: [] };
     const parsed = TrafficSettingsSchema.parse(settings);
-    expect(trafficAliases(parsed.aliases)["my-ai"]).toBe("grok");
+    expect(parsed.customSources).toEqual([]);
+    expect(trafficAliases(parsed)["my-ai"]).toBe("grok");
     expect(TrafficSettingsSchema.safeParse({ ...settings, aliases: [{ alias: "chatgpt", source: "grok" }] }).success).toBe(false);
     expect(TrafficSettingsSchema.safeParse({ ...settings, domains: ["*.example.com"] }).success).toBe(false);
     expect(TrafficSettingsSchema.safeParse({ ...settings, goals: [{ id: crypto.randomUUID(), name: "Goal", type: "path", value: "/thanks?user=1" }] }).success).toBe(false);
+  });
+  it("recognizes custom sources while preventing missing or conflicting targets", () => {
+    const settings = { enabled: true, domains: ["example.com"], customSources: [{ id: "iask", label: "iAsk" }], aliases: [{ alias: "iask.ai", source: "iask" }], goals: [] };
+    const parsed = TrafficSettingsSchema.parse(settings);
+    expect(trafficAliases(parsed)).toMatchObject({ iask: "iask", "iask.ai": "iask" });
+    expect(TrafficSettingsSchema.safeParse({ ...settings, customSources: [{ id: "chatgpt", label: "Another ChatGPT" }] }).success).toBe(false);
+    expect(TrafficSettingsSchema.safeParse({ ...settings, aliases: [{ alias: "other.ai", source: "missing" }] }).success).toBe(false);
   });
 });
