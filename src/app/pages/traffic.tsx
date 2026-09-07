@@ -31,7 +31,8 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
     queryFn: () => api<TrafficReport>(`/traffic/${projectId}/report?${new URLSearchParams({ from, to, ...(source === "all" ? {} : { source }) })}`),
     enabled: Boolean(from && to), refetchInterval: 60000,
   });
-  const tab = !config.data?.key && selectedTab === "summary" ? "installation" : selectedTab;
+  const defaultTab = config.data ? (config.data.key ? "summary" : "installation") : null;
+  const tab = selectedTab === "summary" ? defaultTab : selectedTab;
   const data = report.data;
   const editable = session.user.role !== "viewer" && session.workspace.status === "active";
   const daily = [];
@@ -49,8 +50,8 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
         <Button key={value} variant={tab === value ? "default" : "ghost"} aria-pressed={tab === value} onClick={() => setSelectedTab(value)}>{label}</Button>)}
     </nav>
     {config.error ? <p role="alert">{config.error.message}</p> : null}
-    {config.isPending ? <p role="status">Loading installation settings…</p> : null}
-    {config.data ? <div hidden={tab === "summary"}><TrafficSetup section={tab} key={`${projectId}:${config.data.key ?? "new"}`} projectId={projectId}
+    {config.isPending ? <p role="status">Loading analytics…</p> : null}
+    {config.data && tab ? <div hidden={tab === "summary"}><TrafficSetup section={tab} key={`${projectId}:${config.data.key ?? "new"}`} projectId={projectId}
       initial={config.data} domain={currentProject?.primary_domain ?? ""} editable={editable} /></div> : null}
     {config.data?.key && tab === "summary" ? <>
       {!config.data.enabled ? <p className="traffic-notice">Collection is disabled. Historical traffic remains available.</p> : null}
