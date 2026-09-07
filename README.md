@@ -159,7 +159,9 @@ and 12 months of history.
 **AI Analytics → Installation** generates the complete tag and provides a temporary
 test session excluded from real reports. Conversion delivery includes a bounded
 per-tab retry queue and server deduplication. **Conversions** and **Sources** have
-their own configuration sections.
+their own configuration sections. Each section has a direct route: `/ai-traffic`
+for Overview, `/ai-traffic/installation`, `/ai-traffic/conversions`, and
+`/ai-traffic/sources`.
 
 Open-source installs work with the application origin by default. Run
 `pnpm configure:analytics` to choose an independent analytics subdomain or an

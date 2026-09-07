@@ -2,6 +2,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, ExternalLink, Link2, Plus, Save, Trash2 } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
+import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { NoProject, PageHeader } from "../components/layout";
 import { Button, Card, CardContent, CardHeader, Dialog, EmptyState, Input, Select } from "../components/ui";
 import { useApp } from "../context";
@@ -12,20 +13,36 @@ import { TrafficHostnameSchema, TRAFFIC_LABELS, TRAFFIC_SOURCES, trafficSnippet,
 import "./traffic.css";
 
 type TrafficTab = "summary" | "installation" | "conversions" | "sources";
+const TRAFFIC_TAB_PATHS: Record<TrafficTab, string> = {
+  summary: "/ai-traffic",
+  installation: "/ai-traffic/installation",
+  conversions: "/ai-traffic/conversions",
+  sources: "/ai-traffic/sources",
+};
+function trafficTabFromPath(pathname: string): TrafficTab | null {
+  const path = pathname.replace(/\/+$/, "") || "/";
+  if (path === "/ai-traffic" || path === "/ai-traffic/overview") return "summary";
+  if (path === "/ai-traffic/installation") return "installation";
+  if (path === "/ai-traffic/conversions") return "conversions";
+  if (path === "/ai-traffic/sources") return "sources";
+  return null;
+}
 const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 const percent = (part: number, total: number) => `${total ? (part / total * 100).toFixed(1) : "0"}%`;
 const count = (n: number) => n.toLocaleString();
 
 export function TrafficPage() {
   const { projectId } = useApp();
-  return projectId ? <ProjectTraffic key={projectId} projectId={projectId} /> : <NoProject />;
+  const requestedTab = trafficTabFromPath(useLocation().pathname);
+  if (!requestedTab) return <Navigate to="/ai-traffic" replace />;
+  return projectId ? <ProjectTraffic key={projectId} projectId={projectId} requestedTab={requestedTab} /> : <NoProject />;
 }
-function ProjectTraffic({ projectId }: { projectId: string }) {
+function ProjectTraffic({ projectId, requestedTab }: { projectId: string; requestedTab: TrafficTab }) {
   const { session, currentProject } = useApp();
+  const navigate = useNavigate();
   const [from, setFrom] = useState(() => isoDate(new Date(Date.now() - 29 * 86400000)));
   const [to, setTo] = useState(() => isoDate(new Date()));
   const [source, setSource] = useState("all");
-  const [selectedTab, setSelectedTab] = useState<TrafficTab>("summary");
   const config = useQuery({ queryKey: ["traffic-config", projectId], queryFn: () => api<TrafficConfig>(`/traffic/${projectId}/config`), refetchInterval: 60000 });
   const sourceOptions = useMemo(() => [
     ...TRAFFIC_SOURCES.map((value) => ({ value, label: TRAFFIC_LABELS[value] })),
@@ -38,7 +55,7 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
     enabled: Boolean(from && to), refetchInterval: 60000,
   });
   const defaultTab = config.data ? (config.data.key ? "summary" : "installation") : null;
-  const tab = selectedTab === "summary" ? defaultTab : selectedTab;
+  const tab = requestedTab === "summary" ? defaultTab : requestedTab;
   const content = useRef<HTMLDivElement>(null);
   const previousTab = useRef(tab);
   useEffect(() => {
@@ -63,7 +80,7 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
   }
   return <div className="page traffic-page">
     <PageHeader title="AI Analytics" description="Understand visits and conversions from AI sources." />
-    <TrafficTabs tab={tab} onChange={setSelectedTab} />
+    <TrafficTabs tab={tab} onChange={(nextTab) => { void navigate(TRAFFIC_TAB_PATHS[nextTab]); }} />
     <div ref={content} className="traffic-tab-content">
     {config.error ? <p role="alert">{config.error.message}</p> : null}
     {config.isPending ? <p role="status">Loading analytics…</p> : null}
@@ -84,7 +101,7 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
           ["Visible time / session", `${data.summary.sessions ? Math.round(data.summary.visibleMs / data.summary.sessions / 1000) : 0}s`],
           ["Converted sessions", count(data.summary.converted)], ["Conversion rate", percent(data.summary.converted, data.summary.sessions)],
         ].map(([label, value]) => <Card key={label}><CardContent><span>{label}</span><strong>{value}</strong></CardContent></Card>)}</div>
-        {!data.summary.sessions ? <div className="traffic-empty"><EmptyState title="No visits for these filters" description="Try another date range or AI source. To verify collection, check your tag installation and test an AI-tagged visit." action={<Button variant="secondary" onClick={() => setSelectedTab("installation")}>Check installation</Button>} /></div> : <>
+        {!data.summary.sessions ? <div className="traffic-empty"><EmptyState title="No visits for these filters" description="Try another date range or AI source. To verify collection, check your tag installation and test an AI-tagged visit." action={<Button variant="secondary" onClick={() => { void navigate(TRAFFIC_TAB_PATHS.installation); }}>Check installation</Button>} /></div> : <>
           <Card><CardHeader title="Daily traffic" description="Sessions and their page views, grouped by session start date in UTC." /><CardContent>
             <div className="traffic-chart-legend" aria-label="Chart legend"><span><i className="traffic-legend-sessions" />Sessions</span><span><i className="traffic-legend-views" />Page views</span></div>
             <div className="traffic-chart"><ResponsiveContainer width="100%" height="100%"><LineChart data={daily} accessibilityLayer>

@@ -4,6 +4,11 @@ AI Analytics measures sessions that enter a customer website with a recognized
 `utm_source`. It measures tagged traffic, not verified referrals or all visits
 from AI products. It does not infer attribution from referrers.
 
+Dashboard sections can be opened directly at `/ai-traffic` (Overview),
+`/ai-traffic/installation`, `/ai-traffic/conversions`, and
+`/ai-traffic/sources`. Tab navigation updates browser history, so reload, Back,
+Forward, bookmarks, and shared links preserve the selected section.
+
 ## Installation in a project
 
 1. Open **AI Analytics → Installation** in the selected project.

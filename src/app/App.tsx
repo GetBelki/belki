@@ -182,7 +182,7 @@ export function App() {
           <Route path="/onboarding/prompts" element={<PromptOnboardingPage />} />
           <Route element={<AppLayout />}>
             <Route index element={<OverviewPage />} />
-            <Route path="/ai-traffic" element={<TrafficPage />} />
+            <Route path="/ai-traffic/*" element={<TrafficPage />} />
             <Route path="/prompts" element={<PromptsPage />} />
             <Route path="/related-queries" element={<RelatedQueriesPage />} />
             <Route
