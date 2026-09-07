@@ -12,7 +12,7 @@ export const TRAFFIC_ALIASES: Record<string, TrafficSource> = {
   "copilot.microsoft.com": "copilot", grok: "grok", "grok.com": "grok",
 };
 export const trafficPath = z.string().max(1024).regex(/^\/(?!\/)[^?#\s]*$/);
-const hostname = z.string().trim().toLowerCase().max(253).regex(/^(?:localhost|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)$/);
+export const TrafficHostnameSchema = z.string().trim().toLowerCase().max(253).regex(/^(?:localhost|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)$/);
 export const TrafficGoalSchema = z.object({
   id: z.string().uuid(), name: z.string().trim().min(1).max(80),
   type: z.enum(["path", "event"]), value: z.string().trim().min(1).max(1024),
@@ -22,7 +22,7 @@ export const TrafficGoalSchema = z.object({
   }
 });
 export const TrafficSettingsSchema = z.object({
-  enabled: z.boolean(), domains: z.array(hostname).min(1).max(20),
+  enabled: z.boolean(), domains: z.array(TrafficHostnameSchema).min(1).max(20),
   aliases: z.array(z.object({ alias: z.string().trim().toLowerCase().min(1).max(100), source: z.enum(TRAFFIC_SOURCES) }).strict()).max(50),
   goals: z.array(TrafficGoalSchema).max(30),
 }).strict().superRefine((settings, ctx) => {

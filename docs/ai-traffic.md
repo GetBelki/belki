@@ -7,7 +7,9 @@ from AI products. It does not infer attribution from referrers.
 ## Installation in a project
 
 1. Open **AI Analytics → Installation** in the selected project.
-2. List exact hostnames, including each subdomain, and save. Collection can remain off.
+2. Add exact hostnames as tags with **Enter** or **Add**, including each subdomain.
+   You can paste a comma- or newline-separated list and remove tags individually.
+   Select **Save settings** when done. Collection can remain off.
 3. Copy the complete generated tag (the queue initializer and the asynchronous
    `belki-analytics.js` script) into the site's global template, before calls to `belki.track`.
 4. Enter an authorized page URL and select **Create test link**. Use **Open test page**

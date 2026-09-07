@@ -168,3 +168,66 @@ describe("analytics copy actions", () => {
     expect(screen.queryByRole("alert")).not.toBeInTheDocument();
   });
 });
+
+
+describe("analytics hostname tags", () => {
+  async function hostnames(value = config) {
+    open(Promise.resolve(value));
+    fireEvent.click(screen.getByRole("button", { name: "Installation" }));
+    return screen.findByRole("textbox", { name: "Authorized hostnames" });
+  }
+  const savedBodies = () => vi.mocked(api).mock.calls.filter(([path, init]) => path.endsWith("/config") && init?.method === "PUT").map(([, init]) => JSON.parse(init!.body as string) as TrafficConfig);
+
+  it("adds normalized tags with Enter, skips duplicates and removes a tag", async () => {
+    const input = await hostnames();
+    fireEvent.change(input, { target: { value: "WWW.Example.COM" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+    expect(screen.getByRole("button", { name: "Remove www.example.com" })).toBeInTheDocument();
+    expect(savedBodies()).toHaveLength(0);
+    expect(input).toHaveValue("");
+    fireEvent.change(input, { target: { value: "WWW.EXAMPLE.COM" } });
+    fireEvent.click(screen.getByRole("button", { name: "Add" }));
+    expect(screen.getAllByRole("button", { name: "Remove www.example.com" })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: "Remove example.com" }));
+    expect(screen.queryByRole("button", { name: "Remove example.com" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(savedBodies()[0]?.domains).toEqual(["www.example.com"]));
+  });
+  it("pastes multiple hosts and preserves an unfinished hostname across sections and save", async () => {
+    const input = await hostnames();
+    fireEvent.paste(input, { clipboardData: { getData: () => "blog.example.com, WWW.EXAMPLE.COM\nexample.com" } });
+    expect(screen.getByRole("button", { name: "Remove blog.example.com" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Remove www.example.com" })).toBeInTheDocument();
+    fireEvent.change(input, { target: { value: "shop.example.com" } });
+    fireEvent.click(screen.getByRole("button", { name: "Conversions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Installation" }));
+    expect(screen.getByRole("textbox", { name: "Authorized hostnames" })).toHaveValue("shop.example.com");
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(savedBodies()[0]?.domains).toEqual(["example.com", "blog.example.com", "www.example.com", "shop.example.com"]));
+  });
+  it("keeps invalid pasted text for correction and prevents saving from another section", async () => {
+    const input = await hostnames();
+    const pasted = "valid.example.com, https://wrong.example.com/path";
+    fireEvent.paste(input, { clipboardData: { getData: () => pasted } });
+    expect(input).toHaveValue(pasted);
+    expect(screen.getByRole("alert")).toHaveTextContent("not a valid hostname");
+    expect(screen.queryByRole("button", { name: "Remove valid.example.com" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Conversions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("Check the Installation section");
+    expect(savedBodies()).toHaveLength(0);
+  });
+  it("enforces the host limit and rejects saving an empty list", async () => {
+    const domains = Array.from({ length: 20 }, (_, i) => `site${i}.example.com`);
+    const input = await hostnames({ ...config, domains });
+    fireEvent.change(input, { target: { value: "extra.example.com" } });
+    fireEvent.keyDown(input, { key: "," });
+    expect(screen.getByRole("alert")).toHaveTextContent("up to 20");
+    expect(input).toHaveValue("extra.example.com");
+    fireEvent.change(input, { target: { value: "" } });
+    for (const domain of domains) fireEvent.click(screen.getByRole("button", { name: `Remove ${domain}` }));
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    expect(screen.getByRole("alert")).toHaveTextContent("at least one");
+    expect(savedBodies()).toHaveLength(0);
+  });
+});
