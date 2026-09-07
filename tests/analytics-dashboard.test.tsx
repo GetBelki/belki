@@ -1,4 +1,4 @@
-import { render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TrafficPage } from "../src/app/pages/traffic";
@@ -8,9 +8,9 @@ vi.mock("../src/app/context", () => ({ useApp: () => ({ projectId: "p1", session
 vi.mock("../src/app/lib/api", () => ({ api: vi.fn() }));
 const config: TrafficConfig = { key: "public-project-key", enabled: false, domains: ["example.com"], aliases: [], goals: [], lastEvent: null, installation: { mode: "separate", origin: "https://analytics.example", scriptUrl: "https://cdn.example/belki-analytics.js", customScript: true } };
 afterEach(() => { cleanup(); vi.clearAllMocks(); });
-function open() {
+function open(configResponse: Promise<TrafficConfig> = Promise.resolve(config)) {
   vi.mocked(api).mockImplementation((path, init) => {
-    if (path.endsWith("/config")) return Promise.resolve(init?.method === "PUT" ? { ...config, ...(JSON.parse(init.body as string) as Partial<TrafficConfig>) } : config);
+    if (path.endsWith("/config")) return Promise.resolve(init?.method === "PUT" ? { ...config, ...(JSON.parse(init.body as string) as Partial<TrafficConfig>) } : configResponse);
     if (path.endsWith("/test")) return Promise.resolve(init?.method === "POST" ? { url: "https://example.com/?belki_test=token", expiresAt: Date.now() + 600000 } : { expiresAt: Date.now() + 600000, result: { path: "/thanks", event: "signup_completed", goals: ["Signup"] } });
     return Promise.resolve({ summary: { sessions: 0, views: 0, visibleMs: 0, converted: 0 }, daily: [], sources: [], entries: [], countries: [], devices: [], pages: [], goals: [] });
   });
@@ -76,5 +76,49 @@ describe("analytics date range", () => {
     fireEvent.change(screen.getByLabelText("From (UTC)"), { target: { value: "2000-01-01" } });
     expect(screen.getByRole("button", { name: "Apply dates" })).toBeDisabled();
     expect(screen.getByRole("alert")).toHaveTextContent("no more than 12 months");
+  });
+});
+
+function deferredConfig() {
+  let resolve!: (value: TrafficConfig) => void;
+  let reject!: (reason: Error) => void;
+  const promise = new Promise<TrafficConfig>((onResolve, onReject) => { resolve = onResolve; reject = onReject; });
+  return { promise, resolve, reject };
+}
+
+describe("analytics initial section", () => {
+  it("waits for settings before selecting Overview for an installed project", async () => {
+    const pending = deferredConfig();
+    open(pending.promise);
+    expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.queryByText("Install Belki Analytics")).not.toBeInTheDocument();
+    await act(() => pending.resolve(config));
+    await waitFor(() => expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "true"));
+    expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "false");
+  });
+  it("selects Installation only after confirming that a project has no key", async () => {
+    const pending = deferredConfig();
+    open(pending.promise);
+    expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "false");
+    await act(() => pending.resolve({ ...config, key: null }));
+    await screen.findByText("Install Belki Analytics");
+    expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "true");
+  });
+  it("preserves a section chosen while settings are loading", async () => {
+    const pending = deferredConfig();
+    open(pending.promise);
+    fireEvent.click(screen.getByRole("button", { name: "Conversions" }));
+    await act(() => pending.resolve(config));
+    await screen.findByRole("button", { name: "Add goal" });
+    expect(screen.getByRole("button", { name: "Conversions" })).toHaveAttribute("aria-pressed", "true");
+  });
+  it("does not mistake a failed settings request for a missing installation", async () => {
+    const pending = deferredConfig();
+    open(pending.promise);
+    await act(() => pending.reject(new Error("Settings unavailable")));
+    expect(await screen.findByRole("alert")).toHaveTextContent("Settings unavailable");
+    expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByRole("button", { name: "Overview" })).toHaveAttribute("aria-pressed", "false");
   });
 });
