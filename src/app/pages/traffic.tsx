@@ -5,8 +5,9 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import { NoProject, PageHeader } from "../components/layout";
 import { Button, Card, CardContent, CardHeader, Dialog, EmptyState, Input, Select } from "../components/ui";
 import { useApp } from "../context";
+import { TrafficHostnames } from "../components/traffic-hostnames";
 import { api } from "../lib/api";
-import { TRAFFIC_LABELS, TRAFFIC_SOURCES, trafficSnippet, type TrafficTestResult, type TrafficBreakdown, type TrafficConfig, type TrafficReport, type TrafficSettings, type TrafficSource } from "../../shared/traffic";
+import { TrafficHostnameSchema, TRAFFIC_LABELS, TRAFFIC_SOURCES, trafficSnippet, type TrafficTestResult, type TrafficBreakdown, type TrafficConfig, type TrafficReport, type TrafficSettings, type TrafficSource } from "../../shared/traffic";
 import "./traffic.css";
 
 type TrafficTab = "summary" | "installation" | "conversions" | "sources";
@@ -129,19 +130,43 @@ function Breakdown({ title, rows }: { title: string; rows: TrafficBreakdown[] })
 }
 function TrafficSetup({ projectId, initial, domain, editable, section }: { projectId: string; initial: TrafficConfig; domain: string; editable: boolean; section: TrafficTab }) {
   const queryClient = useQueryClient();
-  const [settings, setSettings] = useState<TrafficSettings>({ enabled: initial.enabled, domains: initial.domains.length ? initial.domains : domain ? [domain] : [], aliases: initial.aliases, goals: initial.goals });
-  const [domains, setDomains] = useState(settings.domains.join("\n"));
-  const save = useMutation({ mutationFn: () => api<TrafficConfig>(`/traffic/${projectId}/config`, { method: "PUT", body: JSON.stringify({ ...settings, domains: domains.split(/[\n,]/).map((v) => v.trim()).filter(Boolean) }) }),
+  const [settings, setSettings] = useState<TrafficSettings>({ enabled: initial.enabled, domains: [...new Set((initial.domains.length ? initial.domains : domain ? [domain] : []).map((value) => value.trim().toLowerCase()))], aliases: initial.aliases, goals: initial.goals });
+  const [domainDraft, setDomainDraft] = useState("");
+  const [domainError, setDomainError] = useState<string | null>(null);
+  const save = useMutation({ mutationFn: (next: TrafficSettings) => api<TrafficConfig>(`/traffic/${projectId}/config`, { method: "PUT", body: JSON.stringify(next) }),
     onSuccess: (value) => { setSettings({ enabled: value.enabled, domains: value.domains, aliases: value.aliases, goals: value.goals }); queryClient.setQueryData(["traffic-config", projectId], value); } });
+  const collectDomains = (text: string) => {
+    const next = new Set(settings.domains);
+    for (const value of text.split(/[\s,]+/).filter(Boolean)) {
+      const parsed = TrafficHostnameSchema.safeParse(value);
+      if (!parsed.success) { setDomainError(`“${value}” is not a valid hostname. Use example.com without https://, wildcards or a path.`); return null; }
+      next.add(parsed.data);
+    }
+    if (next.size > 20) { setDomainError("You can add up to 20 hostnames. Remove one before adding another."); return null; }
+    return [...next];
+  };
+  const addDomains = (text: string) => {
+    const domains = collectDomains(text);
+    if (!domains) { setDomainDraft(text); return; }
+    setSettings({ ...settings, domains }); setDomainDraft(""); setDomainError(null);
+  };
+  const saveSettings = () => {
+    const domains = collectDomains(domainDraft);
+    if (!domains) return;
+    if (!domains.length) { setDomainError("Add at least one authorized hostname before saving."); return; }
+    const next = { ...settings, domains };
+    setSettings(next); setDomainDraft(""); setDomainError(null); save.mutate(next);
+  };
   const config = save.data ?? initial;
   const snippet = trafficSnippet(config.installation, config.key ?? "SAVE_TO_GENERATE_KEY");
   return <Card className={`traffic-settings-card${section === "installation" ? " traffic-installation-card" : ""}`}><CardHeader title={section === "conversions" ? "Conversion goals" : section === "sources" ? "AI sources" : "Install Belki Analytics"} description={section === "conversions" ? "Count a successful action or arrival at a specific page. Each goal counts once per session." : section === "sources" ? "Attribute visits using recognized utm_source values." : "Add the tag once to your site’s global template. Include every hostname you want to measure."} /><CardContent>
-    <form className="traffic-setup" onSubmit={(event) => { event.preventDefault(); save.mutate(); }}>
+    <form className="traffic-setup" onSubmit={(event) => { event.preventDefault(); saveSettings(); }}>
       <fieldset disabled={!editable || save.isPending}>
         <div className="traffic-section" hidden={section !== "installation"}>
         <label className="traffic-enable"><input type="checkbox" checked={settings.enabled} onChange={(e) => setSettings({ ...settings, enabled: e.target.checked })} /> Enable traffic collection</label>
-        <label>Authorized hostnames<textarea aria-label="Authorized hostnames" aria-describedby="traffic-hostnames-hint" className="input" rows={3} placeholder="example.com&#10;www.example.com" value={domains} onChange={(e) => setDomains(e.target.value)} /></label>
-        <p className="traffic-field-hint" id="traffic-hostnames-hint">One hostname per line or separated by commas. Include each subdomain, without https:// or a path.</p>
+        <TrafficHostnames domains={settings.domains} draft={domainDraft} error={domainError}
+          onDraftChange={(value) => { setDomainDraft(value); setDomainError(null); }} onAdd={addDomains}
+          onRemove={(value) => { setSettings({ ...settings, domains: settings.domains.filter((hostname) => hostname !== value) }); setDomainError(null); }} />
         </div>
         <div className="traffic-section" hidden={section !== "sources"}>
         <h3>Source aliases</h3><p>Built-in names and domains for ChatGPT, Claude, Gemini, Perplexity, Copilot and Grok are included. Add your own utm_source values below.</p>
@@ -168,6 +193,7 @@ function TrafficSetup({ projectId, initial, domain, editable, section }: { proje
         </div>
         <div className="traffic-save"><Button type="submit" disabled={save.isPending}><Save size={15} aria-hidden="true" />{save.isPending ? "Saving…" : "Save settings"}</Button></div>
       </fieldset>
+      {domainError && section !== "installation" ? <p role="alert">{domainError} Check the Installation section.</p> : null}
       {save.error ? <p role="alert">{save.error.message}</p> : save.isSuccess ? <p role="status">Settings saved.</p> : null}
       {!editable ? <p>Editing requires an editor role and an active workspace.</p> : null}
     </form>

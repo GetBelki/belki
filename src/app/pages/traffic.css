@@ -131,3 +131,27 @@
   .traffic-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .traffic-filters { grid-template-columns: 1fr; }
 }
+
+.traffic-hostnames { display: grid; gap: 8px; min-width: 0; }
+.traffic-hostnames-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.traffic-hostnames-heading > span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.traffic-hostnames-control { display: flex; flex-wrap: wrap; align-items: center; gap: 4px; min-width: 0; padding: 6px; border: 1px solid #d4d4d8; border-radius: 6px; background: #fff; }
+.traffic-hostnames-control:focus-within { border-color: #18181b; box-shadow: 0 0 0 1px #18181b; }
+.traffic-hostnames-control[data-invalid="true"] { border-color: #b42318; }
+.traffic-hostname-tags { display: flex; flex: 0 1 auto; flex-wrap: wrap; max-width: 100%; gap: 6px; padding: 0; margin: 0; list-style: none; }
+.traffic-hostname-tags li { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; padding-left: 8px; border-radius: 5px; background: #f4f4f5; color: #27272a; font-size: 13px; }
+.traffic-hostname-tags li > span { min-width: 0; overflow-wrap: anywhere; }
+.traffic-hostname-tags button { display: inline-flex; align-items: center; justify-content: center; flex: none; width: 30px; height: 30px; padding: 0; border: 0; border-radius: 4px; background: transparent; color: #71717a; cursor: pointer; }
+.traffic-hostname-tags button:hover { background: #e4e4e7; color: #18181b; }
+.traffic-hostname-tags button:focus-visible { outline: 2px solid #18181b; outline-offset: 1px; }
+.traffic-hostname-tags button:disabled { opacity: .45; cursor: default; }
+.traffic-hostname-entry { display: flex; flex: 1 1 180px; max-width: 100%; align-items: center; gap: 4px; min-width: 0; }
+.traffic-hostname-draft { flex: 1; width: 0; min-width: 0; min-height: 36px; padding: 6px 8px; border: 0; outline: none; background: transparent; color: #18181b; font-size: 13px; }
+.traffic-hostname-draft::placeholder { color: #71717a; }
+.traffic-hostname-entry > .button { flex: none; }
+.traffic-hostnames > p { margin: 0; font-size: 12px; }
+.traffic-hostnames > .traffic-hostnames-error { color: #b42318; overflow-wrap: anywhere; }
+@media (max-width: 640px) {
+  .traffic-hostname-draft { min-height: 44px; font-size: 16px; }
+  .traffic-hostname-tags button { width: 44px; height: 44px; }
+}
