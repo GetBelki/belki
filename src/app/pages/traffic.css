@@ -1,8 +1,15 @@
 .traffic-page { display: grid; gap: 24px; min-width: 0; }
 .traffic-page > .page-header { margin-bottom: 0; align-items: flex-start; }
 .traffic-page > *, .traffic-page .card, .traffic-page .card-content { min-width: 0; }
-.traffic-tabs { display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: 10px; background: #f4f4f5; }
-.traffic-tabs .button { min-height: 40px; padding: 8px 16px; }
+.traffic-tabs { position: relative; isolation: isolate; display: flex; flex-wrap: wrap; gap: 4px; padding: 4px; width: fit-content; max-width: 100%; border: 1px solid var(--border); border-radius: 10px; background: #f4f4f5; }
+.traffic-tab-indicator { position: absolute; top: 0; left: 0; z-index: -1; visibility: hidden; border-radius: 6px; background: #18181b; pointer-events: none; transition: transform 200ms cubic-bezier(.2, .8, .2, 1), width 200ms ease, height 200ms ease; }
+.traffic-tabs .button { position: relative; min-height: 40px; padding: 8px 16px; transition: color 120ms ease; }
+.traffic-tabs .button:hover { background: transparent; color: #18181b; }
+.traffic-tabs .button[aria-pressed="true"] { background: transparent; color: #fff; }
+.traffic-tab-content { display: grid; gap: inherit; min-width: 0; }
+@media (prefers-reduced-motion: reduce) {
+  .traffic-tab-indicator, .traffic-tabs .button { transition: none; }
+}
 .traffic-filters { display: grid; grid-template-columns: minmax(0, 240px) minmax(0, 200px); align-items: end; gap: 16px; }
 .traffic-filters label, .traffic-setup label, .traffic-test label { display: grid; gap: 8px; min-width: 0; font-size: 13px; font-weight: 500; }
 .traffic-page .input, .traffic-page .select-trigger { min-width: 0; max-width: 100%; min-height: 40px; }
