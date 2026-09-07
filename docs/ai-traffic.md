@@ -10,7 +10,8 @@ from AI products. It does not infer attribution from referrers.
 2. List exact hostnames, including each subdomain, and save. Collection can remain off.
 3. Copy the complete generated tag (the queue initializer and the asynchronous
    `belki-analytics.js` script) into the site's global template, before calls to `belki.track`.
-4. Enter an authorized page URL and select **Create test link → Open test page**.
+4. Enter an authorized page URL and select **Create test link**. Use **Open test page**
+   or **Copy link** to open the generated URL in another browser or on another device.
    Navigate or complete a conversion. The dashboard displays received pages,
    events and matched goals. The temporary test works while collection is off,
    is excluded from reports, and expires after ten minutes. Creating a new test
