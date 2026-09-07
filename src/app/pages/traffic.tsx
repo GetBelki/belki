@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, ExternalLink, Link2, Plus, Save, Trash2 } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { NoProject, PageHeader } from "../components/layout";
@@ -34,6 +34,18 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
   });
   const defaultTab = config.data ? (config.data.key ? "summary" : "installation") : null;
   const tab = selectedTab === "summary" ? defaultTab : selectedTab;
+  const content = useRef<HTMLDivElement>(null);
+  const previousTab = useRef(tab);
+  useEffect(() => {
+    const changed = previousTab.current !== null && previousTab.current !== tab;
+    previousTab.current = tab;
+    if (!changed || !content.current?.animate || window.matchMedia("(prefers-reduced-motion: reduce)").matches) return;
+    const animation = content.current.animate([
+      { opacity: .65, transform: "translateY(4px)" },
+      { opacity: 1, transform: "translateY(0)" },
+    ], { duration: 160, easing: "ease-out" });
+    return () => animation.cancel();
+  }, [tab]);
   const data = report.data;
   const editable = session.user.role !== "viewer" && session.workspace.status === "active";
   const daily = [];
@@ -46,10 +58,8 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
   }
   return <div className="page traffic-page">
     <PageHeader title="AI Analytics" description="Understand visits and conversions from AI sources." />
-    <nav className="traffic-tabs" aria-label="AI Analytics sections">
-      {([["summary", "Overview"], ["installation", "Installation"], ["conversions", "Conversions"], ["sources", "Sources"]] as const).map(([value, label]) =>
-        <Button key={value} variant={tab === value ? "default" : "ghost"} aria-pressed={tab === value} onClick={() => setSelectedTab(value)}>{label}</Button>)}
-    </nav>
+    <TrafficTabs tab={tab} onChange={setSelectedTab} />
+    <div ref={content} className="traffic-tab-content">
     {config.error ? <p role="alert">{config.error.message}</p> : null}
     {config.isPending ? <p role="status">Loading analytics…</p> : null}
     {config.data && tab ? <div hidden={tab === "summary"}><TrafficSetup section={tab} key={`${projectId}:${config.data.key ?? "new"}`} projectId={projectId}
@@ -92,7 +102,36 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
         <p className="traffic-footnote">12 months of history · Anonymous sessions per tab · Visible time is approximate, not a measure of attention. Tables show the top 100 entries.</p>
       </> : null}
     </> : null}
+    </div>
   </div>;
+}
+function TrafficTabs({ tab, onChange }: { tab: TrafficTab | null; onChange: (tab: TrafficTab) => void }) {
+  const nav = useRef<HTMLElement>(null);
+  const indicator = useRef<HTMLSpanElement>(null);
+  useLayoutEffect(() => {
+    const container = nav.current;
+    const marker = indicator.current;
+    if (!container || !marker) return;
+    const update = () => {
+      const active = container.querySelector<HTMLButtonElement>('[aria-pressed="true"]');
+      if (!active) { marker.style.visibility = "hidden"; return; }
+      marker.style.width = `${active.offsetWidth}px`;
+      marker.style.height = `${active.offsetHeight}px`;
+      marker.style.transform = `translate(${active.offsetLeft}px, ${active.offsetTop}px)`;
+      marker.style.visibility = "visible";
+    };
+    update();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(update);
+    observer.observe(container);
+    container.querySelectorAll("button").forEach((button) => observer.observe(button));
+    return () => observer.disconnect();
+  }, [tab]);
+  return <nav ref={nav} className="traffic-tabs" aria-label="AI Analytics sections">
+    <span ref={indicator} className="traffic-tab-indicator" aria-hidden="true" />
+    {([["summary", "Overview"], ["installation", "Installation"], ["conversions", "Conversions"], ["sources", "Sources"]] as const).map(([value, label]) =>
+      <Button key={value} variant="ghost" aria-pressed={tab === value} onClick={() => onChange(value)}>{label}</Button>)}
+  </nav>;
 }
 function TrafficDateRange({ from, to, onChange }: { from: string; to: string; onChange: (range: { from: string; to: string }) => void }) {
   const [open, setOpen] = useState(false);
