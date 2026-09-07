@@ -852,7 +852,7 @@ export function OverviewPage() {
               ) : !comparisonSummary?.trackedCompetitorCount ? (
                 <EmptyState
                   title="No competitors tracked yet"
-                  description="Track competitors from Entities to compare visibility and Share of Voice."
+                  description="Add competitors in Entities to compare visibility and Share of Voice."
                   action={<Button asChild variant="secondary"><Link to="/entities">Manage competitors</Link></Button>}
                 />
               ) : brandComparisonSeries.length > 0 ? (

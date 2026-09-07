@@ -754,7 +754,7 @@ interface DiscoveredEntityRow {
   latestEvidence: string[];
 }
 
-export function BrandsPage() {
+export function EntitiesPage() {
   const { projectId, session, trackingSource } = useApp();
   const queryClient = useQueryClient();
   const [view, setView] = useState<"tracked" | "discovered">("tracked");

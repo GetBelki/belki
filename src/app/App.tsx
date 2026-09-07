@@ -53,8 +53,8 @@ const CitationSourceDetailPage = lazy(() =>
     default: module.CitationSourceDetailPage,
   })),
 );
-const BrandsPage = lazy(() =>
-  import("./pages/insights").then((module) => ({ default: module.BrandsPage })),
+const EntitiesPage = lazy(() =>
+  import("./pages/insights").then((module) => ({ default: module.EntitiesPage })),
 );
 const ProductsPage = lazy(() =>
   import("./pages/insights").then((module) => ({ default: module.ProductsPage })),
@@ -206,7 +206,8 @@ export function App() {
             <Route path="/domains" element={<DomainsPage />} />
             <Route path="/citations" element={<CitationSourcesPage />} />
             <Route path="/citations/:domain" element={<CitationSourceDetailPage />} />
-            <Route path="/brands" element={<BrandsPage />} />
+            <Route path="/entities" element={<EntitiesPage />} />
+            <Route path="/brands" element={<Navigate to="/entities" replace />} />
             <Route path="/products" element={<ProductsPage />} />
             <Route path="/ads" element={<AdsPage />} />
             <Route path="/ads/:advertiserKey" element={<AdvertiserDetailPage />} />
