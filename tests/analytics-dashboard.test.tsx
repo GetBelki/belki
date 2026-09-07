@@ -45,19 +45,27 @@ describe("analytics project setup", () => {
 describe("analytics sources", () => {
   const savedBodies = () => vi.mocked(api).mock.calls.filter(([path, init]) => path.endsWith("/config") && init?.method === "PUT").map(([, init]) => JSON.parse(init!.body as string) as TrafficConfig);
 
-  it("shows built-in values and adds aliases inside their source", async () => {
+  it("keeps source details behind Edit and adds aliases inside the focused dialog", async () => {
     open();
     fireEvent.click(screen.getByRole("button", { name: "Sources" }));
-    const chatgpt = await screen.findByRole("region", { name: "ChatGPT" });
-    expect(within(chatgpt).getByText("chatgpt.com")).toBeInTheDocument();
-    expect(within(chatgpt).getByText("openai.com")).toBeInTheDocument();
-    const alias = within(chatgpt).getByRole("textbox", { name: "Add alias to ChatGPT" });
+    const chatgpt = await screen.findByRole("listitem", { name: "ChatGPT" });
+    expect(screen.getByText("6 sources")).toBeInTheDocument();
+    expect(within(chatgpt).getByText("4 recognized values")).toBeInTheDocument();
+    expect(screen.queryByText("chatgpt.com")).not.toBeInTheDocument();
+    fireEvent.click(within(chatgpt).getByRole("button", { name: "Edit ChatGPT" }));
+    const editor = screen.getByRole("dialog", { name: "Edit ChatGPT" });
+    expect(within(editor).getByText("chatgpt.com")).toBeInTheDocument();
+    expect(within(editor).getByText("openai.com")).toBeInTheDocument();
+    const alias = within(editor).getByRole("textbox", { name: "Add a UTM value" });
     fireEvent.change(alias, { target: { value: "my-chatgpt-campaign" } });
     fireEvent.keyDown(alias, { key: "Enter" });
-    expect(within(chatgpt).getByText("my-chatgpt-campaign")).toBeInTheDocument();
+    expect(within(editor).getByText("my-chatgpt-campaign")).toBeInTheDocument();
     fireEvent.change(alias, { target: { value: "chatgpt.com" } });
-    fireEvent.click(within(chatgpt).getByRole("button", { name: "Add alias" }));
-    expect(within(chatgpt).getByRole("alert")).toHaveTextContent("already recognized");
+    fireEvent.click(within(editor).getByRole("button", { name: "Add alias" }));
+    expect(within(editor).getByRole("alert")).toHaveTextContent("already recognized");
+    fireEvent.click(within(editor).getByRole("button", { name: "Done" }));
+    expect(within(chatgpt).getByText("5 recognized values · 1 project alias")).toBeInTheDocument();
+    expect(screen.queryByText("chatgpt.com")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(savedBodies()[0]?.aliases).toEqual([{ alias: "my-chatgpt-campaign", source: "chatgpt" }]));
   });
@@ -70,18 +78,26 @@ describe("analytics sources", () => {
     fireEvent.change(within(dialog).getByLabelText("Source name"), { target: { value: "iAsk" } });
     fireEvent.change(within(dialog).getByLabelText("First UTM source"), { target: { value: "iask.ai" } });
     fireEvent.click(within(dialog).getByRole("button", { name: "Add source" }));
-    const custom = await screen.findByRole("region", { name: "iAsk" });
-    expect(within(custom).getByText("iask")).toBeInTheDocument();
-    expect(within(custom).getByText("iask.ai")).toBeInTheDocument();
-    const alias = within(custom).getByRole("textbox", { name: "Add alias to iAsk" });
+    const custom = await screen.findByRole("listitem", { name: "iAsk" });
+    expect(within(custom).getByText("Custom source")).toBeInTheDocument();
+    expect(within(custom).getByText("2 recognized values · 1 project alias")).toBeInTheDocument();
+    expect(screen.queryByText("iask.ai")).not.toBeInTheDocument();
+    fireEvent.click(within(custom).getByRole("button", { name: "Edit iAsk" }));
+    const editor = screen.getByRole("dialog", { name: "Edit iAsk" });
+    expect(within(editor).getByText("iask")).toBeInTheDocument();
+    expect(within(editor).getByText("iask.ai")).toBeInTheDocument();
+    const alias = within(editor).getByRole("textbox", { name: "Add a UTM value" });
     fireEvent.change(alias, { target: { value: "ask-ai" } });
     fireEvent.keyDown(alias, { key: "Enter" });
+    fireEvent.click(within(editor).getByRole("button", { name: "Done" }));
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(savedBodies()[0]).toMatchObject({
       customSources: [{ id: "iask", label: "iAsk" }],
       aliases: [{ alias: "iask.ai", source: "iask" }, { alias: "ask-ai", source: "iask" }],
     }));
-    fireEvent.click(within(custom).getByRole("button", { name: "Remove iAsk" }));
+    fireEvent.click(within(custom).getByRole("button", { name: "Edit iAsk" }));
+    fireEvent.click(within(screen.getByRole("dialog", { name: "Edit iAsk" })).getByRole("button", { name: "Remove source" }));
+    expect(screen.queryByRole("listitem", { name: "iAsk" })).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(savedBodies()[1]).toMatchObject({ customSources: [], aliases: [] }));
   });

@@ -81,20 +81,23 @@
 .traffic-settings-card .traffic-section > .button { justify-self: start; }
 .traffic-settings-card .button { width: auto; }
 .traffic-settings-card .button svg { flex: none; }
-.traffic-sources-card { width: 100%; max-width: 1100px; }
+.traffic-sources-card { width: 100%; max-width: 900px; }
 .traffic-sources-manager { display: grid; gap: 20px; min-width: 0; }
 .traffic-sources-heading { display: flex; align-items: flex-start; justify-content: space-between; gap: 20px; }
 .traffic-sources-heading > div { display: grid; gap: 6px; max-width: 70ch; }
-.traffic-sources-heading h3, .traffic-source-card h4 { margin: 0; }
-.traffic-sources-heading p, .traffic-source-card p, .traffic-sources-note { margin: 0; }
+.traffic-sources-heading h3, .traffic-source-row h4 { margin: 0; }
+.traffic-sources-heading p, .traffic-source-row p, .traffic-sources-note { margin: 0; }
 .traffic-sources-heading > .button { flex: none; }
-.traffic-source-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
-.traffic-source-card { display: grid; align-content: start; gap: 14px; min-width: 0; padding: 16px; border: 1px solid var(--border); border-radius: 8px; background: #fff; }
-.traffic-source-card > header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
-.traffic-source-card > header > div { display: grid; gap: 3px; min-width: 0; }
-.traffic-source-card h4 { font-size: 14px; line-height: 20px; }
-.traffic-source-card header span { color: var(--muted); font-size: 11px; line-height: 16px; }
-.traffic-source-card header .button { min-height: 30px; padding: 4px 6px; }
+.traffic-source-count { margin-bottom: -12px; color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.traffic-source-list { display: grid; min-width: 0; margin: 0; padding: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: #fff; list-style: none; }
+.traffic-source-row { display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 20px; min-width: 0; padding: 14px 16px; }
+.traffic-source-row + .traffic-source-row { border-top: 1px solid var(--border); }
+.traffic-source-row-copy { display: flex; align-items: center; justify-content: space-between; gap: 24px; min-width: 0; }
+.traffic-source-row-copy > div { display: grid; flex: 0 0 150px; gap: 2px; min-width: 0; }
+.traffic-source-row h4 { overflow: hidden; font-size: 14px; line-height: 20px; text-overflow: ellipsis; white-space: nowrap; }
+.traffic-source-row-copy span, .traffic-source-row-copy p { color: var(--muted); font-size: 12px; line-height: 18px; }
+.traffic-source-row-copy p { min-width: 0; text-align: right; }
+.traffic-source-row > .button { min-width: 78px; }
 .traffic-source-values { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; min-height: 28px; }
 .traffic-source-value { display: inline-flex; align-items: center; gap: 2px; max-width: 100%; min-height: 28px; padding-left: 8px; border: 1px solid #d4d4d8; border-radius: 5px; background: #fff; color: #27272a; font: 12px/18px ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace; overflow-wrap: anywhere; }
 .traffic-source-value-default { padding: 4px 8px; border-color: transparent; background: #f4f4f5; }
@@ -106,6 +109,15 @@
 .traffic-source-error { color: #b42318 !important; font-size: 12px !important; }
 .traffic-sources-note { color: var(--muted); font-size: 12px; line-height: 1.6; }
 .traffic-source-dialog { width: calc(100vw - 32px); max-width: 460px; }
+.traffic-source-edit-dialog { max-width: 560px; }
+.traffic-source-edit-body { display: grid; gap: 20px; margin-top: 20px; }
+.traffic-source-edit-body section { display: grid; gap: 10px; min-width: 0; }
+.traffic-source-edit-body section > label, .traffic-source-edit-body h4 { margin: 0; font-size: 13px; font-weight: 600; }
+.traffic-source-edit-body section > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
+.traffic-source-edit-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; }
+.traffic-source-edit-heading > span { color: var(--muted); font-size: 12px; font-variant-numeric: tabular-nums; }
+.traffic-source-edit-actions { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding-top: 16px; border-top: 1px solid var(--border); }
+.traffic-source-edit-actions-single { justify-content: flex-end; }
 .traffic-source-dialog form { display: grid; gap: 16px; margin-top: 20px; }
 .traffic-source-dialog label { display: grid; gap: 8px; font-size: 13px; font-weight: 500; }
 .traffic-source-dialog form > p { margin: 0; color: var(--muted); font-size: 12px; line-height: 1.6; }
@@ -134,7 +146,6 @@
 }
 @media (max-width: 1000px) {
   .traffic-tables { grid-template-columns: 1fr; }
-  .traffic-source-list { grid-template-columns: 1fr; }
   .traffic-goal-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .traffic-goal-row > .button { justify-self: end; }
 }
@@ -157,8 +168,11 @@
   .traffic-edit-row, .traffic-goal-row { grid-template-columns: 1fr; }
   .traffic-sources-heading { align-items: stretch; flex-direction: column; gap: 12px; }
   .traffic-sources-heading > .button { align-self: flex-start; }
-  .traffic-source-card { padding: 14px; }
-  .traffic-source-card header .button { min-height: 44px; }
+  .traffic-source-row { gap: 12px; padding: 12px; }
+  .traffic-source-row-copy { align-items: flex-start; flex-direction: column; gap: 2px; }
+  .traffic-source-row-copy > div { flex-basis: auto; }
+  .traffic-source-row-copy p { text-align: left; }
+  .traffic-source-row > .button { min-width: 44px; padding: 8px 10px; }
   .traffic-source-value button { width: 44px; height: 44px; }
   .traffic-source-alias-entry { grid-template-columns: 1fr; }
   .traffic-source-alias-entry .button { justify-self: start; }

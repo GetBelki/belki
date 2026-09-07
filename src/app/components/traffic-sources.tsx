@@ -1,4 +1,4 @@
-import { Plus, Trash2, X } from "lucide-react";
+import { Pencil, Plus, Trash2, X } from "lucide-react";
 import { useState } from "react";
 import {
   TRAFFIC_LABELS,
@@ -26,8 +26,9 @@ export function TrafficSources({ customSources, aliases, disabled, onChange }: {
   disabled: boolean;
   onChange: (value: { customSources: TrafficCustomSource[]; aliases: TrafficAlias[] }) => void;
 }) {
-  const [drafts, setDrafts] = useState<Record<string, string>>({});
-  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [editingSource, setEditingSource] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [editError, setEditError] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [newAlias, setNewAlias] = useState("");
@@ -38,24 +39,24 @@ export function TrafficSources({ customSources, aliases, disabled, onChange }: {
   ];
   const recognized = trafficAliases({ customSources, aliases });
   const addAlias = (source: string) => {
-    const parsed = TrafficAliasValueSchema.safeParse(drafts[source]);
+    const parsed = TrafficAliasValueSchema.safeParse(editDraft);
     if (!parsed.success) {
-      setErrors({ ...errors, [source]: "Enter one exact UTM value, without a URL, wildcard or spaces." });
+      setEditError("Enter one exact UTM value, without a URL, wildcard or spaces.");
       return;
     }
     const owner = recognized[parsed.data];
     if (owner) {
       const label = trafficSourceLabel(owner, customSources);
-      setErrors({ ...errors, [source]: owner === source ? `“${parsed.data}” is already recognized.` : `“${parsed.data}” already belongs to ${label}.` });
+      setEditError(owner === source ? `“${parsed.data}” is already recognized.` : `“${parsed.data}” already belongs to ${label}.`);
       return;
     }
     if (aliases.length >= 100) {
-      setErrors({ ...errors, [source]: "You can add up to 100 custom UTM values." });
+      setEditError("You can add up to 100 custom UTM values.");
       return;
     }
     onChange({ customSources, aliases: [...aliases, { alias: parsed.data, source }] });
-    setDrafts({ ...drafts, [source]: "" });
-    setErrors({ ...errors, [source]: "" });
+    setEditDraft("");
+    setEditError(null);
   };
   const addSource = () => {
     const label = newLabel.trim();
@@ -72,6 +73,12 @@ export function TrafficSources({ customSources, aliases, disabled, onChange }: {
     onChange({ customSources: nextSources, aliases: nextAliases });
     setNewLabel(""); setNewAlias(""); setNewError(null); setDialogOpen(false);
   };
+  const selectedSource = sources.find((source) => source.id === editingSource);
+  const closeEditor = () => {
+    setEditingSource(null);
+    setEditDraft("");
+    setEditError(null);
+  };
   return <div className="traffic-sources-manager">
     <div className="traffic-sources-heading">
       <div><h3>Recognized sources</h3><p>Belki records exact, case-insensitive <code>utm_source</code> values. Add aliases to group campaign names and referral domains under the right source.</p></div>
@@ -87,28 +94,49 @@ export function TrafficSources({ customSources, aliases, disabled, onChange }: {
         </form>
       </Dialog>
     </div>
-    <div className="traffic-source-list">
+    <div className="traffic-source-count">{sources.length} sources</div>
+    <ul className="traffic-source-list">
       {sources.map((source) => {
         const defaults = source.builtIn ? TRAFFIC_SOURCE_ALIASES[source.id as keyof typeof TRAFFIC_SOURCE_ALIASES] : [source.id];
         const added = aliases.filter((alias) => alias.source === source.id);
-        return <section className="traffic-source-card" key={source.id} aria-labelledby={`traffic-source-${source.id}`}>
-          <header><div><h4 id={`traffic-source-${source.id}`}>{source.label}</h4><span>{source.builtIn ? "Built-in" : "Custom source"}</span></div>
-            {!source.builtIn ? <Button type="button" variant="ghost" aria-label={`Remove ${source.label}`} onClick={() => onChange({ customSources: customSources.filter(({ id }) => id !== source.id), aliases: aliases.filter((alias) => alias.source !== source.id) })}><Trash2 size={14} aria-hidden="true" />Remove</Button> : null}
-          </header>
-          <div className="traffic-source-values" aria-label={`${source.label} recognized UTM values`}>
-            {defaults.map((value) => <span className="traffic-source-value traffic-source-value-default" key={value}>{value}</span>)}
-            {added.map(({ alias }) => <span className="traffic-source-value" key={alias}>{alias}<button type="button" aria-label={`Remove ${alias} from ${source.label}`} onClick={() => onChange({ customSources, aliases: aliases.filter((value) => value.alias !== alias) })}><X size={13} aria-hidden="true" /></button></span>)}
+        const total = defaults.length + added.length;
+        return <li className="traffic-source-row" key={source.id} aria-label={source.label}>
+          <div className="traffic-source-row-copy">
+            <div><h4>{source.label}</h4><span>{source.builtIn ? "Built-in" : "Custom source"}</span></div>
+            <p>{total} recognized {total === 1 ? "value" : "values"}{added.length ? ` · ${added.length} project ${added.length === 1 ? "alias" : "aliases"}` : ""}</p>
           </div>
-          <div className="traffic-source-alias-entry">
-            <Input aria-label={`Add alias to ${source.label}`} value={drafts[source.id] ?? ""} placeholder="Add UTM value…" autoCapitalize="none" autoCorrect="off" spellCheck={false}
-              onChange={(event) => { setDrafts({ ...drafts, [source.id]: event.target.value }); setErrors({ ...errors, [source.id]: "" }); }}
-              onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); addAlias(source.id); } }} />
-            <Button type="button" variant="secondary" disabled={disabled || !(drafts[source.id] ?? "").trim()} onClick={() => addAlias(source.id)}><Plus size={14} aria-hidden="true" />Add alias</Button>
-          </div>
-          {errors[source.id] ? <p className="traffic-source-error" role="alert">{errors[source.id]}</p> : null}
-        </section>;
+          <Button type="button" variant="secondary" aria-label={`Edit ${source.label}`} disabled={disabled} onClick={() => { setEditingSource(source.id); setEditDraft(""); setEditError(null); }}><Pencil size={14} aria-hidden="true" />Edit</Button>
+        </li>;
       })}
-    </div>
+    </ul>
+    {selectedSource ? <Dialog open onOpenChange={(open) => { if (!open) closeEditor(); }} title={`Edit ${selectedSource.label}`}
+      description={`${selectedSource.builtIn ? "Built-in" : "Custom"} source. Matching is exact and case-insensitive.`}
+      contentClassName="traffic-source-dialog traffic-source-edit-dialog">
+      <div className="traffic-source-edit-body">
+        <section>
+          <div className="traffic-source-edit-heading"><h4>Recognized UTM values</h4><span>{(selectedSource.builtIn ? TRAFFIC_SOURCE_ALIASES[selectedSource.id as keyof typeof TRAFFIC_SOURCE_ALIASES].length : 1) + aliases.filter((alias) => alias.source === selectedSource.id).length}</span></div>
+          <div className="traffic-source-values" aria-label={`${selectedSource.label} recognized UTM values`}>
+            {(selectedSource.builtIn ? TRAFFIC_SOURCE_ALIASES[selectedSource.id as keyof typeof TRAFFIC_SOURCE_ALIASES] : [selectedSource.id]).map((value) => <span className="traffic-source-value traffic-source-value-default" key={value}>{value}</span>)}
+            {aliases.filter((alias) => alias.source === selectedSource.id).map(({ alias }) => <span className="traffic-source-value" key={alias}>{alias}<button type="button" disabled={disabled} aria-label={`Remove ${alias} from ${selectedSource.label}`} onClick={() => onChange({ customSources, aliases: aliases.filter((value) => value.alias !== alias) })}><X size={13} aria-hidden="true" /></button></span>)}
+          </div>
+        </section>
+        <section>
+          <label htmlFor={`traffic-source-alias-${selectedSource.id}`}>Add a UTM value</label>
+          <div className="traffic-source-alias-entry">
+            <Input id={`traffic-source-alias-${selectedSource.id}`} value={editDraft} placeholder="my-ai-campaign" autoCapitalize="none" autoCorrect="off" spellCheck={false}
+              onChange={(event) => { setEditDraft(event.target.value); setEditError(null); }}
+              onKeyDown={(event) => { if (event.key === "Enter" && !event.nativeEvent.isComposing) { event.preventDefault(); addAlias(selectedSource.id); } }} />
+            <Button type="button" variant="secondary" disabled={disabled || !editDraft.trim()} onClick={() => addAlias(selectedSource.id)}><Plus size={14} aria-hidden="true" />Add alias</Button>
+          </div>
+          <p>Use the exact value found after <code>utm_source=</code>.</p>
+          {editError ? <p className="traffic-source-error" role="alert">{editError}</p> : null}
+        </section>
+        <div className={`traffic-source-edit-actions${selectedSource.builtIn ? " traffic-source-edit-actions-single" : ""}`}>
+          {!selectedSource.builtIn ? <Button type="button" variant="danger" disabled={disabled} onClick={() => { onChange({ customSources: customSources.filter(({ id }) => id !== selectedSource.id), aliases: aliases.filter((alias) => alias.source !== selectedSource.id) }); closeEditor(); }}><Trash2 size={14} aria-hidden="true" />Remove source</Button> : null}
+          <Button type="button" onClick={closeEditor}>Done</Button>
+        </div>
+      </div>
+    </Dialog> : null}
     <p className="traffic-sources-note">Built-in values are maintained by Belki. Custom aliases and sources apply only to this project after you save settings.</p>
   </div>;
 }
