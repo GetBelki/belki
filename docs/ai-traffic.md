@@ -19,7 +19,8 @@ from AI products. It does not infer attribution from referrers.
    is excluded from reports, and expires after ten minutes. Creating a new test
    replaces the previous one. It is intended for sites you control.
 5. Enable collection and save when ready. **Overview** displays real traffic;
-   **Conversions** manages goals and **Sources** manages custom UTM aliases.
+   **Conversions** manages goals and **Sources** lists every recognized value,
+   manages aliases and allows project-specific sources.
 
 The installation key is public and identifies a project; never put an API token
 or secret in the tag. The collector checks the request origin against configured
@@ -132,17 +133,22 @@ Built-in source names and domains:
 
 | Source | Values |
 | --- | --- |
-| ChatGPT | `chatgpt`, `chatgpt.com`, `chat.openai.com` |
-| Claude | `claude`, `claude.ai` |
-| Gemini | `gemini`, `gemini.google.com` |
+| ChatGPT | `chatgpt`, `chatgpt.com`, `chat.openai.com`, `openai.com` |
+| Claude | `claude`, `claude.ai`, `claude.anthropic.com` |
+| Gemini | `gemini`, `gemini.google.com`, `bard`, `bard.google.com` |
 | Perplexity | `perplexity`, `perplexity.ai` |
-| Copilot | `copilot`, `copilot.microsoft.com` |
+| Copilot | `copilot`, `copilot.com`, `copilot.microsoft.com`, `edgepilot`, `edgeservices` |
 | Grok | `grok`, `grok.com` |
 
-Projects can add up to 50 aliases assigned to these sources. Values are trimmed
-and compared case-insensitively, without substring matching. Aliases cannot
-override a built-in value with a different source. These traffic sources are
-independent of the platforms enabled for AI-answer capture or billing plans.
+Projects can add up to 100 aliases across these sources and up to 20 custom
+sources. Creating a source adds its normalized identifier as a recognized value;
+the first UTM value entered in the dashboard becomes an alias when it differs.
+Values are trimmed and compared case-insensitively, without substring or regular
+expression matching. Aliases cannot override a recognized value or refer to a
+missing source. Removing a custom source also removes its aliases; stored sessions
+keep their source identifier and remain in historical reports. These traffic
+sources are independent of the platforms enabled for AI-answer capture or billing
+plans.
 
 No UTM and no existing attributed session or queued delivery means no configuration
 request either. An unknown UTM can trigger a configuration lookup to check custom

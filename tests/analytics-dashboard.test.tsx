@@ -1,4 +1,4 @@
-import { act, render, screen, fireEvent, waitFor, cleanup } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TrafficPage } from "../src/app/pages/traffic";
@@ -6,7 +6,7 @@ import { api } from "../src/app/lib/api";
 import type { TrafficConfig } from "../src/shared/traffic";
 vi.mock("../src/app/context", () => ({ useApp: () => ({ projectId: "p1", session: { user: { role: "editor" }, workspace: { status: "active" } }, currentProject: { primary_domain: "example.com" } }) }));
 vi.mock("../src/app/lib/api", () => ({ api: vi.fn() }));
-const config: TrafficConfig = { key: "public-project-key", enabled: false, domains: ["example.com"], aliases: [], goals: [], lastEvent: null, installation: { mode: "separate", origin: "https://analytics.example", scriptUrl: "https://cdn.example/belki-analytics.js", customScript: true } };
+const config: TrafficConfig = { key: "public-project-key", enabled: false, domains: ["example.com"], customSources: [], aliases: [], goals: [], lastEvent: null, installation: { mode: "separate", origin: "https://analytics.example", scriptUrl: "https://cdn.example/belki-analytics.js", customScript: true } };
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
 function open(configResponse: Promise<TrafficConfig> = Promise.resolve(config)) {
   vi.mocked(api).mockImplementation((path, init) => {
@@ -39,6 +39,51 @@ describe("analytics project setup", () => {
     expect(screen.getByLabelText<HTMLInputElement>("Goal name 1").value).toBe("Signup");
     fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
     await waitFor(() => expect(vi.mocked(api).mock.calls.find(([path, init]) => path === "/traffic/p1/config" && init?.method === "PUT")?.[1]?.body).toContain('"value":"signup_completed"'));
+  });
+});
+
+describe("analytics sources", () => {
+  const savedBodies = () => vi.mocked(api).mock.calls.filter(([path, init]) => path.endsWith("/config") && init?.method === "PUT").map(([, init]) => JSON.parse(init!.body as string) as TrafficConfig);
+
+  it("shows built-in values and adds aliases inside their source", async () => {
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "Sources" }));
+    const chatgpt = await screen.findByRole("region", { name: "ChatGPT" });
+    expect(within(chatgpt).getByText("chatgpt.com")).toBeInTheDocument();
+    expect(within(chatgpt).getByText("openai.com")).toBeInTheDocument();
+    const alias = within(chatgpt).getByRole("textbox", { name: "Add alias to ChatGPT" });
+    fireEvent.change(alias, { target: { value: "my-chatgpt-campaign" } });
+    fireEvent.keyDown(alias, { key: "Enter" });
+    expect(within(chatgpt).getByText("my-chatgpt-campaign")).toBeInTheDocument();
+    fireEvent.change(alias, { target: { value: "chatgpt.com" } });
+    fireEvent.click(within(chatgpt).getByRole("button", { name: "Add alias" }));
+    expect(within(chatgpt).getByRole("alert")).toHaveTextContent("already recognized");
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(savedBodies()[0]?.aliases).toEqual([{ alias: "my-chatgpt-campaign", source: "chatgpt" }]));
+  });
+
+  it("creates a custom source, attributes more aliases to it and removes it cleanly", async () => {
+    open();
+    fireEvent.click(screen.getByRole("button", { name: "Sources" }));
+    fireEvent.click(await screen.findByRole("button", { name: "Add source" }));
+    const dialog = screen.getByRole("dialog", { name: "Add AI source" });
+    fireEvent.change(within(dialog).getByLabelText("Source name"), { target: { value: "iAsk" } });
+    fireEvent.change(within(dialog).getByLabelText("First UTM source"), { target: { value: "iask.ai" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Add source" }));
+    const custom = await screen.findByRole("region", { name: "iAsk" });
+    expect(within(custom).getByText("iask")).toBeInTheDocument();
+    expect(within(custom).getByText("iask.ai")).toBeInTheDocument();
+    const alias = within(custom).getByRole("textbox", { name: "Add alias to iAsk" });
+    fireEvent.change(alias, { target: { value: "ask-ai" } });
+    fireEvent.keyDown(alias, { key: "Enter" });
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(savedBodies()[0]).toMatchObject({
+      customSources: [{ id: "iask", label: "iAsk" }],
+      aliases: [{ alias: "iask.ai", source: "iask" }, { alias: "ask-ai", source: "iask" }],
+    }));
+    fireEvent.click(within(custom).getByRole("button", { name: "Remove iAsk" }));
+    fireEvent.click(screen.getByRole("button", { name: "Save settings" }));
+    await waitFor(() => expect(savedBodies()[1]).toMatchObject({ customSources: [], aliases: [] }));
   });
 });
 

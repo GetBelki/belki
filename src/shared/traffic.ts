@@ -5,12 +5,27 @@ export const TRAFFIC_LABELS: Record<TrafficSource, string> = {
   chatgpt: "ChatGPT", claude: "Claude", gemini: "Gemini", perplexity: "Perplexity", copilot: "Copilot", grok: "Grok",
 };
 export type TrafficSource = typeof TRAFFIC_SOURCES[number];
-export const TRAFFIC_ALIASES: Record<string, TrafficSource> = {
-  chatgpt: "chatgpt", "chatgpt.com": "chatgpt", "chat.openai.com": "chatgpt",
-  claude: "claude", "claude.ai": "claude", gemini: "gemini", "gemini.google.com": "gemini",
-  perplexity: "perplexity", "perplexity.ai": "perplexity", copilot: "copilot",
-  "copilot.microsoft.com": "copilot", grok: "grok", "grok.com": "grok",
+export const TRAFFIC_SOURCE_ALIASES: Record<TrafficSource, readonly string[]> = {
+  chatgpt: ["chatgpt", "chatgpt.com", "chat.openai.com", "openai.com"],
+  claude: ["claude", "claude.ai", "claude.anthropic.com"],
+  gemini: ["gemini", "gemini.google.com", "bard", "bard.google.com"],
+  perplexity: ["perplexity", "perplexity.ai"],
+  copilot: ["copilot", "copilot.com", "copilot.microsoft.com", "edgepilot", "edgeservices"],
+  grok: ["grok", "grok.com"],
 };
+export type TrafficSourceId = string;
+export const TRAFFIC_ALIASES: Record<string, TrafficSourceId> = Object.fromEntries(
+  TRAFFIC_SOURCES.flatMap((source) => TRAFFIC_SOURCE_ALIASES[source].map((alias) => [alias, source])),
+);
+export const TrafficSourceIdSchema = z.string().trim().toLowerCase().min(1).max(50).regex(/^[a-z0-9](?:[a-z0-9_-]*[a-z0-9])?$/);
+export const TrafficAliasValueSchema = z.string().trim().toLowerCase().min(1).max(100).regex(/^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$/);
+export const TrafficCustomSourceSchema = z.object({
+  id: TrafficSourceIdSchema,
+  label: z.string().trim().min(1).max(50),
+}).strict();
+export const TrafficAliasSchema = z.object({ alias: TrafficAliasValueSchema, source: TrafficSourceIdSchema }).strict();
+export type TrafficCustomSource = z.infer<typeof TrafficCustomSourceSchema>;
+export type TrafficAlias = z.infer<typeof TrafficAliasSchema>;
 export const trafficPath = z.string().max(1024).regex(/^\/(?!\/)[^?#\s]*$/);
 export const TrafficHostnameSchema = z.string().trim().toLowerCase().max(253).regex(/^(?:localhost|(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)$/);
 export const TrafficGoalSchema = z.object({
@@ -23,13 +38,26 @@ export const TrafficGoalSchema = z.object({
 });
 export const TrafficSettingsSchema = z.object({
   enabled: z.boolean(), domains: z.array(TrafficHostnameSchema).min(1).max(20),
-  aliases: z.array(z.object({ alias: z.string().trim().toLowerCase().min(1).max(100), source: z.enum(TRAFFIC_SOURCES) }).strict()).max(50),
+  customSources: z.array(TrafficCustomSourceSchema).max(20).default([]),
+  aliases: z.array(TrafficAliasSchema).max(100),
   goals: z.array(TrafficGoalSchema).max(30),
 }).strict().superRefine((settings, ctx) => {
+  const sourceIds = new Set<string>(TRAFFIC_SOURCES);
+  const sourceLabels = new Set(Object.values(TRAFFIC_LABELS).map((label) => label.toLowerCase()));
+  for (const source of settings.customSources) {
+    if (sourceIds.has(source.id) || sourceLabels.has(source.label.toLowerCase())) {
+      ctx.addIssue({ code: "custom", message: "Source names and identifiers must be unique.", path: ["customSources"] });
+    }
+    sourceIds.add(source.id);
+    sourceLabels.add(source.label.toLowerCase());
+  }
   const seen = new Set<string>();
   for (const { alias, source } of settings.aliases) {
-    if (seen.has(alias) || (TRAFFIC_ALIASES[alias] && TRAFFIC_ALIASES[alias] !== source)) {
-      ctx.addIssue({ code: "custom", message: "Aliases must be unique and cannot override built-in sources.", path: ["aliases"] });
+    if (!sourceIds.has(source)) {
+      ctx.addIssue({ code: "custom", message: "Every alias must refer to an existing source.", path: ["aliases"] });
+    }
+    if (seen.has(alias) || (TRAFFIC_ALIASES[alias] && TRAFFIC_ALIASES[alias] !== source) || (sourceIds.has(alias) && alias !== source)) {
+      ctx.addIssue({ code: "custom", message: "Aliases must be unique and cannot override recognized source values.", path: ["aliases"] });
     }
     seen.add(alias);
   }
@@ -59,9 +87,13 @@ export function trafficSnippet(installation: TrafficInstallation, key: string): 
 </script>
 <script async src="${attr(installation.scriptUrl)}" data-site="${attr(key)}" data-api="${attr(installation.origin)}"></script>`;
 }
-export function trafficAliases(aliases: TrafficSettings["aliases"]): Record<string, TrafficSource> {
-  return Object.assign(Object.create(null) as Record<string, TrafficSource>, TRAFFIC_ALIASES,
-    Object.fromEntries(aliases.map(({ alias, source }) => [alias, source])));
+export function trafficAliases(settings: Pick<TrafficSettings, "customSources" | "aliases">): Record<string, TrafficSourceId> {
+  return Object.assign(Object.create(null) as Record<string, TrafficSourceId>, TRAFFIC_ALIASES,
+    Object.fromEntries(settings.customSources.map(({ id }) => [id, id])),
+    Object.fromEntries(settings.aliases.map(({ alias, source }) => [alias, source])));
+}
+export function trafficSourceLabel(source: string, customSources: TrafficCustomSource[]): string {
+  return TRAFFIC_LABELS[source as TrafficSource] ?? customSources.find(({ id }) => id === source)?.label ?? source;
 }
 export function trafficDevice(ua: string): string {
   if (!ua) return "unknown";

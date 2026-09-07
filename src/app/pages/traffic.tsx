@@ -1,17 +1,17 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { Check, ChevronDown, Copy, ExternalLink, Link2, Plus, Save, Trash2 } from "lucide-react";
 import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from "recharts";
 import { NoProject, PageHeader } from "../components/layout";
 import { Button, Card, CardContent, CardHeader, Dialog, EmptyState, Input, Select } from "../components/ui";
 import { useApp } from "../context";
 import { TrafficHostnames } from "../components/traffic-hostnames";
+import { TrafficSources } from "../components/traffic-sources";
 import { api } from "../lib/api";
-import { TrafficHostnameSchema, TRAFFIC_LABELS, TRAFFIC_SOURCES, trafficSnippet, type TrafficTestResult, type TrafficBreakdown, type TrafficConfig, type TrafficReport, type TrafficSettings, type TrafficSource } from "../../shared/traffic";
+import { TrafficHostnameSchema, TRAFFIC_LABELS, TRAFFIC_SOURCES, trafficSnippet, trafficSourceLabel, type TrafficTestResult, type TrafficBreakdown, type TrafficConfig, type TrafficReport, type TrafficSettings } from "../../shared/traffic";
 import "./traffic.css";
 
 type TrafficTab = "summary" | "installation" | "conversions" | "sources";
-const sourceOptions = TRAFFIC_SOURCES.map((value) => ({ value, label: TRAFFIC_LABELS[value] }));
 const isoDate = (date: Date) => date.toISOString().slice(0, 10);
 const percent = (part: number, total: number) => `${total ? (part / total * 100).toFixed(1) : "0"}%`;
 const count = (n: number) => n.toLocaleString();
@@ -27,9 +27,14 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
   const [source, setSource] = useState("all");
   const [selectedTab, setSelectedTab] = useState<TrafficTab>("summary");
   const config = useQuery({ queryKey: ["traffic-config", projectId], queryFn: () => api<TrafficConfig>(`/traffic/${projectId}/config`), refetchInterval: 60000 });
+  const sourceOptions = useMemo(() => [
+    ...TRAFFIC_SOURCES.map((value) => ({ value, label: TRAFFIC_LABELS[value] })),
+    ...(config.data?.customSources ?? []).map(({ id, label }) => ({ value: id, label })),
+  ], [config.data?.customSources]);
+  const reportSource = source === "all" || sourceOptions.some((option) => option.value === source) ? source : "all";
   const report = useQuery({
-    queryKey: ["traffic-report", projectId, from, to, source],
-    queryFn: () => api<TrafficReport>(`/traffic/${projectId}/report?${new URLSearchParams({ from, to, ...(source === "all" ? {} : { source }) })}`),
+    queryKey: ["traffic-report", projectId, from, to, reportSource],
+    queryFn: () => api<TrafficReport>(`/traffic/${projectId}/report?${new URLSearchParams({ from, to, ...(reportSource === "all" ? {} : { source: reportSource }) })}`),
     enabled: Boolean(from && to), refetchInterval: 60000,
   });
   const defaultTab = config.data ? (config.data.key ? "summary" : "installation") : null;
@@ -68,7 +73,7 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
       {!config.data.enabled ? <p className="traffic-notice">Collection is disabled. Historical traffic remains available.</p> : null}
       <div className="traffic-filters">
         <TrafficDateRange from={from} to={to} onChange={(range) => { setFrom(range.from); setTo(range.to); }} />
-        <label className="traffic-source-filter">AI source<Select ariaLabel="AI traffic source" value={source} onValueChange={setSource} options={[{ value: "all", label: "All AI sources" }, ...sourceOptions]} /></label>
+        <label className="traffic-source-filter">AI source<Select ariaLabel="AI traffic source" value={reportSource} onValueChange={setSource} options={[{ value: "all", label: "All AI sources" }, ...sourceOptions]} /></label>
       </div>
       {report.isPending ? <p role="status">Loading traffic…</p> : null}
       {report.error ? <p role="alert">{report.error.message}</p> : null}
@@ -89,7 +94,7 @@ function ProjectTraffic({ projectId }: { projectId: string }) {
             </LineChart></ResponsiveContainer></div>
           </CardContent></Card>
           <div className="traffic-tables">
-            <Breakdown title="AI sources" rows={data.sources.map((r) => ({ ...r, label: TRAFFIC_LABELS[r.label as TrafficSource] ?? r.label }))} />
+            <Breakdown title="AI sources" rows={data.sources.map((r) => ({ ...r, label: trafficSourceLabel(r.label, config.data.customSources) }))} />
             <Breakdown title="Entry pages" rows={data.entries} />
             <Breakdown title="Visited pages" rows={data.pages} />
             <Breakdown title="Countries" rows={data.countries.map((r) => ({ ...r, label: r.label === "unknown" ? "Unknown" : new Intl.DisplayNames(["en"], { type: "region" }).of(r.label) ?? r.label }))} />
@@ -169,11 +174,11 @@ function Breakdown({ title, rows }: { title: string; rows: TrafficBreakdown[] })
 }
 function TrafficSetup({ projectId, initial, domain, editable, section }: { projectId: string; initial: TrafficConfig; domain: string; editable: boolean; section: TrafficTab }) {
   const queryClient = useQueryClient();
-  const [settings, setSettings] = useState<TrafficSettings>({ enabled: initial.enabled, domains: [...new Set((initial.domains.length ? initial.domains : domain ? [domain] : []).map((value) => value.trim().toLowerCase()))], aliases: initial.aliases, goals: initial.goals });
+  const [settings, setSettings] = useState<TrafficSettings>({ enabled: initial.enabled, domains: [...new Set((initial.domains.length ? initial.domains : domain ? [domain] : []).map((value) => value.trim().toLowerCase()))], customSources: initial.customSources ?? [], aliases: initial.aliases, goals: initial.goals });
   const [domainDraft, setDomainDraft] = useState("");
   const [domainError, setDomainError] = useState<string | null>(null);
   const save = useMutation({ mutationFn: (next: TrafficSettings) => api<TrafficConfig>(`/traffic/${projectId}/config`, { method: "PUT", body: JSON.stringify(next) }),
-    onSuccess: (value) => { setSettings({ enabled: value.enabled, domains: value.domains, aliases: value.aliases, goals: value.goals }); queryClient.setQueryData(["traffic-config", projectId], value); } });
+    onSuccess: (value) => { setSettings({ enabled: value.enabled, domains: value.domains, customSources: value.customSources, aliases: value.aliases, goals: value.goals }); queryClient.setQueryData(["traffic-config", projectId], value); } });
   const collectDomains = (text: string) => {
     const next = new Set(settings.domains);
     for (const value of text.split(/[\s,]+/).filter(Boolean)) {
@@ -198,7 +203,7 @@ function TrafficSetup({ projectId, initial, domain, editable, section }: { proje
   };
   const config = save.data ?? initial;
   const snippet = trafficSnippet(config.installation, config.key ?? "SAVE_TO_GENERATE_KEY");
-  return <Card className={`traffic-settings-card${section === "installation" ? " traffic-installation-card" : ""}`}><CardHeader title={section === "conversions" ? "Conversion goals" : section === "sources" ? "AI sources" : "Install Belki Analytics"} description={section === "conversions" ? "Count a successful action or arrival at a specific page. Each goal counts once per session." : section === "sources" ? "Attribute visits using recognized utm_source values." : "Add the tag once to your site’s global template. Include every hostname you want to measure."} /><CardContent>
+  return <Card className={`traffic-settings-card${section === "installation" ? " traffic-installation-card" : section === "sources" ? " traffic-sources-card" : ""}`}><CardHeader title={section === "conversions" ? "Conversion goals" : section === "sources" ? "AI sources" : "Install Belki Analytics"} description={section === "conversions" ? "Count a successful action or arrival at a specific page. Each goal counts once per session." : section === "sources" ? "Review every recognized source and control how UTM values are attributed." : "Add the tag once to your site’s global template. Include every hostname you want to measure."} /><CardContent>
     <form className="traffic-setup" onSubmit={(event) => { event.preventDefault(); saveSettings(); }}>
       <fieldset disabled={!editable || save.isPending}>
         <div className="traffic-section" hidden={section !== "installation"}>
@@ -208,13 +213,8 @@ function TrafficSetup({ projectId, initial, domain, editable, section }: { proje
           onRemove={(value) => { setSettings({ ...settings, domains: settings.domains.filter((hostname) => hostname !== value) }); setDomainError(null); }} />
         </div>
         <div className="traffic-section" hidden={section !== "sources"}>
-        <h3>Source aliases</h3><p>Built-in names and domains for ChatGPT, Claude, Gemini, Perplexity, Copilot and Grok are included. Add your own utm_source values below.</p>
-        {settings.aliases.map((alias, index) => <div className="traffic-edit-row" key={index}>
-          <label>UTM source<Input aria-label={`Alias ${index + 1}`} value={alias.alias} placeholder="my-chatgpt-campaign" onChange={(e) => setSettings({ ...settings, aliases: settings.aliases.map((v, i) => i === index ? { ...v, alias: e.target.value } : v) })} /></label>
-          <label>AI source<select aria-label={`Alias source ${index + 1}`} className="input" value={alias.source} onChange={(e) => setSettings({ ...settings, aliases: settings.aliases.map((v, i) => i === index ? { ...v, source: e.target.value as TrafficSource } : v) })}>{sourceOptions.map((o) => <option key={o.value} value={o.value}>{o.label}</option>)}</select></label>
-          <Button type="button" variant="ghost" aria-label={`Remove alias ${index + 1}`} onClick={() => setSettings({ ...settings, aliases: settings.aliases.filter((_, i) => i !== index) })}><Trash2 size={14} aria-hidden="true" />Remove</Button>
-        </div>)}
-        <Button type="button" variant="secondary" disabled={settings.aliases.length >= 50} onClick={() => setSettings({ ...settings, aliases: [...settings.aliases, { alias: "", source: "chatgpt" }] })}><Plus size={15} aria-hidden="true" />Add alias</Button>
+        <TrafficSources customSources={settings.customSources} aliases={settings.aliases} disabled={!editable || save.isPending}
+          onChange={(value) => setSettings({ ...settings, ...value })} />
         </div>
         <div className="traffic-section" hidden={section !== "conversions"}>
         <p>Use an exact page path such as <code>/thanks</code>, or send a JavaScript event after your application confirms success. Visiting a page does not prove a purchase or registration completed.</p>

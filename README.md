@@ -153,7 +153,8 @@ Unless labeled otherwise, the features below are available in both modes.
 Install **`belki-analytics.js`** to measure sessions originating from recognized
 AI `utm_source` values, subsequent page views, approximate visible time, country,
 device and conversions by page or JavaScript event. Collection is opt-in, with
-per-project domains, custom source aliases, goals and 12 months of history.
+per-project domains, visible built-in mappings, custom aliases and sources, goals
+and 12 months of history.
 
 **AI Analytics → Installation** generates the complete tag and provides a temporary
 test session excluded from real reports. Conversion delivery includes a bounded
