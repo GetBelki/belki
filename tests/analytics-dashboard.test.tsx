@@ -1,6 +1,7 @@
 import { act, render, screen, fireEvent, waitFor, cleanup, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { createMemoryRouter, RouterProvider } from "react-router-dom";
 import { TrafficPage } from "../src/app/pages/traffic";
 import { api } from "../src/app/lib/api";
 import type { TrafficConfig } from "../src/shared/traffic";
@@ -8,13 +9,15 @@ vi.mock("../src/app/context", () => ({ useApp: () => ({ projectId: "p1", session
 vi.mock("../src/app/lib/api", () => ({ api: vi.fn() }));
 const config: TrafficConfig = { key: "public-project-key", enabled: false, domains: ["example.com"], customSources: [], aliases: [], goals: [], lastEvent: null, installation: { mode: "separate", origin: "https://analytics.example", scriptUrl: "https://cdn.example/belki-analytics.js", customScript: true } };
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.unstubAllGlobals(); vi.clearAllMocks(); });
-function open(configResponse: Promise<TrafficConfig> = Promise.resolve(config)) {
+function open(configResponse: Promise<TrafficConfig> = Promise.resolve(config), path = "/ai-traffic") {
   vi.mocked(api).mockImplementation((path, init) => {
     if (path.endsWith("/config")) return Promise.resolve(init?.method === "PUT" ? { ...config, ...(JSON.parse(init.body as string) as Partial<TrafficConfig>) } : configResponse);
     if (path.endsWith("/test")) return Promise.resolve(init?.method === "POST" ? { url: "https://example.com/?belki_test=token", expiresAt: Date.now() + 600000 } : { expiresAt: Date.now() + 600000, result: { path: "/thanks", event: "signup_completed", goals: ["Signup"] } });
     return Promise.resolve({ summary: { sessions: 0, views: 0, visibleMs: 0, converted: 0 }, daily: [], sources: [], entries: [], countries: [], devices: [], pages: [], goals: [] });
   });
-  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><TrafficPage /></QueryClientProvider>);
+  const router = createMemoryRouter([{ path: "/ai-traffic/*", element: <TrafficPage /> }], { initialEntries: [path] });
+  render(<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}><RouterProvider router={router} /></QueryClientProvider>);
+  return router;
 }
 describe("analytics project setup", () => {
   it("generates the configured CDN tag and lets an editor test before enabling collection", async () => {
@@ -148,6 +151,21 @@ function deferredConfig() {
 }
 
 describe("analytics initial section", () => {
+  it("exposes direct section routes and keeps browser history in sync", async () => {
+    const router = open(Promise.resolve(config), "/ai-traffic/sources");
+    await screen.findByText("Recognized sources");
+    expect(screen.getByRole("button", { name: "Sources" })).toHaveAttribute("aria-pressed", "true");
+    fireEvent.click(screen.getByRole("button", { name: "Installation" }));
+    await screen.findByText("Install Belki Analytics");
+    expect(router.state.location.pathname).toBe("/ai-traffic/installation");
+    fireEvent.click(screen.getByRole("button", { name: "Conversions" }));
+    await screen.findByRole("button", { name: "Add goal" });
+    expect(router.state.location.pathname).toBe("/ai-traffic/conversions");
+    await act(() => router.navigate(-1));
+    await screen.findByText("Install Belki Analytics");
+    expect(screen.getByRole("button", { name: "Installation" })).toHaveAttribute("aria-pressed", "true");
+  });
+
   it("waits for settings before selecting Overview for an installed project", async () => {
     const pending = deferredConfig();
     open(pending.promise);
