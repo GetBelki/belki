@@ -509,7 +509,7 @@ export default function SettingsPage() {
                     ? <Badge tone="warning">Paused</Badge>
                     : project.id === projectId
                       ? <Badge tone="info">Selected</Badge>
-                      : <Badge>Available</Badge>,
+                      : <Badge tone="success">Available</Badge>,
                   action: canEditProject ? (
                     <div className="project-table-actions">
                       <Button className="settings-edit-button" variant="secondary" onClick={() => setEditingProject(project)}><Pencil size={13}/> Edit</Button>
