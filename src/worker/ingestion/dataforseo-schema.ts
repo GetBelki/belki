@@ -250,6 +250,9 @@ export function parseTrackingPayload(
   if (source === "chatgpt" || source === "gemini") {
     return parseAdvancedPayload(payload);
   }
+  if (source !== "google_ai_mode" && source !== "google_ai_overview") {
+    throw new Error(`DataForSEO does not support ${source}`);
+  }
   const rawPayload = record(payload);
   const rawTasks = Array.isArray(rawPayload?.tasks) ? rawPayload.tasks : [];
   return AdvancedPayloadSchema.parse({

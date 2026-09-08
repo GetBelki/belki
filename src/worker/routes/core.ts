@@ -795,13 +795,13 @@ coreRoutes.patch(
       },
     });
     const statements =
-      ["chatgpt", "gemini", "google_ai_mode", "google_ai_overview"].map((source) =>
+      TRACKING_SOURCES.map((source) =>
         c.env.CONTROL_DB.prepare(
           `INSERT INTO project_tracking_sources (project_id, source, enabled, created_at, updated_at)
            VALUES (?, ?, ?, ?, ?)
            ON CONFLICT(project_id, source) DO UPDATE SET
              enabled = excluded.enabled, updated_at = excluded.updated_at`,
-        ).bind(id, source, sources.includes(source as typeof sources[number]) ? 1 : 0, now, now)
+        ).bind(id, source, sources.includes(source) ? 1 : 0, now, now)
       );
     statements.push(audit.statement);
     if (addedSources.length || removedSources.length) {

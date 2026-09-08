@@ -45,17 +45,17 @@ export interface StandardTaskInput {
   postback_data: "advanced";
 }
 
-const SOURCE_PATHS: Record<TrackingSource, string> = {
+const SOURCE_PATHS: Partial<Record<TrackingSource, string>> = {
   chatgpt: "/v3/ai_optimization/chat_gpt/llm_scraper",
   gemini: "/v3/ai_optimization/gemini/llm_scraper",
   google_ai_mode: "/v3/serp/google/ai_mode",
   google_ai_overview: "/v3/serp/google/organic",
 };
 
-const LANGUAGE_CODE_OVERRIDES: Record<
+const LANGUAGE_CODE_OVERRIDES: Partial<Record<
   TrackingSource,
   Readonly<Record<string, string>>
-> = {
+>> = {
   chatgpt: {
     nb: "no",
   },
@@ -75,6 +75,7 @@ const LANGUAGE_CODE_OVERRIDES: Record<
 };
 
 function apiBase(source: TrackingSource): string {
+  if (!SOURCE_PATHS[source]) throw new Error(`DataForSEO does not support ${source}`);
   return `${API_ORIGIN}${SOURCE_PATHS[source]}`;
 }
 
@@ -82,7 +83,7 @@ export function dataForSeoLanguageCode(
   source: TrackingSource,
   languageCode: string,
 ): string {
-  return LANGUAGE_CODE_OVERRIDES[source][languageCode] ?? languageCode;
+  return LANGUAGE_CODE_OVERRIDES[source]?.[languageCode] ?? languageCode;
 }
 
 export function dataForSeoTask(

@@ -27,6 +27,7 @@ import {
   releaseUsage,
   syncUsageEntitlement,
 } from "../lib/usage";
+import { TRACKING_SOURCES } from "../../shared/tracking-sources";
 import { availableSources } from "../lib/tracking-sources";
 import {
   legacyTransactionalPlanKey,
@@ -321,7 +322,7 @@ async function applyPlanTransition(
     }
   }
   for (const change of transition.sourceChanges) {
-    statements.push(...(["chatgpt", "gemini", "google_ai_mode", "google_ai_overview"] as TrackingSource[])
+    statements.push(...TRACKING_SOURCES
       .map((source) => env.CONTROL_DB.prepare(
         `INSERT INTO project_tracking_sources (project_id, source, enabled, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?)

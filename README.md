@@ -53,7 +53,9 @@ month on larger self-hosted installations.
 
 ## Supported AI platforms
 
-Each enabled platform runs every active prompt independently. The overview can
+Belki supports six AI platforms through five capture providers, including
+Perplexity and Microsoft Copilot through Olostep. Each enabled platform runs
+every active prompt independently. The overview can
 combine enabled platforms, while prompts, responses, citations, related queries,
 entities, ads, and shopping data remain separated by their originating source.
 
@@ -63,10 +65,11 @@ entities, ads, and shopping data remain separated by their originating source.
 | Gemini | Answers, citations, retrieved sources, fan-out queries, and entities |
 | Google AI Mode | Answers, cited and retrieved sources, fan-out queries, and entities |
 | Google AI Overviews | Whether an AI Overview appeared, its answer text, cited sources, and entities |
+| Perplexity | Answers, citations, search queries, and entities |
+| Microsoft Copilot | Answers, citations, and entities |
 
 ChatGPT is enabled by default. Additional sources must be available in the
-deployment and allowed by the workspace plan. Claude and Perplexity are not part
-of the current release.
+deployment and allowed by the workspace plan. Claude is not part of the current release.
 
 ## Capture providers
 
@@ -74,7 +77,7 @@ Belki keeps AI-answer collection behind an internal provider interface. The
 rest of the product works with one normalized capture contract, so analytics,
 evidence, alerts, and exports do not need provider-specific code.
 
-The current provider order is DataForSEO, Bright Data, Cloro, then Oxylabs. An
+The current provider order is DataForSEO, Bright Data, Cloro, Oxylabs, then Olostep. An
 installation operator connects the first account during onboarding, can add or
 rotate accounts later under **Operator → Providers**, and chooses:
 
@@ -87,12 +90,38 @@ selected override or default cannot serve that platform at dispatch time,
 routing advances through active, configured, compatible accounts by provider
 priority. Disabled or unconfigured accounts are never selected.
 
-| Provider | ChatGPT | Gemini | Google AI Mode | Google AI Overviews |
-|---|:---:|:---:|:---:|:---:|
-| DataForSEO | Yes | Yes | Yes | Yes |
-| Bright Data | Yes | — | — | — |
-| Cloro | Yes | Yes | Yes | Yes |
-| Oxylabs | Yes | — | Yes | Yes |
+| Provider | ChatGPT | Gemini | Google AI Mode | Google AI Overviews | Perplexity | Copilot |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|
+| DataForSEO | Yes | Yes | Yes | Yes | — | — |
+| Bright Data | Yes | — | — | — | — | — |
+| Cloro | Yes | Yes | Yes | Yes | — | — |
+| Oxylabs | Yes | — | Yes | Yes | — | — |
+| Olostep | Yes | Yes | Yes | Yes | Yes | Yes |
+
+### Olostep setup
+
+Apply control migration `0039_olostep.sql` and snapshot migration `0009_olostep.sql`
+to all shards before deploying this version (the normal migration command does this).
+Connect **Olostep** with an API key under **Operator → Providers**, then choose it
+as the default or as a platform override. Enable Perplexity and Copilot there and
+select them in project settings. Self-hosted workspaces can use all six platforms;
+managed installations must add the new platforms to their billing plans as needed.
+Existing managed plan choices and limits are preserved.
+
+The [Olostep GEO API](https://docs.olostep.com/examples/geo) runs asynchronously:
+Belki submits one item per run, polls every 30 seconds, and retrieves the matching
+parsed result after completion. Typical collection takes 5–8 minutes; Belki stops
+polling after 30 minutes. Queue recovery resumes stalled polls without submitting
+another batch. Both standard and live delivery use this asynchronous flow.
+
+Country targeting uses the selected location's ISO country code. Country coverage
+is parser-specific and enforced by Olostep; unknown countries fail explicitly.
+This API does not expose city targeting, language overrides, forced web search,
+or model selection. Answers, citations, retrieved sources, available search-query
+telemetry, and documented ChatGPT ads/products are normalized. Other commercial
+modules remain in retained JSON evidence. Reported USD batch cost is recorded when
+available; credits are not treated as dollars. No API key is needed to run the
+mocked integration tests.
 
 Provider accounts belong to the installation, not to customer workspaces.
 Credentials are verified before storage, encrypted with `APP_CRYPTO_KEY`, and
@@ -436,12 +465,14 @@ flowchart LR
   Registry --> BrightAdapter[Bright Data adapter]
   Registry --> CloroAdapter[Cloro adapter]
   Registry --> OxyAdapter[Oxylabs adapter]
+  Registry --> OlostepAdapter[Olostep adapter]
   DFSAdapter --> Providers[External AI capture providers]
   BrightAdapter --> Providers
   CloroAdapter --> Providers
   OxyAdapter --> Providers
+  OlostepAdapter --> Providers
   Resolver --> Attempts[Provider attempt provenance]
-  Providers --> Result[Authenticated or synchronous result]
+  Providers --> Result[Callback / polled / synchronous result]
   Result --> Attempts
   Result --> R2[(Private R2 evidence)]
   Result --> NormalizeQ[Normalization queue]
@@ -544,7 +575,7 @@ the repository remains private and the Deploy button is only a preview of the
 future installation path.
 
 1. Create a Cloudflare Workers Paid account and choose an initial capture
-   provider: DataForSEO, Bright Data, Cloro, or Oxylabs.
+   provider: DataForSEO, Bright Data, Cloro, Oxylabs, or Olostep.
 2. Generate two different secrets locally. Keep the outputs out of Git,
    screenshots, issue reports, and shell history shared with other people.
 
@@ -785,12 +816,13 @@ monthly price.
 | Plan | Price | Active prompts | Projects | Tracking sources per project | Seats |
 |---|---:|---:|---:|---|---:|
 | Starter | €10/month | 25 | 1 | ChatGPT | Unlimited |
-| Studio | €29/month | 75 | 5 | Choose 2 | Unlimited |
-| Agency | €149/month | 250 | 30 | All 4 | Unlimited |
+| Studio | €29/month | 75 | 5 | Up to 2 enabled sources | Unlimited |
+| Agency | €149/month | 250 | 30 | Up to 4 enabled sources | Unlimited |
 
-Optional sources use deployment feature flags so managed operators can release
-or disable them independently. Each additional source runs the project's active
-prompts independently.
+The six supported platforms are available according to each plan's allowed sources
+and the installation's enabled provider routes. Managed operators must enable
+Perplexity and Microsoft Copilot and add them to the appropriate plans. Each
+additional source runs the project's active prompts independently.
 
 Set `DEPLOYMENT_MODE=managed` and enable the `PAYMENT_MODE` runtime kill switch.
 After the operator creates the installation owner and capture-provider account,

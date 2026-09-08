@@ -35,6 +35,7 @@ describe("capture providers", () => {
       "brightdata",
       "cloro",
       "oxylabs",
+      "olostep",
     ]);
   });
 
@@ -86,6 +87,7 @@ describe("capture providers", () => {
       brightdata: "https://brightdata.com/cp/",
       cloro: "https://dashboard.cloro.dev/",
       oxylabs: "https://dashboard.oxylabs.io/",
+      olostep: "https://www.olostep.com/auth/",
     });
   });
 

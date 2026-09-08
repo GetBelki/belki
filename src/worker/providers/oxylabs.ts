@@ -143,8 +143,8 @@ export const oxylabsAdapter: CaptureProviderExecutionAdapter = {
   version: "oxylabs-v1",
   async execute(credentials, request) {
     if (credentials.provider !== "oxylabs") throw new Error("Oxylabs credentials are required");
-    if (request.source === "gemini") {
-      throw new Error("Oxylabs does not support Gemini in this adapter version");
+    if (!["chatgpt", "google_ai_mode", "google_ai_overview"].includes(request.source)) {
+      throw new Error("Oxylabs does not support this platform in this adapter version");
     }
     const chatgpt = request.source === "chatgpt";
     const aiMode = request.source === "google_ai_mode";

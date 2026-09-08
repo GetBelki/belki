@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { CAPTURE_PROVIDER_SOURCES } from "../src/shared/capture-providers";
 import { DEFAULT_BILLING_PLANS } from "../src/shared/billing-plans";
 import { TRACKING_SOURCES } from "../src/shared/tracking-sources";
 import {
@@ -77,7 +78,7 @@ describe("tracking source entitlements", () => {
     await expect(availableSources(providerEnv(["chatgpt"]))).resolves.toEqual(["chatgpt"]);
     await expect(availableSources(providerEnv(["chatgpt", "gemini"])))
       .resolves.toEqual(["chatgpt", "gemini"]);
-    await expect(availableSources(providerEnv(TRACKING_SOURCES))).resolves.toEqual(TRACKING_SOURCES);
+    await expect(availableSources(providerEnv(TRACKING_SOURCES))).resolves.toEqual(CAPTURE_PROVIDER_SOURCES.dataforseo);
   });
 
   it("matches the public prompt, project, and source limits", () => {
@@ -101,7 +102,7 @@ describe("tracking source entitlements", () => {
       sourceLimit: 1,
     });
     expect(planSourceEntitlement("studio")).toEqual({
-      allowedSources: [...TRACKING_SOURCES],
+      allowedSources: [...CAPTURE_PROVIDER_SOURCES.dataforseo],
       sourceLimit: 2,
     });
   });

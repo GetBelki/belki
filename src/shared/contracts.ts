@@ -28,6 +28,7 @@ const DataForSeoCredentialSchema = z.object({
   password: ProviderSecretSchema,
 });
 const BrightDataCredentialSchema = z.object({ apiToken: ProviderSecretSchema });
+const OlostepCredentialSchema = z.object({ apiKey: ProviderSecretSchema });
 const CloroCredentialSchema = z.object({ apiKey: ProviderSecretSchema });
 const OxylabsCredentialSchema = z.object({
   username: ProviderSecretSchema,
@@ -46,6 +47,11 @@ export const CaptureProviderAccountInputSchema = z.discriminatedUnion(
       provider: z.literal("brightdata"),
       label: ProviderLabelSchema,
       credentials: BrightDataCredentialSchema,
+    }),
+    z.object({
+      provider: z.literal("olostep"),
+      label: ProviderLabelSchema,
+      credentials: OlostepCredentialSchema,
     }),
     z.object({
       provider: z.literal("cloro"),
@@ -73,6 +79,10 @@ export const CaptureProviderCredentialInputSchema = z.discriminatedUnion(
     z.object({
       provider: z.literal("brightdata"),
       credentials: BrightDataCredentialSchema,
+    }),
+    z.object({
+      provider: z.literal("olostep"),
+      credentials: OlostepCredentialSchema,
     }),
     z.object({
       provider: z.literal("cloro"),

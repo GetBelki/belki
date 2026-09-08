@@ -31,6 +31,7 @@ import {
   downloadBrightDataSnapshot,
   getBrightDataSnapshotProgress,
 } from "../providers/brightdata";
+import { pollOlostepBatch } from "../providers/olostep";
 import { CaptureProviderExecutionError } from "../providers/types";
 
 const OXYLABS_AUTOMATIC_RETRIES = 1;
@@ -112,7 +113,7 @@ async function loadJobs(env: Env, ids: string[]): Promise<DispatchJobRow[]> {
     WHERE j.id IN (${placeholders})
       AND (
         j.status IN ('queued', 'submission_unknown')
-        OR (j.status = 'awaiting_result' AND j.capture_provider = 'brightdata')
+        OR (j.status = 'awaiting_result' AND j.capture_provider IN ('brightdata', 'olostep'))
       )
       AND q.deleted_at IS NULL
       AND project.deleted_at IS NULL
@@ -154,7 +155,7 @@ async function dispatchableJobs(env: Env, jobs: DispatchJobRow[]): Promise<Dispa
   for (const job of jobs) {
     if (job.paused_at && job.status === "queued") {
       await cancelPausedProjectJob(env, job);
-    } else if (enabledSources.has(job.tracking_source)) {
+    } else if (job.status === "awaiting_result" || enabledSources.has(job.tracking_source)) {
       available.push(job);
     } else {
       await cancelUnavailableSourceJob(env, job);
@@ -214,50 +215,55 @@ function jobQueue(env: Env, job: DispatchJobRow): Queue {
   return job.delivery_method === "live" ? env.LIVE_QUEUE : env.STANDARD_QUEUE;
 }
 
-async function requeueBrightDataPoll(env: Env, job: DispatchJobRow): Promise<void> {
+async function requeueProviderPoll(env: Env, job: DispatchJobRow): Promise<void> {
   await jobQueue(env, job).send(
     { jobId: job.id } satisfies JobQueueMessage,
     { delaySeconds: 30 },
   );
 }
 
-async function pollBrightDataJob(env: Env, job: DispatchJobRow): Promise<void> {
+async function pollAsyncProviderJob(env: Env, job: DispatchJobRow): Promise<void> {
   const snapshotId = job.dataforseo_task_id;
-  if (!snapshotId) throw new Error("Bright Data job is missing its snapshot ID");
+  if (!snapshotId) throw new Error("Provider job is missing its external task ID");
   const { credentials } = await jobCredentials(env, job);
-  if (credentials.provider !== "brightdata") {
-    throw new Error("Bright Data credentials are required");
+  if (credentials.provider !== "brightdata" && credentials.provider !== "olostep") {
+    throw new Error("Asynchronous provider credentials are required");
   }
   try {
-    const progress = await getBrightDataSnapshotProgress(
-      credentials.credentials.apiToken,
-      snapshotId,
-    );
+    const olostep = credentials.provider === "olostep"
+      ? await pollOlostepBatch(credentials.credentials.apiKey, snapshotId, job.id, job.tracking_source)
+      : null;
+    const progress = credentials.provider === "brightdata"
+      ? await getBrightDataSnapshotProgress(credentials.credentials.apiToken, snapshotId)
+      : olostep?.pending ? "running" : "ready";
     if (progress === "starting" || progress === "running") {
       const submittedAt = Date.parse(job.submitted_at ?? "");
       if (!Number.isNaN(submittedAt) && Date.now() - submittedAt > 30 * 60_000) {
-        throw new Error("Bright Data snapshot did not become ready within 30 minutes");
+        throw new Error("Provider result did not become ready within 30 minutes");
       }
       await env.CONTROL_DB.prepare(
         `UPDATE crawl_jobs SET task_status_message = ?, updated_at = ?
          WHERE id = ? AND status = 'awaiting_result'`,
       ).bind(progress, nowIso(), job.id).run();
-      await requeueBrightDataPoll(env, job);
+      await requeueProviderPoll(env, job);
       return;
     }
     if (progress === "failed") throw new Error("Bright Data snapshot failed");
 
-    const bytes = await downloadBrightDataSnapshot(
-      credentials.credentials.apiToken,
-      snapshotId,
-    );
+    const bytes = olostep && !olostep.pending
+      ? olostep.bytes
+      : credentials.provider === "brightdata"
+        ? await downloadBrightDataSnapshot(credentials.credentials.apiToken, snapshotId)
+        : null;
+    if (!bytes) throw new Error("Provider returned no result bytes");
+    const cost = olostep && !olostep.pending ? olostep.requestCostUsd : null;
     const rawKey = `raw/${job.workspace_id}/${job.project_id}/${job.tracking_source}/${new Date().toISOString().slice(0, 7)}/${encodeURIComponent(snapshotId)}.json`;
     await env.EVIDENCE_BUCKET.put(rawKey, bytes, {
       httpMetadata: { contentType: "application/json" },
       customMetadata: {
         jobId: job.id,
         taskId: snapshotId,
-        provider: "brightdata",
+        provider: job.capture_provider,
         trackingSource: job.tracking_source,
       },
     });
@@ -265,14 +271,15 @@ async function pollBrightDataJob(env: Env, job: DispatchJobRow): Promise<void> {
     const update = await env.CONTROL_DB.batch([
       env.CONTROL_DB.prepare(
         `UPDATE crawl_jobs SET status = 'normalizing', task_status_code = 200,
-          task_status_message = 'Ready', raw_r2_key = ?, error_code = NULL,
+          task_status_message = 'Ready', raw_r2_key = ?,
+          request_cost_usd = COALESCE(?, request_cost_usd), error_code = NULL,
           error_message = NULL, updated_at = ?
          WHERE id = ? AND status = 'awaiting_result'`,
-      ).bind(rawKey, updatedAt, job.id),
+      ).bind(rawKey, cost, updatedAt, job.id),
       env.CONTROL_DB.prepare(
         `UPDATE capture_provider_attempts SET status = 'normalizing', raw_r2_key = ?,
-          error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?`,
-      ).bind(rawKey, updatedAt, job.capture_provider_attempt_id),
+          request_cost_usd = COALESCE(?, request_cost_usd), error_code = NULL, error_message = NULL, updated_at = ? WHERE id = ?`,
+      ).bind(rawKey, cost, updatedAt, job.capture_provider_attempt_id),
     ]);
     if ((update[0]?.meta.changes ?? 0) === 0) {
       return;
@@ -293,7 +300,7 @@ async function pollBrightDataJob(env: Env, job: DispatchJobRow): Promise<void> {
       ).bind(message, failedAt, job.id).run();
       console.error(JSON.stringify({
         level: "error",
-        event: "brightdata.normalization_enqueue_failed",
+        event: "capture_provider.normalization_enqueue_failed",
         jobId: job.id,
         snapshotId,
         error: message,
@@ -302,19 +309,20 @@ async function pollBrightDataJob(env: Env, job: DispatchJobRow): Promise<void> {
   } catch (error) {
     const submittedAt = Date.parse(job.submitted_at ?? "");
     const timedOut = !Number.isNaN(submittedAt) && Date.now() - submittedAt > 30 * 60_000;
-    if (!timedOut && !String(error).includes("snapshot failed")) {
+    if (!timedOut && !String(error).includes("snapshot failed") &&
+      !(error instanceof CaptureProviderExecutionError && !error.retryable)) {
       await env.CONTROL_DB.prepare(
         `UPDATE crawl_jobs SET task_status_message = 'Poll retry', updated_at = ?
          WHERE id = ? AND status = 'awaiting_result'`,
       ).bind(nowIso(), job.id).run();
       console.warn(JSON.stringify({
         level: "warn",
-        event: "brightdata.snapshot_poll_retry",
+        event: "capture_provider.snapshot_poll_retry",
         jobId: job.id,
         snapshotId,
         error: String(error),
       }));
-      await requeueBrightDataPoll(env, job);
+      await requeueProviderPoll(env, job);
       return;
     }
     const message = String(error).slice(0, 1000);
@@ -417,14 +425,14 @@ async function executeSynchronousProviderJob(
         return;
       }
       try {
-        await requeueBrightDataPoll(env, {
+        await requeueProviderPoll(env, {
           ...job,
           dataforseo_task_id: result.externalTaskId,
         });
       } catch (queueError) {
         console.warn(JSON.stringify({
           level: "warn",
-          event: "brightdata.initial_poll_enqueue_failed",
+          event: "capture_provider.initial_poll_enqueue_failed",
           jobId: job.id,
           snapshotId: result.externalTaskId,
           error: String(queueError),
@@ -584,8 +592,8 @@ export async function dispatchStandardBatch(
     if (!firstJob) continue;
     if (firstJob.capture_provider !== "dataforseo") {
       for (const job of sourceJobs) {
-        if (job.capture_provider === "brightdata" && job.status === "awaiting_result") {
-          await pollBrightDataJob(env, job);
+        if ((job.capture_provider === "brightdata" || job.capture_provider === "olostep") && job.status === "awaiting_result") {
+          await pollAsyncProviderJob(env, job);
         } else {
           await executeSynchronousProviderJob(env, job);
         }
@@ -760,8 +768,8 @@ export async function dispatchLiveBatch(
         return;
       }
       if (job.capture_provider !== "dataforseo") {
-        if (job.capture_provider === "brightdata" && job.status === "awaiting_result") {
-          await pollBrightDataJob(env, job);
+        if ((job.capture_provider === "brightdata" || job.capture_provider === "olostep") && job.status === "awaiting_result") {
+          await pollAsyncProviderJob(env, job);
         } else {
           await executeSynchronousProviderJob(env, job);
         }

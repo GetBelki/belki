@@ -27,7 +27,7 @@ const OperatorInsightQuerySchema = z.object({
   period: OperatorInsightPeriodSchema.default("30d"),
   source: OperatorInsightSourceSchema.default("all"),
 });
-const OperatorFanOutSourceSchema = z.enum(["all", "chatgpt", "gemini"]);
+const OperatorFanOutSourceSchema = z.enum(["all", "chatgpt", "gemini", "perplexity"]);
 const OperatorFanOutQuerySchema = z.object({
   period: OperatorInsightPeriodSchema.default("30d"),
   source: OperatorFanOutSourceSchema.default("chatgpt"),
@@ -585,7 +585,7 @@ operatorInsightRoutes.get(
               OR (? = '__unreported__' AND fact.provider_model IS NULL)
               OR fact.provider_model = ?
             )
-            AND fact.tracking_source IN ('chatgpt', 'gemini')
+            AND fact.tracking_source IN ('chatgpt', 'gemini', 'perplexity')
             AND fact.fan_out_telemetry_status = 'reported'
             AND fact.related_query_signal_counts_indexed_at IS NOT NULL
             AND fact.related_query_signal_counts_version >= ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
@@ -734,7 +734,7 @@ operatorInsightRoutes.get(
          LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
          WHERE snapshot.captured_at >= ? AND snapshot.captured_at < ?
            AND (
-             (? = 'all' AND snapshot.tracking_source IN ('chatgpt', 'gemini'))
+             (? = 'all' AND snapshot.tracking_source IN ('chatgpt', 'gemini', 'perplexity'))
              OR snapshot.tracking_source = ?
            )
            AND (
@@ -774,7 +774,7 @@ operatorInsightRoutes.get(
          JOIN workspaces workspace
            ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
          LEFT JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
-         WHERE snapshot.tracking_source IN ('chatgpt', 'gemini')
+         WHERE snapshot.tracking_source IN ('chatgpt', 'gemini', 'perplexity')
            AND (fact.snapshot_id IS NULL
            OR fact.related_query_signal_counts_indexed_at IS NULL
            OR fact.related_query_signal_counts_version < ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
@@ -843,7 +843,7 @@ operatorInsightRoutes.get(
            ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
          WHERE fact.metric_date BETWEEN ? AND ?
            AND (
-             (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini'))
+             (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini', 'perplexity'))
              OR fact.tracking_source = ?
            )
            AND (
@@ -879,7 +879,7 @@ operatorInsightRoutes.get(
          ) year
          WHERE fact.metric_date BETWEEN ? AND ?
            AND (
-             (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini'))
+             (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini', 'perplexity'))
              OR fact.tracking_source = ?
            )
            AND (
@@ -912,7 +912,7 @@ operatorInsightRoutes.get(
            ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
          WHERE fact.metric_date BETWEEN ? AND ?
            AND (
-             (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini'))
+             (? = 'all' AND fact.tracking_source IN ('chatgpt', 'gemini', 'perplexity'))
              OR fact.tracking_source = ?
            )
            AND fact.fan_out_telemetry_indexed_at IS NOT NULL

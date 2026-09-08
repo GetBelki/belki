@@ -215,11 +215,11 @@ export async function reconcileJobs(env: Env): Promise<number> {
     await queue.send({ jobId: job.id } satisfies JobQueueMessage);
   }
 
-  const staleBrightData = await env.CONTROL_DB.prepare(
+  const staleAsyncProviderJobs = await env.CONTROL_DB.prepare(
     `SELECT job.id, job.delivery_method
      FROM crawl_jobs job
      JOIN tracked_queries query ON query.id = job.tracked_query_id
-     WHERE job.capture_provider = 'brightdata'
+     WHERE job.capture_provider IN ('brightdata', 'olostep')
        AND job.status = 'awaiting_result'
        AND julianday(job.updated_at) < julianday('now', '-2 minutes')
        AND query.deleted_at IS NULL
@@ -230,7 +230,7 @@ export async function reconcileJobs(env: Env): Promise<number> {
      ORDER BY job.updated_at
      LIMIT 500`,
   ).all<{ id: string; delivery_method: string }>();
-  for (const job of staleBrightData.results) {
+  for (const job of staleAsyncProviderJobs.results) {
     const updatedAt = nowIso();
     const claimed = await env.CONTROL_DB.prepare(
       `UPDATE crawl_jobs SET updated_at = ?
@@ -302,7 +302,7 @@ export async function reconcileJobs(env: Env): Promise<number> {
     );
   }
 
-  return stale.results.length + staleBrightData.results.length +
+  return stale.results.length + staleAsyncProviderJobs.results.length +
     recoverableNormalizationFailures.results.length;
 }
 

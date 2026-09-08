@@ -36,6 +36,7 @@ function credentialsFromForm(
         provider,
         credentials: { apiToken: formText(data, "apiToken") },
       };
+    case "olostep":
     case "cloro":
       return {
         provider,
@@ -64,7 +65,7 @@ export function ProviderCredentialFields({ provider }: { provider: CaptureProvid
   if (provider === "brightdata") {
     return <div className="provider-form-field"><Label>API token</Label><Input autoComplete="new-password" name="apiToken" required type="password" /></div>;
   }
-  if (provider === "cloro") {
+  if (provider === "cloro" || provider === "olostep") {
     return <div className="provider-form-field"><Label>API key</Label><Input autoComplete="new-password" name="apiKey" required type="password" /></div>;
   }
   return (
