@@ -51,7 +51,7 @@ import {
 
 type InsightPeriod = "7d" | "30d" | "90d";
 type InsightSource = TrackingSource | "all";
-type FanOutSource = "chatgpt" | "gemini" | "all";
+type FanOutSource = "chatgpt" | "gemini" | "perplexity" | "all";
 type FanOutModel = string;
 type FanOutSignalKey =
   | "site"
@@ -204,6 +204,7 @@ const SOURCE_OPTIONS = [
 const FAN_OUT_SOURCE_OPTIONS = [
   { value: "chatgpt", label: TRACKING_SOURCE_LABELS.chatgpt },
   { value: "gemini", label: TRACKING_SOURCE_LABELS.gemini },
+  { value: "perplexity", label: TRACKING_SOURCE_LABELS.perplexity },
   { value: "all", label: "All fan-out sources" },
 ];
 
@@ -379,7 +380,7 @@ function sourceValue(value: string | null): InsightSource {
 }
 
 function fanOutSourceValue(value: string | null): FanOutSource {
-  return value === "all" || value === "gemini" ? value : "chatgpt";
+  return value === "all" || value === "gemini" || value === "perplexity" ? value : "chatgpt";
 }
 
 function fanOutModelValue(value: string | null): FanOutModel {
@@ -1337,7 +1338,7 @@ function SourceDiscoverySiteImpact({
           : !chartData.length ? (
             <EmptyState
               title="No site-operator comparison"
-              description="Reported ChatGPT or Gemini fan-outs are required for this comparison."
+              description="Reported ChatGPT, Gemini, or Perplexity fan-outs are required for this comparison."
             />
           ) : (
             <ResponsiveContainer height="100%" minWidth={0} width="100%">

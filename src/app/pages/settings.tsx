@@ -388,7 +388,9 @@ export default function SettingsPage() {
                           : atLimit
                             ? "Limit reached"
                             : "Available";
-                    const provider = source === "chatgpt" ? "OpenAI" : "Google";
+                    const provider = source === "chatgpt" ? "OpenAI"
+                      : source === "perplexity" ? "Perplexity"
+                      : source === "copilot" ? "Microsoft" : "Google";
                     return (
                       <div className={`tracking-source-row${selected ? " is-selected" : ""}`} key={source}>
                         <div className={`tracking-source-mark tracking-source-mark-${source}`}>

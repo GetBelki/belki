@@ -9,6 +9,7 @@ import {
 } from "../../shared/capture-providers";
 import { getLocaleCatalog } from "../lib/dataforseo";
 import { brightDataAdapter } from "./brightdata";
+import { olostepAdapter } from "./olostep";
 import { cloroAdapter } from "./cloro";
 import { oxylabsAdapter } from "./oxylabs";
 import type { CaptureProviderExecutionAdapter } from "./types";
@@ -54,6 +55,14 @@ export const CAPTURE_PROVIDER_ADAPTERS: Record<
     priority: CAPTURE_PROVIDER_PRIORITY.cloro,
     supportedSources: CAPTURE_PROVIDER_SOURCES.cloro,
     execution: cloroAdapter,
+  },
+  olostep: {
+    id: "olostep",
+    label: CAPTURE_PROVIDER_LABELS.olostep,
+    version: "olostep-v1",
+    priority: CAPTURE_PROVIDER_PRIORITY.olostep,
+    supportedSources: CAPTURE_PROVIDER_SOURCES.olostep,
+    execution: olostepAdapter,
   },
   oxylabs: {
     id: "oxylabs",
@@ -116,6 +125,18 @@ export async function testCaptureProviderCredentials(
         await requireOk(
           "Cloro",
           fetch("https://api.cloro.dev/v1/credits", {
+            headers: {
+              authorization: `Bearer ${input.credentials.apiKey}`,
+              accept: "application/json",
+            },
+            signal: controller.signal,
+          }),
+        );
+        break;
+      case "olostep":
+        await requireOk(
+          "Olostep",
+          fetch("https://api.olostep.com/user/credits/info", {
             headers: {
               authorization: `Bearer ${input.credentials.apiKey}`,
               accept: "application/json",

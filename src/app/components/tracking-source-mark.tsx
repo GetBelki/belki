@@ -1,3 +1,4 @@
+import { DomainFavicon } from "./domain-favicon";
 import { useId } from "react";
 import type { TrackingSource } from "../../shared/tracking-sources";
 
@@ -7,6 +8,10 @@ const AI_SPARK_PATH = "M11.04 19.32Q12 21.51 12 24q0-2.49.93-4.68.96-2.19 2.58-3
 
 export function TrackingSourceMark({ source }: { source: TrackingSource }) {
   const gradientId = useId().replaceAll(":", "");
+
+  if (source === "perplexity" || source === "copilot") {
+    return <DomainFavicon domain={source === "perplexity" ? "perplexity.ai" : "copilot.microsoft.com"} size={18} />;
+  }
 
   if (source === "chatgpt") {
     return (

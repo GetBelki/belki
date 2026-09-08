@@ -112,7 +112,7 @@ export async function backfillFanOutSignalCounts(
        AND fact.related_queries_indexed_at IS NOT NULL
        AND fact.related_query_signal_counts_version < ?
      ORDER BY CASE
-       WHEN fact.tracking_source IN ('chatgpt', 'gemini') THEN 0 ELSE 1
+       WHEN fact.tracking_source IN ('chatgpt', 'gemini', 'perplexity') THEN 0 ELSE 1
      END, fact.captured_at DESC, fact.snapshot_id
      LIMIT ?`,
   )
@@ -378,7 +378,7 @@ export async function backfillFanOutTelemetryReadModel(
     `SELECT snapshot.id, snapshot.shard_id
      FROM snapshot_index snapshot
      JOIN analytics_snapshot_facts fact ON fact.snapshot_id = snapshot.id
-     WHERE snapshot.tracking_source IN ('chatgpt', 'gemini')
+     WHERE snapshot.tracking_source IN ('chatgpt', 'gemini', 'perplexity')
        AND fact.related_query_signal_counts_indexed_at IS NOT NULL
        AND fact.related_query_signal_counts_version >= ${RELATED_QUERY_SIGNAL_COUNTS_VERSION}
        AND fact.fan_out_telemetry_indexed_at IS NULL
@@ -464,7 +464,7 @@ export async function backfillFanOutTelemetryReadModel(
                WHERE id = snapshot.project_id
              )
              OR (
-               snapshot.tracking_source IN ('chatgpt', 'gemini')
+               snapshot.tracking_source IN ('chatgpt', 'gemini', 'perplexity')
                AND fact.fan_out_telemetry_indexed_at IS NULL
              )
            )
@@ -527,7 +527,7 @@ export async function backfillAnalyticsReadModel(
                WHERE id = snapshot.project_id
              )
              OR (
-               snapshot.tracking_source IN ('chatgpt', 'gemini')
+               snapshot.tracking_source IN ('chatgpt', 'gemini', 'perplexity')
                AND fact.fan_out_telemetry_indexed_at IS NULL
              )
            )
@@ -637,7 +637,7 @@ export async function backfillAnalyticsReadModel(
               WHERE id = snapshot.project_id
             )
             OR (
-              snapshot.tracking_source IN ('chatgpt', 'gemini')
+              snapshot.tracking_source IN ('chatgpt', 'gemini', 'perplexity')
               AND fact.fan_out_telemetry_indexed_at IS NULL
             )
           )

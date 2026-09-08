@@ -3,11 +3,15 @@ export const TRACKING_SOURCES = [
   "gemini",
   "google_ai_mode",
   "google_ai_overview",
+  "perplexity",
+  "copilot",
 ] as const;
 
 export type TrackingSource = (typeof TRACKING_SOURCES)[number];
 
 export const TRACKING_SOURCE_LABELS: Record<TrackingSource, string> = {
+  perplexity: "Perplexity",
+  copilot: "Microsoft Copilot",
   chatgpt: "ChatGPT",
   gemini: "Gemini",
   google_ai_mode: "Google AI Mode",
@@ -15,6 +19,8 @@ export const TRACKING_SOURCE_LABELS: Record<TrackingSource, string> = {
 };
 
 export const TRACKING_SOURCE_DESCRIPTIONS: Record<TrackingSource, string> = {
+  perplexity: "Track answers and citations from Perplexity.",
+  copilot: "Track answers and citations from Microsoft Copilot.",
   chatgpt: "Track answers and citations from ChatGPT Search.",
   gemini: "Track answers and citations from Gemini.",
   google_ai_mode: "Track answers and sources from Google AI Mode.",

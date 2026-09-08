@@ -40,7 +40,7 @@ export function planSourceEntitlement(planKey: PlanKey): SourceEntitlement {
       sourceLimit: templatePlan.sourceLimit,
     };
   }
-  return { allowedSources: [...TRACKING_SOURCES], sourceLimit: 4 };
+  return { allowedSources: [...TRACKING_SOURCES], sourceLimit: TRACKING_SOURCES.length };
 }
 
 export async function workspaceSourceEntitlement(
@@ -78,7 +78,8 @@ export async function projectTrackingSources(
     `SELECT source FROM project_tracking_sources
      WHERE project_id = ? AND enabled = 1 ORDER BY CASE source
        WHEN 'chatgpt' THEN 0 WHEN 'gemini' THEN 1
-       WHEN 'google_ai_mode' THEN 2 ELSE 3 END`,
+       WHEN 'google_ai_mode' THEN 2 WHEN 'google_ai_overview' THEN 3
+       WHEN 'perplexity' THEN 4 ELSE 5 END`,
   ).bind(projectId).all<{ source: TrackingSource }>();
   return rows.results.length ? rows.results.map((row) => row.source) : [...DEFAULT_TRACKING_SOURCES];
 }

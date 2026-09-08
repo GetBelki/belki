@@ -4,7 +4,7 @@ import type {
 } from "./types";
 import { boundedProviderBytes, jsonRecord } from "./types";
 
-const ENDPOINTS: Record<CaptureExecutionRequest["source"], string> = {
+const ENDPOINTS: Partial<Record<CaptureExecutionRequest["source"], string>> = {
   chatgpt: "chatgpt",
   gemini: "gemini",
   google_ai_mode: "aimode",
@@ -16,6 +16,7 @@ export const cloroAdapter: CaptureProviderExecutionAdapter = {
   version: "cloro-v1",
   async execute(credentials, request) {
     if (credentials.provider !== "cloro") throw new Error("Cloro credentials are required");
+    if (!ENDPOINTS[request.source]) throw new Error(`Cloro does not support ${request.source}`);
     const google = request.source === "google_ai_overview";
     const response = await fetch(`https://api.cloro.dev/v1/monitor/${ENDPOINTS[request.source]}`, {
       method: "POST",
