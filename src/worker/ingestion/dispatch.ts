@@ -35,6 +35,8 @@ import { pollOlostepBatch } from "../providers/olostep";
 import { CaptureProviderExecutionError } from "../providers/types";
 
 const OXYLABS_AUTOMATIC_RETRIES = 1;
+const DEFAULT_ASYNC_PROVIDER_POLL_DELAY_SECONDS = 30;
+const OLOSTEP_POLL_DELAY_SECONDS = 60;
 
 interface DispatchJobRow {
   id: string;
@@ -216,9 +218,12 @@ function jobQueue(env: Env, job: DispatchJobRow): Queue {
 }
 
 async function requeueProviderPoll(env: Env, job: DispatchJobRow): Promise<void> {
+  const delaySeconds = job.capture_provider === "olostep"
+    ? OLOSTEP_POLL_DELAY_SECONDS
+    : DEFAULT_ASYNC_PROVIDER_POLL_DELAY_SECONDS;
   await jobQueue(env, job).send(
     { jobId: job.id } satisfies JobQueueMessage,
-    { delaySeconds: 30 },
+    { delaySeconds },
   );
 }
 

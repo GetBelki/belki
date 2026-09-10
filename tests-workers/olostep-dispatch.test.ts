@@ -56,7 +56,7 @@ describe.each(["standard", "live"] as const)("Olostep %s queue lifecycle", (deli
     await test.dispatch();
     const update = test.statements.find(({ sql }) => sql.includes("UPDATE crawl_jobs SET status = 'awaiting_result'"));
     expect(update?.bindings[0]).toBe("batch-1");
-    expect(test.send).toHaveBeenCalledWith({ jobId: "job-1" }, { delaySeconds: 30 });
+    expect(test.send).toHaveBeenCalledWith({ jobId: "job-1" }, { delaySeconds: 60 });
     expect(test.normalize).not.toHaveBeenCalled();
   });
 
@@ -66,7 +66,7 @@ describe.each(["standard", "live"] as const)("Olostep %s queue lifecycle", (deli
     await test.dispatch();
     expect(fetch).toHaveBeenCalledTimes(1);
     expect(fetch.mock.calls[0]?.[0]).toBe("https://api.olostep.com/v1/batches/batch-1");
-    expect(test.send).toHaveBeenCalledWith({ jobId: "job-1" }, { delaySeconds: 30 });
+    expect(test.send).toHaveBeenCalledWith({ jobId: "job-1" }, { delaySeconds: 60 });
     expect(test.put).not.toHaveBeenCalled();
     expect(test.normalize).not.toHaveBeenCalled();
   });
