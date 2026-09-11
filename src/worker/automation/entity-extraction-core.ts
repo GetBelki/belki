@@ -1,5 +1,6 @@
 import { z } from "zod";
 import {
+  brandMentionSpans,
   brandMentionText,
   containsBrandMention,
   normalizeBrand,
@@ -251,17 +252,8 @@ export function chunkEntityText(
   return chunks;
 }
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
-}
-
 function exactSurface(text: string, term: string): string | null {
-  const pattern = escapeRegExp(term.trim()).replace(/\s+/gu, "\\s+");
-  const match = new RegExp(
-    `(^|[^\\p{L}\\p{N}])(${pattern})(?=$|[^\\p{L}\\p{N}])`,
-    "iu",
-  ).exec(text);
-  return match?.[2] ?? null;
+  return brandMentionSpans(text, term)[0]?.surface ?? null;
 }
 
 function contextForSurface(text: string, surface: string): string {
@@ -273,12 +265,7 @@ function contextForSurface(text: string, surface: string): string {
 }
 
 export function countSurface(text: string, surface: string): number {
-  const pattern = escapeRegExp(surface.trim()).replace(/\s+/gu, "\\s+");
-  if (!pattern) return 0;
-  return [...text.matchAll(new RegExp(
-    `(^|[^\\p{L}\\p{N}])${pattern}(?=$|[^\\p{L}\\p{N}])`,
-    "giu",
-  ))].length;
+  return brandMentionSpans(text, surface).length;
 }
 
 function structuredJson(value: unknown): unknown {

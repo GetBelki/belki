@@ -79,6 +79,20 @@ describe("domain normalization", () => {
     expect(containsBrandMention("The carpet store is nearby.", "pet")).toBe(false);
   });
 
+  it("does not count a brand embedded in a hyphenated compound", () => {
+    expect(containsBrandMention("Cash-flow predictability is lower.", "Flow")).toBe(false);
+    expect(containsBrandMention("A cash‑flow forecast helps.", "Flow")).toBe(false);
+    expect(containsBrandMention("Flow is a payment platform.", "Flow")).toBe(true);
+  });
+
+  it("disambiguates common-word brands from ordinary phrase uses", () => {
+    expect(containsBrandMention("Cash flow predictability is lower.", "Flow")).toBe(false);
+    expect(containsBrandMention("Immediate Cash Flow Injection", "Flow")).toBe(false);
+    expect(containsBrandMention("Build the payment redirect flow chronologically.", "Flow")).toBe(false);
+    expect(containsBrandMention("This improves the flow for customers.", "Flow")).toBe(false);
+    expect(containsBrandMention("Compare Flow with Stripe.", "Flow")).toBe(true);
+  });
+
   it("does not count brand names found only in citation domains or URLs", () => {
     expect(
       matchedBrandTerms(

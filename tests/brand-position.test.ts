@@ -57,6 +57,15 @@ describe("brand first-mention position", () => {
     expect(rankBrandFirstMentions("No tracked company appears.", brands)).toEqual([]);
   });
 
+  it("does not rank a common-word brand used in an ordinary phrase", () => {
+    expect(rankBrandFirstMentions("Cash flow improved before Acme launched.", [
+      ...brands.slice(0, 1),
+      { id: "flow", kind: "competitor" as const, name: "Flow", aliases: [] },
+    ])).toEqual([
+      { brandId: "owned", kind: "owned", position: 1 },
+    ]);
+  });
+
   it("reuses compiled matchers across a backfill batch", () => {
     const rank = createBrandFirstMentionRanker(brands);
 

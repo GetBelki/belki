@@ -85,9 +85,12 @@ export function chartAnnotationMarkerLabel(
     return counts.addedCount ? `+${counts.addedCount}` : `−${counts.removedCount}`;
   }
   if (event.sourceEvents.length === 1) {
-    const type = event.sourceEvents[0]?.type;
+    const sourceEvent = event.sourceEvents[0];
+    const type = sourceEvent?.type;
     if (type === "model_detected") return "Model";
-    if (type === "capture_provider_detected") return "Provider";
+    if (sourceEvent?.type === "capture_provider_detected") {
+      return CAPTURE_PROVIDER_LABELS[sourceEvent.captureProvider];
+    }
     return "Platform";
   }
   return `${event.sourceEvents.length}`;
