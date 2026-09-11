@@ -967,7 +967,7 @@ describe("project chart annotations", () => {
     }], ["2026-08-30"]);
 
     expect(aligned[0]?.label).toBe("Capture provider detected");
-    expect(chartAnnotationMarkerLabel(aligned[0]!)).toBe("Provider");
+    expect(chartAnnotationMarkerLabel(aligned[0]!)).toBe("Bright Data");
     expect(chartAnnotationDescription(aligned[0]!)).toContain(
       "Bright Data first used for ChatGPT",
     );

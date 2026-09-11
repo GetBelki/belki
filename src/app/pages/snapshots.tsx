@@ -603,7 +603,7 @@ export function SnapshotDetailPage() {
 
           {brandMentions.length ? (
             <Card className="evidence-section">
-              <CardHeader title="Detected mentions" description="Tracked names or aliases found in the answer, ignoring letter case." />
+              <CardHeader title="Detected mentions" description="Tracked names or aliases validated in the answer text." />
               <CardContent className="entity-list">
                 {brandMentions.map((brand) => (
                   <div key={brand.id}>

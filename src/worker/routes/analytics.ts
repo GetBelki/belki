@@ -10,7 +10,11 @@ import {
 import { requireRole } from "../lib/auth";
 import { writeAudit } from "../lib/audit";
 import { decodeCursor, encodeCursor } from "../lib/cursor";
-import { matchedBrandTerms, normalizeHostname } from "../lib/domain";
+import {
+  containsBrandMention,
+  matchedBrandTerms,
+  normalizeHostname,
+} from "../lib/domain";
 import { allowedAdAssetUrl, normalizeAdItem } from "../lib/ads";
 import { decodedRawEvidenceBody, evidenceResponseHeaders } from "../lib/evidence";
 import {
@@ -4436,11 +4440,16 @@ analyticsRoutes.get(
         items: structuredItems,
         ads: structuredAds,
         brandMentions,
-        detectedEntities: detectedEntities.results.map((entity) => ({
-          ...entity,
-          evidence: jsonParse<string[]>(entity.evidence_json, []),
-          sources: jsonParse<string[]>(entity.sources_json, []),
-        })),
+        detectedEntities: detectedEntities.results
+          .filter((entity) =>
+            typeof entity.surface_text === "string" &&
+            containsBrandMention(answerMarkdown, entity.surface_text)
+          )
+          .map((entity) => ({
+            ...entity,
+            evidence: jsonParse<string[]>(entity.evidence_json, []),
+            sources: jsonParse<string[]>(entity.sources_json, []),
+          })),
       },
     });
   },

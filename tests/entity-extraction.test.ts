@@ -65,6 +65,20 @@ describe("entity extraction validation", () => {
     }, "Acme is compared with Contoso.")).toEqual([]);
   });
 
+  it("rejects a common-word brand surface used as an ordinary phrase", () => {
+    expect(validateExtractedEntities({
+      entities: [{ surface: "Flow", entity_type: "brand" }],
+    }, "Cash Flow predictability is lower.", {
+      trackedBrands: [{
+        id: "brand-flow",
+        kind: "competitor",
+        name: "Flow",
+        aliases_json: "[]",
+        domains_json: "[]",
+      }],
+    })).toEqual([]);
+  });
+
   it("stores the exact visible surface rather than model-normalized casing", () => {
     const [entity] = validateExtractedEntities({
       entities: [{ surface: "contoso", entity_type: "company" }],

@@ -1,4 +1,4 @@
-import { brandMentionText } from "./domain";
+import { brandMentionSpansInText, brandMentionText } from "./domain";
 
 export interface BrandPositionInput {
   id: string;
@@ -21,17 +21,13 @@ interface SurfaceMatch {
 
 interface CompiledBrandPositionInput {
   brand: BrandPositionInput;
-  expressions: RegExp[];
-}
-
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/gu, "\\$&");
+  terms: string[];
 }
 
 function compileBrand(
   brand: BrandPositionInput,
 ): CompiledBrandPositionInput {
-  const expressions = [brand.name, ...brand.aliases]
+  const terms = [brand.name, ...brand.aliases]
     .map((term) => term.normalize("NFKC").trim())
     .filter(Boolean)
     .filter(
@@ -41,15 +37,8 @@ function compileBrand(
             candidate.toLocaleLowerCase("en-US") ===
             term.toLocaleLowerCase("en-US"),
         ) === index,
-    )
-    .map((term) => {
-      const pattern = escapeRegExp(term).replace(/\s+/gu, "\\s+");
-      return new RegExp(
-        `(^|[^\\p{L}\\p{N}])(${pattern})(?=$|[^\\p{L}\\p{N}])`,
-        "giu",
-      );
-    });
-  return { brand, expressions };
+    );
+  return { brand, terms };
 }
 
 function matchesForBrand(
@@ -57,13 +46,8 @@ function matchesForBrand(
   compiled: CompiledBrandPositionInput,
 ): SurfaceMatch[] {
   const matches = new Map<string, SurfaceMatch>();
-  for (const expression of compiled.expressions) {
-    expression.lastIndex = 0;
-    for (let match = expression.exec(text); match; match = expression.exec(text)) {
-      const prefixLength = match[1]?.length ?? 0;
-      const surface = match[2] ?? "";
-      const start = (match.index ?? 0) + prefixLength;
-      const end = start + surface.length;
+  for (const term of compiled.terms) {
+    for (const { start, end } of brandMentionSpansInText(text, term)) {
       matches.set(`${start}:${end}`, { brand: compiled.brand, start, end });
     }
   }
