@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   aggregateBrandMentionDays,
   buildBrandComparison,
+  buildCitationUtmCoverageTrend,
   buildFanOutActivityTrend,
   buildFanOutSignalTrend,
   buildResponseShareTrend,
@@ -227,6 +228,46 @@ describe("related query reporting", () => {
         matchingResponses: 2,
         completedResponses: 4,
         share: 50,
+      },
+    ]);
+  });
+
+  it("reports citation UTM coverage and leaves days without URLs as gaps", () => {
+    expect(buildCitationUtmCoverageTrend(
+      { from: "2026-10-08", to: "2026-10-10" },
+      new Map([
+        ["2026-10-08", 10],
+        ["2026-10-09", 8],
+      ]),
+      new Map([
+        ["2026-10-08", 8],
+        ["2026-10-09", 8],
+      ]),
+      new Map([
+        ["2026-10-08", 6],
+        ["2026-10-09", 2],
+      ]),
+    )).toEqual([
+      {
+        date: "2026-10-08",
+        citations: 10,
+        citationUrls: 8,
+        utmSourceCitations: 6,
+        coverage: 75,
+      },
+      {
+        date: "2026-10-09",
+        citations: 8,
+        citationUrls: 8,
+        utmSourceCitations: 2,
+        coverage: 25,
+      },
+      {
+        date: "2026-10-10",
+        citations: 0,
+        citationUrls: 0,
+        utmSourceCitations: 0,
+        coverage: null,
       },
     ]);
   });

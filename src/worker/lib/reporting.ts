@@ -69,6 +69,42 @@ export interface ResponseShareTrendPoint {
   share: number;
 }
 
+export interface CitationUtmCoverageTrendPoint {
+  date: string;
+  citations: number;
+  citationUrls: number;
+  utmSourceCitations: number;
+  coverage: number | null;
+}
+
+export function buildCitationUtmCoverageTrend(
+  dates: { from: string; to: string },
+  citationsByDate: ReadonlyMap<string, number>,
+  citationUrlsByDate: ReadonlyMap<string, number>,
+  utmSourceCitationsByDate: ReadonlyMap<string, number>,
+): CitationUtmCoverageTrendPoint[] {
+  const values: CitationUtmCoverageTrendPoint[] = [];
+  const cursor = new Date(`${dates.from}T00:00:00.000Z`);
+  const end = Date.parse(`${dates.to}T00:00:00.000Z`);
+  while (cursor.getTime() <= end) {
+    const date = cursor.toISOString().slice(0, 10);
+    const citations = citationsByDate.get(date) ?? 0;
+    const citationUrls = citationUrlsByDate.get(date) ?? 0;
+    const utmSourceCitations = utmSourceCitationsByDate.get(date) ?? 0;
+    values.push({
+      date,
+      citations,
+      citationUrls,
+      utmSourceCitations,
+      coverage: citationUrls
+        ? (utmSourceCitations / citationUrls) * 100
+        : null,
+    });
+    cursor.setUTCDate(cursor.getUTCDate() + 1);
+  }
+  return values;
+}
+
 export function buildResponseShareTrend(
   dates: { from: string; to: string },
   completedByDate: ReadonlyMap<string, number>,

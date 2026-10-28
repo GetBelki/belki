@@ -10,6 +10,7 @@ import {
 } from "../lib/analytics-read-model";
 import {
   RELATED_QUERY_SIGNAL_KEYS,
+  buildCitationUtmCoverageTrend,
   buildFanOutActivityTrend,
   buildFanOutSignalTrend,
   buildResponseShareTrend,
@@ -63,6 +64,13 @@ interface DailyResponseRow {
   metric_date: string;
   completed_responses: number;
   matching_responses: number;
+}
+
+interface DailyCitationUtmRow {
+  metric_date: string;
+  citations: number;
+  citation_urls: number;
+  utm_source_citations: number;
 }
 
 type DailyFanOutRow = {
@@ -292,7 +300,7 @@ operatorInsightRoutes.get(
     await assertOperator(c);
     const input = c.req.valid("query");
     const dates = insightRange(input.period);
-    const [completed, selectedDomain] = await Promise.all([
+    const [completed, selectedDomain, citationUtm] = await Promise.all([
       c.env.CONTROL_DB.prepare(
         `SELECT metric.metric_date,
           SUM(metric.completed_runs) AS completed_responses,
@@ -332,6 +340,36 @@ operatorInsightRoutes.get(
             )
             .all<{ metric_date: string; matching_responses: number }>()
         : Promise.resolve({ results: [] }),
+      c.env.CONTROL_DB.prepare(
+        `SELECT fact.metric_date,
+          COUNT(*) AS citations,
+          SUM(CASE WHEN citation.raw_url IS NOT NULL
+            AND TRIM(citation.raw_url) != '' THEN 1 ELSE 0 END) AS citation_urls,
+          SUM(CASE WHEN citation.raw_url IS NOT NULL AND (
+            LOWER(citation.raw_url) LIKE '%?utm_source=%'
+            OR LOWER(citation.raw_url) LIKE '%&utm_source=%'
+          ) THEN 1 ELSE 0 END) AS utm_source_citations
+         FROM analytics_citation_occurrences citation
+         JOIN analytics_snapshot_facts fact
+           ON fact.snapshot_id = citation.snapshot_id
+         JOIN projects project
+           ON project.id = fact.project_id AND project.deleted_at IS NULL
+         JOIN workspaces workspace
+           ON workspace.id = project.workspace_id AND workspace.status != 'deleted'
+         WHERE fact.metric_date BETWEEN ? AND ?
+           AND (? = 'all' OR fact.tracking_source = ?)
+           AND (? = '' OR citation.registrable_domain = ?)
+         GROUP BY fact.metric_date
+         ORDER BY fact.metric_date`,
+      )
+        .bind(
+          dates.from,
+          dates.to,
+          ...sourceBindings(input.source),
+          input.domain ?? "",
+          input.domain ?? "",
+        )
+        .all<DailyCitationUtmRow>(),
     ]);
     const completedByDate = new Map(
       completed.results.map((row) => [
@@ -345,12 +383,36 @@ operatorInsightRoutes.get(
         Number(row.matching_responses),
       ]),
     );
+    const citationsByDate = new Map(
+      citationUtm.results.map((row) => [
+        row.metric_date,
+        Number(row.citations),
+      ]),
+    );
+    const citationUrlsByDate = new Map(
+      citationUtm.results.map((row) => [
+        row.metric_date,
+        Number(row.citation_urls),
+      ]),
+    );
+    const utmSourceCitationsByDate = new Map(
+      citationUtm.results.map((row) => [
+        row.metric_date,
+        Number(row.utm_source_citations),
+      ]),
+    );
     return c.json({
       data: {
         period: input.period,
         source: input.source,
         domain: input.domain ?? null,
         trend: buildResponseShareTrend(dates, completedByDate, matchingByDate),
+        utmCoverage: buildCitationUtmCoverageTrend(
+          dates,
+          citationsByDate,
+          citationUrlsByDate,
+          utmSourceCitationsByDate,
+        ),
       },
     });
   },

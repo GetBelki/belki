@@ -77,6 +77,15 @@ interface CitationTrendReport {
   source: InsightSource;
   domain: string | null;
   trend: TrendPoint[];
+  utmCoverage: CitationUtmCoveragePoint[];
+}
+
+interface CitationUtmCoveragePoint {
+  date: string;
+  citations: number;
+  citationUrls: number;
+  utmSourceCitations: number;
+  coverage: number | null;
 }
 
 interface FanOutActivityPoint {
@@ -524,6 +533,139 @@ function TrendChart({
                 isAnimationActive={false}
                 name="Share"
                 stroke="#18181b"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2.25}
+                type="linear"
+              />
+            </AreaChart>
+          </ResponsiveContainer>
+        )}
+      </div>
+    </Card>
+  );
+}
+
+function isCitationUtmCoveragePoint(
+  value: unknown,
+): value is CitationUtmCoveragePoint {
+  if (!value || typeof value !== "object") return false;
+  const point = value as Partial<CitationUtmCoveragePoint>;
+  return (
+    typeof point.date === "string" &&
+    typeof point.citations === "number" &&
+    typeof point.citationUrls === "number" &&
+    typeof point.utmSourceCitations === "number" &&
+    (typeof point.coverage === "number" || point.coverage === null)
+  );
+}
+
+function CitationUtmTooltip({
+  active,
+  label,
+  payload,
+}: TooltipContentProps) {
+  const point: unknown = payload[0]?.payload;
+  if (!active || !isCitationUtmCoveragePoint(point)) return null;
+  const untagged = Math.max(0, point.citationUrls - point.utmSourceCitations);
+  return (
+    <div className="operator-chart-tooltip operator-citation-utm-tooltip">
+      <strong>{tooltipDateLabel(label)}</strong>
+      <span>{point.coverage === null ? "—" : percent(point.coverage)}</span>
+      <small>
+        {point.utmSourceCitations.toLocaleString()} tagged ·{" "}
+        {untagged.toLocaleString()} untagged
+      </small>
+      {point.citations > point.citationUrls ? (
+        <small>
+          {(point.citations - point.citationUrls).toLocaleString()} citations had
+          no inspectable URL
+        </small>
+      ) : null}
+    </div>
+  );
+}
+
+export function CitationUtmCoverageChart({
+  data,
+  pending,
+  source,
+}: {
+  data: CitationUtmCoveragePoint[];
+  pending: boolean;
+  source: InsightSource;
+}) {
+  const hasUrls = data.some((point) => point.citationUrls > 0);
+  const showChatGptChange = source === "chatgpt"
+    && data.some((point) => point.date === "2026-10-09");
+  const sourceLabel = source === "all"
+    ? "all tracked sources"
+    : TRACKING_SOURCE_LABELS[source];
+  return (
+    <Card className="operator-insight-card">
+      <CardHeader
+        title="Citation UTM coverage"
+        description={`Share of captured citation URLs from ${sourceLabel} carrying utm_source. A drop signals citation-attribution risk, not fewer citations; non-citation inline links are out of scope.`}
+      />
+      <div
+        aria-label={showChatGptChange
+          ? "Chart with reported ChatGPT attribution change marked for October 8 to 9, 2026"
+          : undefined}
+        className="operator-insight-chart"
+      >
+        {pending ? (
+          <Skeleton className="operator-insight-chart-skeleton" />
+        ) : !hasUrls ? (
+          <EmptyState
+            title="No citation URLs"
+            description="Citation URLs will appear here for the selected period."
+          />
+        ) : (
+          <ResponsiveContainer height="100%" minWidth={0} width="100%">
+            <AreaChart accessibilityLayer data={data} margin={{ top: 12, right: 10, bottom: 2, left: 0 }}>
+              <defs>
+                <linearGradient id="operator-citation-utm-coverage" x1="0" x2="0" y1="0" y2="1">
+                  <stop offset="5%" stopColor="#2563eb" stopOpacity={0.14} />
+                  <stop offset="95%" stopColor="#2563eb" stopOpacity={0} />
+                </linearGradient>
+              </defs>
+              <CartesianGrid stroke="#ececf0" vertical={false} />
+              <XAxis
+                axisLine={false}
+                dataKey="date"
+                interval="preserveStartEnd"
+                minTickGap={38}
+                tick={{ fill: "#71717a", fontSize: 10 }}
+                tickFormatter={dateLabel}
+                tickLine={false}
+              />
+              <YAxis
+                axisLine={false}
+                domain={[0, 100]}
+                tick={{ fill: "#71717a", fontSize: 10 }}
+                tickFormatter={(value) => axisPercent(Number(value))}
+                tickLine={false}
+                ticks={[0, 25, 50, 75, 100]}
+                width={42}
+              />
+              <Tooltip content={CitationUtmTooltip} cursor={{ stroke: "#a1a1aa", strokeDasharray: "3 3", strokeWidth: 1 }} isAnimationActive={false} />
+              {showChatGptChange ? (
+                <ReferenceLine
+                  label={{ fill: "#b45309", fontSize: 10, position: "insideTopRight", value: "Oct 8–9 change" }}
+                  stroke="#d97706"
+                  strokeDasharray="4 4"
+                  x="2026-10-09"
+                />
+              ) : null}
+              <Area
+                activeDot={{ fill: "#fff", r: 4, stroke: "#2563eb", strokeWidth: 2 }}
+                connectNulls={false}
+                dataKey="coverage"
+                dot={false}
+                fill="url(#operator-citation-utm-coverage)"
+                isAnimationActive={false}
+                name="UTM coverage"
+                stroke="#2563eb"
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 strokeWidth={2.25}
@@ -1817,14 +1959,21 @@ export function OperatorCitationTrendsPage() {
           value={selectedDomain}
         />
       </Filters>
-      <TrendChart
-        data={report.data?.trend ?? []}
-        description={domain
-          ? `Share of completed responses citing ${domain}.`
-          : "Share of completed responses containing at least one citation."}
-        pending={report.isPending}
-        title={domain ? domain : "All cited domains"}
-      />
+      <div className="operator-insight-grid operator-citation-trend-grid">
+        <TrendChart
+          data={report.data?.trend ?? []}
+          description={domain
+            ? `Share of completed responses citing ${domain}.`
+            : "Share of completed responses containing at least one citation."}
+          pending={report.isPending}
+          title={domain ? domain : "All cited domains"}
+        />
+        <CitationUtmCoverageChart
+          data={report.data?.utmCoverage ?? []}
+          pending={report.isPending}
+          source={source}
+        />
+      </div>
     </div>
   );
 }

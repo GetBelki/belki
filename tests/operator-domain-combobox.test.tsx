@@ -8,6 +8,7 @@ import {
   fanOutSignalGroupValue,
 } from "../src/app/lib/operator-fanout";
 import {
+  CitationUtmCoverageChart,
   CitationDomainCombobox,
   FanOutResponseStatusChart,
   FanOutSignalExplorer,
@@ -72,6 +73,40 @@ describe("citation domain combobox", () => {
       options[1],
       expect.any(Object),
     );
+  });
+});
+
+describe("citation UTM coverage", () => {
+  it("separates attribution coverage from citation volume", () => {
+    render(
+      <CitationUtmCoverageChart
+        data={[
+          {
+            date: "2026-10-08",
+            citations: 10,
+            citationUrls: 8,
+            utmSourceCitations: 6,
+            coverage: 75,
+          },
+          {
+            date: "2026-10-09",
+            citations: 8,
+            citationUrls: 8,
+            utmSourceCitations: 2,
+            coverage: 25,
+          },
+        ]}
+        pending={false}
+        source="chatgpt"
+      />,
+    );
+
+    expect(screen.getByText("Citation UTM coverage")).toBeInTheDocument();
+    expect(screen.getByText(/A drop signals citation-attribution risk, not fewer citations/))
+      .toBeInTheDocument();
+    expect(screen.getByLabelText(
+      "Chart with reported ChatGPT attribution change marked for October 8 to 9, 2026",
+    )).toBeInTheDocument();
   });
 });
 
