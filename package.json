@@ -65,7 +65,7 @@
     "@tanstack/react-table": "latest",
     "class-variance-authority": "latest",
     "clsx": "latest",
-    "hono": "latest",
+    "hono": "4.13.14",
     "lucide-react": "latest",
     "react": "latest",
     "react-dom": "latest",
@@ -75,7 +75,7 @@
     "remark-gfm": "latest",
     "tailwind-merge": "latest",
     "tldts": "latest",
-    "zod": "latest"
+    "zod": "4.6.7"
   },
   "devDependencies": {
     "@cloudflare/vite-plugin": "latest",
@@ -97,8 +97,8 @@
     "tailwindcss": "latest",
     "typescript": "~6.0.2",
     "typescript-eslint": "latest",
-    "vite": "latest",
-    "vitest": "latest",
+    "vite": "8.2.4",
+    "vitest": "4.1.12",
     "wrangler": "latest"
   }
 }
