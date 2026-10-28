@@ -570,9 +570,14 @@ a fork.
 
 ## Quick start: self-host on Cloudflare
 
-This flow is intended for the public release of this repository. Until then,
-the repository remains private and the Deploy button is only a preview of the
-future installation path.
+Install Belki in your own Cloudflare account using the steps below. The Deploy
+button requires this source repository to be publicly accessible.
+
+The software is Apache-2.0 licensed. You pay Cloudflare and your chosen capture
+provider directly for their services; a Belki subscription is not required.
+The default installation uses 33 D1 databases and requires Workers Paid.
+Provider usage and optional enrichment can incur additional charges. Start with
+one manual prompt before enabling scheduled collection.
 
 1. Create a Cloudflare Workers Paid account and choose an initial capture
    provider: DataForSEO, Bright Data, Cloro, Oxylabs, or Olostep.
@@ -584,7 +589,7 @@ future installation path.
    openssl rand -base64 32
    ```
 
-3. After the repository is public, click **Deploy to Cloudflare**. Cloudflare
+3. Click **Deploy to Cloudflare**. Cloudflare
    creates a fork, provisions the declared Worker, D1, R2, Queue, Durable
    Object, Workers AI, and asset bindings, then runs the repository's deploy
    command.
@@ -687,14 +692,15 @@ Adapter ownership and the Stripe/Dodo integration contract are documented in
 
 ### Self-hosted deployment
 
-After public release, the Cloudflare Deploy button provisions the declared D1,
+The Cloudflare Deploy button provisions the declared D1,
 R2, Queue, Workers AI, and secret bindings and can connect the fork to Workers
 Builds:
 
 [![Deploy to Cloudflare](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/GetBelki/belki)
 
-For a manual deployment, authenticate Wrangler, configure the two required
-production secrets, and run:
+For a manual deployment, first provision the resources declared in
+`wrangler.jsonc` in your own account and configure their bindings. Authenticate
+Wrangler, configure the two required production secrets, and run:
 
 ```bash
 pnpm build
@@ -929,7 +935,8 @@ Maintainers changing Belki's managed deployment must additionally run
 profile or payment-provider credentials.
 
 `pnpm check` runs application and Worker type checking, strict linting, unit
-tests, Workers integration tests, and the production build. GitHub Actions uses
+tests, Workers integration tests, and the production build. CI also checks both
+self-hosted and managed deployment packages without publishing them. GitHub Actions uses
 Node.js 24 and pnpm 11.0.8 and runs on every pull request and push to `main`.
 
 Entity-extraction releases also have an offline gold-set gate. Keep private or

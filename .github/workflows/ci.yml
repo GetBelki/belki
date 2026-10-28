@@ -25,4 +25,6 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - run: pnpm check
       - run: pnpm types:check
+      - name: Verify self-hosted deployment
+        run: pnpm deploy:dry
       - run: pnpm deploy:getbelki:dry

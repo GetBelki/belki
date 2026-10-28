@@ -14,7 +14,10 @@ public. It does not authorize a visibility change or a production deployment.
 
 ## Sensitive-data review
 
-- [ ] The current tree and complete Git history have been scanned for secrets.
+- [x] The tracked tree and all locally available Git refs were scanned for
+      secrets on 2026-10-28; see [the review record](release-security-review.md).
+- [ ] After fetching all release refs, repeat the scan on the final release
+      commit. The local review cannot cover unfetched or deleted remote history.
 - [ ] No `.dev.vars`, Cloudflare tokens, API keys, customer data, provider
       payloads, D1 exports, private evaluation fixtures, or production logs are tracked.
 - [ ] All URLs, email senders, resource identifiers, and credentials unique to
@@ -28,7 +31,8 @@ public. It does not authorize a visibility change or a production deployment.
 - [ ] Use a separate Cloudflare Workers Paid test account with no pre-existing
       Belki resources.
 - [ ] Open the README's Deploy to Cloudflare button while signed into that account.
-- [ ] Confirm the installer requests exactly the five documented self-hosted secrets.
+- [ ] Confirm the installer requests exactly the two documented self-hosted
+      secrets: `APP_CRYPTO_KEY` and `BOOTSTRAP_TOKEN`.
 - [ ] Confirm one control D1 database, 32 snapshot D1 databases, the R2 bucket,
       queues, Durable Object namespace, Workers AI binding, and static assets are provisioned.
 - [ ] Confirm all control and snapshot migrations complete before the Worker is published.
@@ -46,7 +50,9 @@ public. It does not authorize a visibility change or a production deployment.
 - [ ] `pnpm check`, `pnpm types:check`, and `pnpm deploy:dry` pass on the release commit.
 - [ ] Documentation matches the exact Cloudflare installer screens observed in
       the fresh-account test.
-- [ ] Known limitations and required paid services are clearly stated.
+- [x] Required paid services and the default 33-database topology are stated in
+      the README quick start. Confirm any newly discovered installation limitations
+      are documented after the fresh-account test.
 - [ ] A version tag and release notes identify schema changes and operator actions.
 - [ ] The repository visibility change is performed only after final maintainer approval.
 
